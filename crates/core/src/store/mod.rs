@@ -5,6 +5,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
+use chrono::Utc;
 use uuid::Uuid;
 
 use crate::session::parse::{parse_file, ParseOutcome};
@@ -134,6 +135,44 @@ pub fn open_session(file_path: PathBuf, project_label: String) -> Result<Session
     Ok(s)
 }
 
+/// Move a session file into the app trash (`<root>/.trash/claude-manager/`) and
+/// write a `<name>.trashinfo` sidecar recording the original path and deletion
+/// time so it can be restored later. Returns the trashed file's new path.
+///
+/// The trash dir lives under `<root>` but outside `<root>/projects/`, so trashed
+/// sessions are not re-discovered by `discover`.
+pub fn trash_session(root: &Path, file_path: &Path) -> Result<PathBuf> {
+    let trash_dir = root.join(".trash").join("claude-manager");
+    fs::create_dir_all(&trash_dir).with_context(|| {
+        format!("could not create trash dir {}", trash_dir.display())
+    })?;
+
+    let stem = file_path
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("session");
+    // Uniquify with a unix-second suffix so re-deleting a restored file (or two
+    // files with the same stem) never clobbers an existing trash entry.
+    let ts = Utc::now().timestamp();
+    let dest = trash_dir.join(format!("{}.{}.jsonl", stem, ts));
+
+    // Same filesystem (both under <root>), so rename is atomic and cheap.
+    fs::rename(file_path, &dest).with_context(|| {
+        format!("could not move {} to trash", file_path.display())
+    })?;
+
+    let info = serde_json::json!({
+        "original_path": file_path.to_string_lossy(),
+        "deleted_at": Utc::now().to_rfc3339(),
+    });
+    let info_path = dest.with_extension("jsonl.trashinfo");
+    fs::write(&info_path, info.to_string()).with_context(|| {
+        format!("could not write trashinfo {}", info_path.display())
+    })?;
+
+    Ok(dest)
+}
+
 /// Search for a query string across all session jsonl files. Returns the UUIDs
 /// of sessions that contain at least one line matching `query` (case-insensitive).
 /// This is O(total data on disk) — callers should debounce.
@@ -188,4 +227,39 @@ pub fn search_sessions(root: &Path, query: &str) -> Result<Vec<Uuid>> {
     }
 
     Ok(matches)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn trash_moves_file_and_writes_info() {
+        // Build a fake root with a project file.
+        let root = std::env::temp_dir().join(format!("cm-trash-{}", std::process::id()));
+        let proj = root.join("projects").join("-tmp-proj");
+        fs::create_dir_all(&proj).unwrap();
+        let id = "00000000-0000-0000-0000-0000000000aa";
+        let src = proj.join(format!("{}.jsonl", id));
+        fs::write(&src, "{\"type\":\"user\"}\n").unwrap();
+
+        let dest = trash_session(&root, &src).unwrap();
+
+        // Original gone, trashed file present under .trash/claude-manager.
+        assert!(!src.exists(), "source should be moved");
+        assert!(dest.exists(), "trashed file should exist");
+        assert!(dest.starts_with(root.join(".trash").join("claude-manager")));
+
+        // trashinfo sidecar records the original path.
+        let info_path = dest.with_extension("jsonl.trashinfo");
+        assert!(info_path.exists(), "trashinfo should exist");
+        let info: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(&info_path).unwrap()).unwrap();
+        assert_eq!(
+            info.get("original_path").and_then(|v| v.as_str()),
+            Some(src.to_string_lossy().as_ref())
+        );
+
+        fs::remove_dir_all(&root).ok();
+    }
 }

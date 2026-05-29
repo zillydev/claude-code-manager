@@ -247,6 +247,14 @@ pub fn commit_session(
     commit(&root, &path_refs, &opts).map_err(|e| e.to_string())
 }
 
+/// Move a session file to the app trash (recoverable). Returns Ok(()) on success.
+#[tauri::command]
+pub fn delete_session(file_path: String) -> Result<(), String> {
+    let root = paths::default_claude_root().ok_or("could not locate ~/.claude")?;
+    store::trash_session(&root, std::path::Path::new(&file_path)).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 /// Fork: write the prefix up to and including the message-turn at `fork_index`
 /// as a new session (copy-on-edit).
 #[tauri::command]
