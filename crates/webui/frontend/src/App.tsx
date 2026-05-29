@@ -1,4 +1,5 @@
 import { useState, useCallback, useRef, useEffect } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import { useSessions, useTranscript } from "./hooks/useSessions";
 import Sidebar from "./components/Sidebar";
 import Transcript from "./components/Transcript";
@@ -66,6 +67,15 @@ export default function App() {
               onSelect={(s) => open(s.file_path, s.project_label)}
               onRefresh={refresh}
               onCollapse={() => setCollapsed(true)}
+              onDelete={async (s) => {
+                try {
+                  await invoke("delete_session", { filePath: s.file_path });
+                  if (transcript?.id === s.id) close();
+                  refresh();
+                } catch (e) {
+                  console.error("delete failed:", e);
+                }
+              }}
             />
           </div>
           {/* Drag handle */}

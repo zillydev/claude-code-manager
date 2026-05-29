@@ -9,6 +9,7 @@ interface Props {
   onSelect: (s: SessionSummary) => void;
   onRefresh: () => void;
   onCollapse: () => void;
+  onDelete: (s: SessionSummary) => void;
 }
 
 export default function Sidebar({
@@ -18,6 +19,7 @@ export default function Sidebar({
   onSelect,
   onRefresh,
   onCollapse,
+  onDelete,
 }: Props) {
   const [textFilter, setTextFilter] = useState("");
   const [projectFilter, setProjectFilter] = useState<string | null>(null);
@@ -27,6 +29,7 @@ export default function Sidebar({
   const [sortDir, setSortDir] = useState<SortDir>("desc");
   const [searchHits, setSearchHits] = useState<Set<string> | null>(null);
   const [searching, setSearching] = useState(false);
+  const [confirmingId, setConfirmingId] = useState<string | null>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Unique project labels and cwds for dropdown options.
@@ -242,35 +245,80 @@ export default function Sidebar({
           </div>
         ) : (
           sorted.map((s) => (
-            <button
+            <div
               key={s.id}
-              onClick={() => onSelect(s)}
-              className={`w-full text-left px-3 py-2 border-b border-[var(--color-border)] hover:bg-[var(--color-surface-hover)] transition-colors ${
+              className={`relative flex group border-b border-[var(--color-border)] hover:bg-[var(--color-surface-hover)] transition-colors ${
                 activeId === s.id
                   ? "bg-[var(--color-surface-hover)] border-l-2 border-l-[var(--color-accent)]"
                   : ""
               }`}
             >
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-medium text-[var(--color-accent)] truncate">
-                  {s.project_label}
-                </span>
-                <span className="text-[10px] text-[var(--color-text-dim)] ml-2 shrink-0">
-                  {relativeTime(s.mtime.secs_since_epoch)}
-                </span>
-              </div>
-              <div className="text-sm text-[var(--color-text)] truncate mt-0.5">
-                {s.title}
-              </div>
-              <div className="flex items-center gap-2 text-[10px] text-[var(--color-text-dim)] mt-0.5">
-                <span>{compactTokens(s.total_tokens)}</span>
-                {s.git_branch && (
-                  <span className="text-[var(--color-accent)] opacity-70">
-                    {s.git_branch}
+              {/* Main clickable area */}
+              <button
+                onClick={() => onSelect(s)}
+                className="flex-1 text-left px-3 py-2 min-w-0"
+              >
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-medium text-[var(--color-accent)] truncate">
+                    {s.project_label}
                   </span>
+                  <span className="text-[10px] text-[var(--color-text-dim)] ml-2 shrink-0">
+                    {relativeTime(s.mtime.secs_since_epoch)}
+                  </span>
+                </div>
+                <div className="text-sm text-[var(--color-text)] truncate mt-0.5">
+                  {s.title}
+                </div>
+                <div className="flex items-center gap-2 text-[10px] text-[var(--color-text-dim)] mt-0.5">
+                  <span>{compactTokens(s.total_tokens)}</span>
+                  {s.git_branch && (
+                    <span className="text-[var(--color-accent)] opacity-70">
+                      {s.git_branch}
+                    </span>
+                  )}
+                </div>
+              </button>
+
+              {/* Delete affordance */}
+              <div className="flex items-center shrink-0 pr-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                {confirmingId === s.id ? (
+                  <span className="flex items-center gap-0.5">
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setConfirmingId(null);
+                        onDelete(s);
+                      }}
+                      className="text-[10px] px-1.5 py-0.5 rounded text-[var(--color-error)] border border-[var(--color-error)] hover:bg-[var(--color-error)] hover:text-[var(--color-bg)] transition-colors"
+                      title="Confirm delete"
+                    >
+                      ✓
+                    </button>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setConfirmingId(null);
+                      }}
+                      className="text-[10px] px-1.5 py-0.5 rounded text-[var(--color-text-dim)] border border-[var(--color-border)] hover:text-[var(--color-text)] hover:bg-[var(--color-surface-hover)] transition-colors"
+                      title="Cancel"
+                    >
+                      ✗
+                    </button>
+                  </span>
+                ) : (
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setConfirmingId(s.id);
+                    }}
+                    className="text-[10px] px-1 py-0.5 rounded text-[var(--color-text-dim)] hover:text-[var(--color-error)] transition-colors"
+                    title="Delete session"
+                  >
+                    ×
+                  </button>
                 )}
               </div>
-            </button>
+            </div>
           ))
         )}
       </div>
