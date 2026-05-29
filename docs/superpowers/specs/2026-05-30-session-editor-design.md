@@ -185,6 +185,13 @@ Each phase is independently shippable and de-risks the next.
 
 ---
 
+## 7b. Known limitations (foundation implementation, 2026-05-30)
+
+Shipped in the foundation (edit-text + fork). Both are non-blocking for the normal open→edit/fork flow and bounded by copy-on-edit (originals never mutated):
+
+1. **Live-tail index collision.** Edit/fork indices (`edit_index`/`fork_index`) are computed by `render_session` over the full active path. But the live-tail path (`tail_loop` in `webui/commands.rs`) renders only the newly-appended event *fragment*, so those turns get indices recomputed from 0 that collide with early turns. Editing/forking a turn that arrived via live-tail *while the session is open* would target the wrong raw line. Reopening the session (`open_session`) re-renders with correct absolute indices. **Fix (follow-up):** pass a base message-offset into the tail render, or re-derive indices for appended turns; touches `tail_loop` + the live-tail handler in `useSessions.ts`.
+2. **Latent parser-acceptance gap.** The raw index space (`read_raw`, keeps any valid-JSON line) and the typed index space (`parse_file`, requires a `message` field on user/assistant) coincide for all 214 real sessions today, but a hypothetical message-less `user`/`assistant` line on the active path would desync them (typed parser drops it; raw keeps it), mis-targeting an edit/fork in the *new* file. No such line exists in practice. **Fix (if ever needed):** index over a single source of truth (raw) end to end.
+
 ## 8. Testing strategy
 
 - **Phase 0 acceptance:** real `claude --resume` against a generated file (manual, documented).
