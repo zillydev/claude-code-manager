@@ -1,5 +1,6 @@
 pub mod event;
 pub mod parse;
+pub mod raw;
 pub mod render;
 pub mod summary;
 pub mod tree;
