@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::path::Path;
 
 use anyhow::Result;
@@ -61,7 +62,7 @@ pub fn active_path(lines: &[RawLine]) -> Vec<&RawLine> {
     let Some(leaf) = resolve_leaf(lines) else {
         return Vec::new();
     };
-    let mut by_uuid = std::collections::HashMap::new();
+    let mut by_uuid: HashMap<Uuid, &RawLine> = HashMap::with_capacity(lines.len());
     for l in lines {
         if let Some(u) = l.uuid {
             by_uuid.insert(u, l);
@@ -121,6 +122,29 @@ mod tests {
         let active = active_path(&lines);
         let ids: Vec<String> = active.iter().filter_map(|l| l.uuid.map(|u| u.to_string())).collect();
         assert_eq!(ids, vec![a.to_string(), b.to_string(), c.to_string()]);
+        std::fs::remove_file(&path).ok();
+    }
+
+    #[test]
+    fn active_path_follows_appended_branch_after_fork() {
+        // a -> b (abandoned), then a -> c (the active branch, appended last).
+        // The leaf is the last line with a uuid (c), so the path is a -> c, not a -> b.
+        let a = "00000000-0000-0000-0000-0000000000a1";
+        let b = "00000000-0000-0000-0000-0000000000b2";
+        let c = "00000000-0000-0000-0000-0000000000c3";
+        let body = format!(
+            "{}\n{}\n{}\n",
+            line(a, None, "user"),
+            line(b, Some(a), "assistant"),
+            line(c, Some(a), "assistant"),
+        );
+        let path = write_tmp("fork", &body);
+        let lines = read_raw(&path).unwrap();
+        let ids: Vec<String> = active_path(&lines)
+            .iter()
+            .filter_map(|l| l.uuid.map(|u| u.to_string()))
+            .collect();
+        assert_eq!(ids, vec![a.to_string(), c.to_string()]);
         std::fs::remove_file(&path).ok();
     }
 }
