@@ -1,3 +1,4 @@
+pub mod edit;
 pub mod event;
 pub mod parse;
 pub mod raw;
