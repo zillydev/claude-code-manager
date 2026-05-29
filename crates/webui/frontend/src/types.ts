@@ -1,0 +1,71 @@
+export interface SessionSummary {
+  id: string;
+  file_path: string;
+  project_label: string;
+  cwd: string | null;
+  git_branch: string | null;
+  title: string;
+  mtime: { secs_since_epoch: number; nanos_since_epoch: number };
+  total_tokens: number;
+}
+
+export type SortField = "updated" | "project" | "title" | "tokens";
+export type SortDir = "asc" | "desc";
+export type DateRange = "all" | "today" | "week" | "month";
+
+export interface RenderedSession {
+  project_label: string;
+  id: string;
+  title: string;
+  event_count: number;
+  stats: SessionStats;
+  turns: RenderedTurn[];
+}
+
+export interface SessionStats {
+  cwd: string | null;
+  git_branch: string | null;
+  duration_secs: number | null;
+  models: ModelUsage[];
+  tokens: TokenBreakdown;
+}
+
+export interface ModelUsage {
+  model: string;
+  turn_count: number;
+}
+
+export interface TokenBreakdown {
+  input: number;
+  output: number;
+  cache_creation: number;
+  cache_read: number;
+}
+
+export type RenderedTurn =
+  | { type: "user"; timestamp: string | null; text: string }
+  | {
+      type: "assistant";
+      timestamp: string | null;
+      model: string | null;
+      blocks: RenderedBlock[];
+    }
+  | { type: "system"; timestamp: string | null; content: string }
+  | { type: "summary"; timestamp: string | null; content: string };
+
+export type RenderedBlock =
+  | { type: "text"; text: string }
+  | { type: "thinking"; thinking: string }
+  | {
+      type: "tool_call";
+      id: string;
+      name: string;
+      input_summary: string;
+      input_full: Record<string, unknown>;
+      result: ToolCallResult | null;
+    };
+
+export interface ToolCallResult {
+  text: string;
+  is_error: boolean;
+}

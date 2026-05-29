@@ -1,0 +1,12 @@
+{
+  "identifier": "default",
+  "description": "Default permissions for claude-manager",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "core:event:default",
+    "core:event:allow-listen",
+    "core:event:allow-emit",
+    "opener:default"
+  ]
+}

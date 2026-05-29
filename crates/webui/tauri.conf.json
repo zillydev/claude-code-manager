@@ -1,0 +1,34 @@
+{
+  "$schema": "https://raw.githubusercontent.com/niceplaces/tauri-settings-vscode/main/schemas/2/tauri.conf.json",
+  "productName": "claude-manager",
+  "version": "0.1.0",
+  "identifier": "dev.zilly.claude-manager",
+  "build": {
+    "frontendDist": "../frontend/dist",
+    "devUrl": "http://localhost:5173",
+    "beforeDevCommand": "cd ../frontend && npm run dev",
+    "beforeBuildCommand": "cd ../frontend && npm run build"
+  },
+  "app": {
+    "withGlobalTauri": true,
+    "windows": [
+      {
+        "title": "claude-manager",
+        "width": 1200,
+        "height": 800,
+        "resizable": true,
+        "fullscreen": false,
+        "minWidth": 800,
+        "minHeight": 600
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": ["icons/icon.png"]
+  }
+}

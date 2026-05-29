@@ -1,0 +1,294 @@
+import { useState, useRef, useEffect } from "react";
+import Markdown from "react-markdown";
+import { openUrl } from "@tauri-apps/plugin-opener";
+import type {
+  RenderedSession,
+  RenderedTurn,
+  RenderedBlock,
+  SessionStats,
+} from "../types";
+import ToolCall from "./ToolCall";
+
+interface Props {
+  session: RenderedSession;
+  onBack: () => void;
+}
+
+export default function Transcript({ session, onBack }: Props) {
+  const [statsOpen, setStatsOpen] = useState(true);
+  const [compact, setCompact] = useState(false);
+  const bottomRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [session.turns.length]);
+
+  const { stats } = session;
+
+  const visibleTurns = compact
+    ? filterCompact(session.turns)
+    : session.turns;
+
+  return (
+    <div className="flex flex-col h-full">
+      {/* Header bar */}
+      <div className="flex items-center gap-3 px-4 py-2.5 border-b border-[var(--color-border)] bg-[var(--color-surface)] shrink-0">
+        <button
+          onClick={onBack}
+          className="text-[var(--color-text-dim)] hover:text-[var(--color-text)] text-sm"
+        >
+          ← Back
+        </button>
+        <span className="font-medium text-[var(--color-accent)]">
+          {session.project_label}
+        </span>
+        <span className="text-[var(--color-text)] font-medium truncate">
+          {session.title}
+        </span>
+        <div className="ml-auto flex gap-2">
+          <button
+            onClick={() => setCompact(!compact)}
+            className={`text-xs px-2 py-1 rounded border ${
+              compact
+                ? "border-[var(--color-accent)] text-[var(--color-accent)]"
+                : "border-[var(--color-border)] text-[var(--color-text-dim)]"
+            } hover:border-[var(--color-accent)] transition-colors`}
+          >
+            {compact ? "Show all" : "Compact"}
+          </button>
+          <button
+            onClick={() => setStatsOpen(!statsOpen)}
+            className={`text-xs px-2 py-1 rounded border ${
+              statsOpen
+                ? "border-[var(--color-accent)] text-[var(--color-accent)]"
+                : "border-[var(--color-border)] text-[var(--color-text-dim)]"
+            } hover:border-[var(--color-accent)] transition-colors`}
+          >
+            {statsOpen ? "Hide details" : "Details"}
+          </button>
+        </div>
+      </div>
+
+      {/* Session detail panel */}
+      {statsOpen && <StatsPanel stats={stats} eventCount={session.event_count} />}
+
+      {/* Turns */}
+      <div className="flex-1 overflow-y-auto overflow-x-hidden px-4 py-4 space-y-4">
+        {visibleTurns.map((turn, i) => (
+          <Turn key={i} turn={turn} />
+        ))}
+        <div ref={bottomRef} />
+      </div>
+    </div>
+  );
+}
+
+function filterCompact(turns: RenderedTurn[]): RenderedTurn[] {
+  const userIndices: number[] = [];
+  for (let i = 0; i < turns.length; i++) {
+    if (turns[i].type === "user") userIndices.push(i);
+  }
+  const visible = new Set<number>();
+  for (const ui of userIndices) {
+    visible.add(ui);
+    // Assistant turn just before this user message
+    for (let j = ui - 1; j >= 0; j--) {
+      if (turns[j].type === "assistant") {
+        visible.add(j);
+        break;
+      }
+    }
+    // Assistant turn just after this user message
+    for (let j = ui + 1; j < turns.length; j++) {
+      if (turns[j].type === "assistant") {
+        visible.add(j);
+        break;
+      }
+    }
+  }
+  return turns.filter((_, i) => visible.has(i));
+}
+
+function StatsPanel({
+  stats,
+  eventCount,
+}: {
+  stats: SessionStats;
+  eventCount: number;
+}) {
+  const totalTokens =
+    stats.tokens.input +
+    stats.tokens.output +
+    stats.tokens.cache_creation;
+
+  return (
+    <div className="px-4 py-3 border-b border-[var(--color-border)] bg-[var(--color-surface)] text-xs shrink-0">
+      <div className="grid gap-y-1" style={{ gridTemplateColumns: "auto 1fr" }}>
+        {stats.cwd && (
+          <>
+            <span className="text-[var(--color-text-dim)] opacity-60 pr-3 text-right">cwd</span>
+            <span className="text-[var(--color-text)] font-mono">{shortenPath(stats.cwd)}</span>
+          </>
+        )}
+        {stats.git_branch && (
+          <>
+            <span className="text-[var(--color-text-dim)] opacity-60 pr-3 text-right">branch</span>
+            <span className="text-[var(--color-accent)] font-mono">{stats.git_branch}</span>
+          </>
+        )}
+        {stats.models.length > 0 && (
+          <>
+            <span className="text-[var(--color-text-dim)] opacity-60 pr-3 text-right">model</span>
+            <span className="flex flex-wrap gap-x-3">
+              {stats.models.map((m) => (
+                <span key={m.model}>
+                  <span className="text-[var(--color-assistant)] font-mono">{shortModel(m.model)}</span>
+                  <span className="text-[var(--color-text-dim)]"> ×{m.turn_count}</span>
+                </span>
+              ))}
+            </span>
+          </>
+        )}
+        <>
+          <span className="text-[var(--color-text-dim)] opacity-60 pr-3 text-right">tokens</span>
+          <span>
+            <span className="text-[var(--color-text)]">{compact(totalTokens)} total</span>
+            <span className="text-[var(--color-text-dim)] ml-3">
+              {compact(stats.tokens.input)} in · {compact(stats.tokens.output)} out · {compact(stats.tokens.cache_creation)} cache-w · {compact(stats.tokens.cache_read)} cache-r
+            </span>
+          </span>
+        </>
+        <>
+          <span className="text-[var(--color-text-dim)] opacity-60 pr-3 text-right">duration</span>
+          <span className="text-[var(--color-text)]">
+            {stats.duration_secs != null ? formatDuration(stats.duration_secs) : "—"}
+            <span className="text-[var(--color-text-dim)] ml-3">{eventCount} events</span>
+          </span>
+        </>
+      </div>
+    </div>
+  );
+}
+
+function Turn({ turn }: { turn: RenderedTurn }) {
+  const ts = turn.timestamp ? formatTime(turn.timestamp) : "--:--";
+
+  switch (turn.type) {
+    case "user":
+      return (
+        <div>
+          <div className="flex items-baseline gap-2 mb-1">
+            <span className="text-xs text-[var(--color-text-dim)]">{ts}</span>
+            <span className="font-medium text-[var(--color-user)]">user</span>
+          </div>
+          <div className="pl-4 text-sm whitespace-pre-wrap break-words">{turn.text}</div>
+        </div>
+      );
+
+    case "assistant":
+      return (
+        <div>
+          <div className="flex items-baseline gap-2 mb-1">
+            <span className="text-xs text-[var(--color-text-dim)]">{ts}</span>
+            <span className="font-medium text-[var(--color-assistant)]">
+              assistant
+            </span>
+            {turn.model && (
+              <span className="text-xs text-[var(--color-text-dim)]">
+                ({shortModel(turn.model)})
+              </span>
+            )}
+          </div>
+          <div className="pl-4">
+            {turn.blocks.map((block, j) => (
+              <BlockRenderer key={j} block={block} />
+            ))}
+          </div>
+        </div>
+      );
+
+    case "system":
+      return (
+        <div className="text-[var(--color-system)] text-sm opacity-70">
+          <span className="text-xs">{ts}</span> system: {turn.content}
+        </div>
+      );
+
+    case "summary":
+      return (
+        <div className="border-t border-b border-[var(--color-border)] py-2 my-2 text-xs text-[var(--color-text-dim)] italic">
+          ── compaction summary ──
+          <div className="mt-1 whitespace-pre-wrap break-words">{turn.content}</div>
+        </div>
+      );
+  }
+}
+
+function BlockRenderer({ block }: { block: RenderedBlock }) {
+  switch (block.type) {
+    case "text":
+      return (
+        <div className="prose prose-sm prose-invert max-w-none mb-2">
+          <Markdown components={{ a: ExternalLink }}>{block.text}</Markdown>
+        </div>
+      );
+
+    case "thinking":
+      return null;
+
+    case "tool_call":
+      return <ToolCall block={block} />;
+  }
+}
+
+function ExternalLink({
+  href,
+  children,
+}: {
+  href?: string;
+  children?: React.ReactNode;
+}) {
+  return (
+    <a
+      href={href}
+      onClick={(e) => {
+        e.preventDefault();
+        if (href) openUrl(href).catch((err) => console.error("openUrl failed:", err));
+      }}
+    >
+      {children}
+    </a>
+  );
+}
+
+function formatTime(ts: string): string {
+  try {
+    const d = new Date(ts);
+    return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  } catch {
+    return "--:--";
+  }
+}
+
+function shortModel(model: string): string {
+  return model.replace("claude-", "");
+}
+
+function shortenPath(p: string): string {
+  const home = p.replace(/^\/Users\/[^/]+/, "~");
+  return home;
+}
+
+function formatDuration(secs: number): string {
+  if (secs < 60) return `${secs}s`;
+  if (secs < 3600) return `${Math.floor(secs / 60)}m`;
+  const h = Math.floor(secs / 3600);
+  const m = Math.floor((secs % 3600) / 60);
+  return m > 0 ? `${h}h ${m}m` : `${h}h`;
+}
+
+function compact(n: number): string {
+  if (n < 1000) return `${n}`;
+  if (n < 1_000_000) return `${Math.floor(n / 1000)}k`;
+  return `${(n / 1_000_000).toFixed(1)}M`;
+}
