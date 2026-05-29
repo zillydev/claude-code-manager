@@ -1,4 +1,4 @@
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use anyhow::Result;
 use serde::Serialize;
@@ -264,27 +264,27 @@ fn last_user_text(values: &[Value]) -> String {
     String::new()
 }
 
-/// Set the plain-text content of a user line, or the first text block of an
-/// assistant line, identified by RawLine. Used by edit-text.
+/// Set the primary editable text of a message line. If the content is a block
+/// array, the first `text` block is updated (one is inserted if none exists);
+/// otherwise the content is set to a plain string. Used by edit-text.
 pub fn set_message_text(line: &mut RawLine, text: &str) {
     let v = &mut line.value;
-    let kind = v.get("type").and_then(Value::as_str).unwrap_or("").to_string();
-    if kind == "user" {
-        if let Some(obj) = v.pointer_mut("/message").and_then(Value::as_object_mut) {
-            obj.insert("content".into(), Value::String(text.to_string()));
-        }
-    } else if kind == "assistant" {
-        if let Some(blocks) = v.pointer_mut("/message/content").and_then(Value::as_array_mut) {
-            for b in blocks.iter_mut() {
-                if b.get("type").and_then(Value::as_str) == Some("text") {
-                    if let Some(o) = b.as_object_mut() {
-                        o.insert("text".into(), Value::String(text.to_string()));
-                    }
-                    return;
+    // Block-array content: update the first text block (insert if absent).
+    if let Some(blocks) = v.pointer_mut("/message/content").and_then(Value::as_array_mut) {
+        for b in blocks.iter_mut() {
+            if b.get("type").and_then(Value::as_str) == Some("text") {
+                if let Some(o) = b.as_object_mut() {
+                    o.insert("text".into(), Value::String(text.to_string()));
                 }
+                return;
             }
-            blocks.insert(0, json!({"type":"text","text":text}));
         }
+        blocks.insert(0, json!({ "type": "text", "text": text }));
+        return;
+    }
+    // String (or scalar) content: set a plain string.
+    if let Some(obj) = v.pointer_mut("/message").and_then(Value::as_object_mut) {
+        obj.insert("content".into(), Value::String(text.to_string()));
     }
 }
 
@@ -292,6 +292,7 @@ pub fn set_message_text(line: &mut RawLine, text: &str) {
 mod tests {
     use super::*;
     use crate::session::raw::{active_path, read_raw};
+    use std::path::PathBuf;
 
     fn write_tmp(name: &str, body: &str) -> PathBuf {
         let mut p = std::env::temp_dir();
@@ -366,6 +367,47 @@ mod tests {
         let vals: Vec<serde_json::Value> = written.iter()
             .filter(|l| l.kind=="user"||l.kind=="assistant").map(|l| l.value.clone()).collect();
         assert!(validate(&vals).is_empty());
+        std::fs::remove_file(&src).ok();
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn commit_repairs_orphan_tool_results() {
+        // A: user "go"
+        // B: assistant tool_use T1
+        // C: user [tool_result T1 (real), tool_result T9 (orphan)]  -> drop T9, keep C
+        // D: assistant text "ok"
+        // E: user [tool_result T8 (orphan only)]                    -> dropped entirely
+        let body = concat!(
+            r#"{"type":"user","uuid":"00000000-0000-0000-0000-0000000000a1","parentUuid":null,"message":{"role":"user","content":"go"}}"#, "\n",
+            r#"{"type":"assistant","uuid":"00000000-0000-0000-0000-0000000000b2","parentUuid":"00000000-0000-0000-0000-0000000000a1","message":{"role":"assistant","content":[{"type":"tool_use","id":"T1","name":"Bash","input":{}}]}}"#, "\n",
+            r#"{"type":"user","uuid":"00000000-0000-0000-0000-0000000000c3","parentUuid":"00000000-0000-0000-0000-0000000000b2","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"T1","content":"ok"},{"type":"tool_result","tool_use_id":"T9","content":"orphan"}]}}"#, "\n",
+            r#"{"type":"assistant","uuid":"00000000-0000-0000-0000-0000000000d4","parentUuid":"00000000-0000-0000-0000-0000000000c3","message":{"role":"assistant","content":[{"type":"text","text":"ok"}]}}"#, "\n",
+            r#"{"type":"user","uuid":"00000000-0000-0000-0000-0000000000e5","parentUuid":"00000000-0000-0000-0000-0000000000d4","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"T8","content":"orphan2"}]}}"#, "\n"
+        );
+        let src = write_tmp("orphan", body);
+        let lines = read_raw(&src).unwrap();
+        let path = active_path(&lines);
+        let root = std::env::temp_dir().join(format!("cm-root3-{}", std::process::id()));
+        let opts = CommitOpts { target_cwd: "/tmp/p".into(), git_branch: None, custom_title: None };
+        let res = commit(&root, &path, &opts).unwrap();
+
+        // Two orphan violations reported.
+        assert_eq!(res.repairs.iter().filter(|r| r.kind == "orphan_tool_result").count(), 2);
+
+        let written = read_raw(std::path::Path::new(&res.new_path)).unwrap();
+        let msgs: Vec<&RawLine> = written.iter().filter(|l| l.kind == "user" || l.kind == "assistant").collect();
+        // E (pure-orphan) dropped → A, B, C, D remain.
+        assert_eq!(msgs.len(), 4);
+        // C kept exactly the real T1 result (orphan T9 dropped).
+        let c = &msgs[2];
+        let blocks = c.value.pointer("/message/content").and_then(|v| v.as_array()).unwrap();
+        assert_eq!(blocks.len(), 1);
+        assert_eq!(blocks[0].get("tool_use_id").and_then(|v| v.as_str()), Some("T1"));
+        // Output re-validates clean.
+        let vals: Vec<serde_json::Value> = msgs.iter().map(|l| l.value.clone()).collect();
+        assert!(validate(&vals).is_empty());
+
         std::fs::remove_file(&src).ok();
         std::fs::remove_dir_all(&root).ok();
     }
