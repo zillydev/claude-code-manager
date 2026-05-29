@@ -8,6 +8,8 @@ import type {
   SessionStats,
 } from "../types";
 import ToolCall from "./ToolCall";
+import { useEditor } from "../hooks/useEditor";
+import CommitResultBanner from "./CommitResultBanner";
 
 interface Props {
   session: RenderedSession;
@@ -18,6 +20,11 @@ export default function Transcript({ session, onBack }: Props) {
   const [statsOpen, setStatsOpen] = useState(true);
   const [compact, setCompact] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
+
+  const editor = useEditor();
+  const [editingIndex, setEditingIndex] = useState<number | null>(null);
+  const [draft, setDraft] = useState("");
+  const sourcePath = session.source_path;
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -74,9 +81,43 @@ export default function Transcript({ session, onBack }: Props) {
 
       {/* Turns */}
       <div className="flex-1 overflow-y-auto overflow-x-hidden px-4 py-4 space-y-4">
-        {visibleTurns.map((turn, i) => (
-          <Turn key={i} turn={turn} />
-        ))}
+        {editor.result && (
+          <CommitResultBanner result={editor.result} onDismiss={editor.dismiss} />
+        )}
+        {editor.error && (
+          <div className="text-[var(--color-error)] text-xs mb-2">{editor.error}</div>
+        )}
+        {visibleTurns.map((turn, i) => {
+          const isMessage = turn.type === "user" || turn.type === "assistant";
+          const editIndex = isMessage ? turn.edit_index : null;
+          return (
+            <Turn
+              key={i}
+              turn={turn}
+              editing={editIndex !== null && editingIndex === editIndex}
+              draft={draft}
+              onStartEdit={(text) => {
+                if (editIndex !== null) {
+                  setEditingIndex(editIndex);
+                  setDraft(text);
+                }
+              }}
+              onChangeDraft={setDraft}
+              onCancelEdit={() => setEditingIndex(null)}
+              onSaveEdit={async () => {
+                if (editIndex !== null) {
+                  await editor.commitEdit(sourcePath, editIndex, draft);
+                  setEditingIndex(null);
+                }
+              }}
+              onFork={() => {
+                if (turn.type === "user" || turn.type === "assistant") {
+                  editor.fork(sourcePath, turn.fork_index);
+                }
+              }}
+            />
+          );
+        })}
         <div ref={bottomRef} />
       </div>
     </div>
@@ -170,24 +211,47 @@ function StatsPanel({
   );
 }
 
-function Turn({ turn }: { turn: RenderedTurn }) {
+function Turn({
+  turn,
+  editing,
+  draft,
+  onStartEdit,
+  onChangeDraft,
+  onCancelEdit,
+  onSaveEdit,
+  onFork,
+}: {
+  turn: RenderedTurn;
+  editing: boolean;
+  draft: string;
+  onStartEdit: (text: string) => void;
+  onChangeDraft: (s: string) => void;
+  onCancelEdit: () => void;
+  onSaveEdit: () => void;
+  onFork: () => void;
+}) {
   const ts = turn.timestamp ? formatTime(turn.timestamp) : "--:--";
 
   switch (turn.type) {
     case "user":
       return (
-        <div>
+        <div className="group">
           <div className="flex items-baseline gap-2 mb-1">
             <span className="text-xs text-[var(--color-text-dim)]">{ts}</span>
             <span className="font-medium text-[var(--color-user)]">user</span>
+            <TurnActions onEdit={() => onStartEdit(turn.text)} onFork={onFork} />
           </div>
-          <div className="pl-4 text-sm whitespace-pre-wrap break-words">{turn.text}</div>
+          {editing ? (
+            <EditBox draft={draft} onChange={onChangeDraft} onSave={onSaveEdit} onCancel={onCancelEdit} />
+          ) : (
+            <div className="pl-4 text-sm whitespace-pre-wrap break-words">{turn.text}</div>
+          )}
         </div>
       );
 
     case "assistant":
       return (
-        <div>
+        <div className="group">
           <div className="flex items-baseline gap-2 mb-1">
             <span className="text-xs text-[var(--color-text-dim)]">{ts}</span>
             <span className="font-medium text-[var(--color-assistant)]">
@@ -198,7 +262,17 @@ function Turn({ turn }: { turn: RenderedTurn }) {
                 ({shortModel(turn.model)})
               </span>
             )}
+            <TurnActions
+              onEdit={() => {
+                const firstText = turn.blocks.find((b) => b.type === "text");
+                onStartEdit(firstText && firstText.type === "text" ? firstText.text : "");
+              }}
+              onFork={onFork}
+            />
           </div>
+          {editing && (
+            <EditBox draft={draft} onChange={onChangeDraft} onSave={onSaveEdit} onCancel={onCancelEdit} />
+          )}
           <div className="pl-4">
             {turn.blocks.map((block, j) => (
               <BlockRenderer key={j} block={block} />
@@ -222,6 +296,57 @@ function Turn({ turn }: { turn: RenderedTurn }) {
         </div>
       );
   }
+}
+
+function TurnActions({ onEdit, onFork }: { onEdit: () => void; onFork: () => void }) {
+  return (
+    <span className="opacity-0 group-hover:opacity-100 transition-opacity flex gap-2 ml-2">
+      <button
+        onClick={onEdit}
+        className="text-[10px] px-1.5 py-0.5 rounded border border-[var(--color-border)] text-[var(--color-text-dim)] hover:border-[var(--color-accent)] hover:text-[var(--color-accent)]"
+      >
+        edit
+      </button>
+      <button
+        onClick={onFork}
+        className="text-[10px] px-1.5 py-0.5 rounded border border-[var(--color-border)] text-[var(--color-text-dim)] hover:border-[var(--color-accent)] hover:text-[var(--color-accent)]"
+        title="Create a new session ending at this message"
+      >
+        fork from here
+      </button>
+    </span>
+  );
+}
+
+function EditBox({
+  draft,
+  onChange,
+  onSave,
+  onCancel,
+}: {
+  draft: string;
+  onChange: (s: string) => void;
+  onSave: () => void;
+  onCancel: () => void;
+}) {
+  return (
+    <div className="pl-4">
+      <textarea
+        value={draft}
+        onChange={(e) => onChange(e.target.value)}
+        className="w-full bg-[var(--color-bg)] text-[var(--color-text)] text-sm p-2 rounded border border-[var(--color-border)] outline-none focus:border-[var(--color-accent)] font-mono"
+        rows={Math.min(20, Math.max(3, draft.split("\n").length + 1))}
+      />
+      <div className="flex gap-2 mt-1">
+        <button onClick={onSave} className="text-xs px-2 py-1 rounded border border-[var(--color-accent)] text-[var(--color-accent)]">
+          Save as new session
+        </button>
+        <button onClick={onCancel} className="text-xs px-2 py-1 rounded border border-[var(--color-border)] text-[var(--color-text-dim)]">
+          Cancel
+        </button>
+      </div>
+    </div>
+  );
 }
 
 function BlockRenderer({ block }: { block: RenderedBlock }) {

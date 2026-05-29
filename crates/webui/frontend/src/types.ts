@@ -16,6 +16,7 @@ export type DateRange = "all" | "today" | "week" | "month";
 export interface RenderedSession {
   project_label: string;
   id: string;
+  source_path: string;
   title: string;
   event_count: number;
   stats: SessionStats;
@@ -43,12 +44,20 @@ export interface TokenBreakdown {
 }
 
 export type RenderedTurn =
-  | { type: "user"; timestamp: string | null; text: string }
+  | {
+      type: "user";
+      timestamp: string | null;
+      text: string;
+      edit_index: number;
+      fork_index: number;
+    }
   | {
       type: "assistant";
       timestamp: string | null;
       model: string | null;
       blocks: RenderedBlock[];
+      edit_index: number;
+      fork_index: number;
     }
   | { type: "system"; timestamp: string | null; content: string }
   | { type: "summary"; timestamp: string | null; content: string };

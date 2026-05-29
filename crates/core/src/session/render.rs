@@ -10,6 +10,7 @@ use super::Session;
 pub struct RenderedSession {
     pub project_label: String,
     pub id: String,
+    pub source_path: String,
     pub title: String,
     pub event_count: usize,
     pub stats: SessionStats,
@@ -46,12 +47,22 @@ pub enum RenderedTurn {
     User {
         timestamp: Option<DateTime<Utc>>,
         text: String,
+        /// 0-based index among user/assistant message lines on the active path.
+        /// Used directly as both the edit target and the fork point.
+        edit_index: usize,
+        fork_index: usize,
     },
     #[serde(rename = "assistant")]
     Assistant {
         timestamp: Option<DateTime<Utc>>,
         model: Option<String>,
         blocks: Vec<RenderedBlock>,
+        /// Message index of the FIRST merged assistant event (the one whose
+        /// first text block is shown/edited).
+        edit_index: usize,
+        /// Message index of the LAST merged assistant event, so a fork includes
+        /// the whole reply plus its interleaved tool-result lines.
+        fork_index: usize,
     },
     #[serde(rename = "system")]
     System {
@@ -113,6 +124,29 @@ pub fn render_session(session: &Session) -> RenderedSession {
     let title = session_title(session);
     let mut turns: Vec<RenderedTurn> = Vec::new();
 
+    // Per-event message index: the 0-based position of each user/assistant event
+    // among ALL user/assistant events on the path. This MUST count every such
+    // event — including suppressed tool-result, meta, command, and synthetic
+    // ones — because the backend's commit_session/fork_session index over raw
+    // `kind == "user" | "assistant"` lines with no further filtering. Rendered
+    // turns are a lossy projection (assistant events are merged, several user
+    // events are dropped), so the index cannot be reconstructed downstream and
+    // is carried per turn instead.
+    let msg_index: Vec<Option<usize>> = {
+        let mut out = Vec::with_capacity(path.len());
+        let mut m = 0usize;
+        for ev in path.iter() {
+            match ev {
+                Event::User(_) | Event::Assistant(_) => {
+                    out.push(Some(m));
+                    m += 1;
+                }
+                _ => out.push(None),
+            }
+        }
+        out
+    };
+
     // Helper: extract rendered blocks from one assistant event.
     let render_assistant_blocks = |a: &super::event::AssistantEvent| -> Vec<RenderedBlock> {
         let mut blocks = Vec::new();
@@ -173,9 +207,12 @@ pub fn render_session(session: &Session) -> RenderedSession {
                     i += 1;
                     continue;
                 }
+                let idx = msg_index[i].expect("user event has a message index");
                 turns.push(RenderedTurn::User {
                     timestamp: ev.timestamp(),
                     text,
+                    edit_index: idx,
+                    fork_index: idx,
                 });
                 i += 1;
             }
@@ -189,6 +226,24 @@ pub fn render_session(session: &Session) -> RenderedSession {
                 let timestamp = ev.timestamp();
                 let mut model = a.message.model.clone();
                 let mut blocks = render_assistant_blocks(a);
+                // `last_msg_i` drives the fork cutoff so the whole reply (plus
+                // its interleaved tool-result lines) is included.
+                let first_msg_i = msg_index[i].expect("assistant event has a message index");
+                let mut last_msg_i = first_msg_i;
+                // The frontend edits the FIRST text block across all merged
+                // events. The line holding that text is the first merged event
+                // that contributes a `Text` block — which is NOT always the
+                // first merged event (a tool-use-only first event is common).
+                // `edit_index` must point at that text-bearing line, or a commit
+                // would rewrite the wrong line. Fall back to the first event if
+                // the turn has no text at all.
+                let block_has_text =
+                    |bs: &[RenderedBlock]| bs.iter().any(|b| matches!(b, RenderedBlock::Text { .. }));
+                let mut edit_msg_i = if block_has_text(&blocks) {
+                    Some(first_msg_i)
+                } else {
+                    None
+                };
                 i += 1;
                 while i < path.len() {
                     if suppressed.contains(&i) {
@@ -200,10 +255,16 @@ pub fn render_session(session: &Session) -> RenderedSession {
                             i += 1;
                             continue;
                         }
-                        blocks.extend(render_assistant_blocks(next_a));
+                        let next_blocks = render_assistant_blocks(next_a);
+                        let this_msg_i = msg_index[i].expect("assistant event has a message index");
+                        if edit_msg_i.is_none() && block_has_text(&next_blocks) {
+                            edit_msg_i = Some(this_msg_i);
+                        }
+                        blocks.extend(next_blocks);
                         if model.is_none() {
                             model = next_a.message.model.clone();
                         }
+                        last_msg_i = this_msg_i;
                         i += 1;
                     } else {
                         break;
@@ -213,6 +274,8 @@ pub fn render_session(session: &Session) -> RenderedSession {
                     timestamp,
                     model,
                     blocks,
+                    edit_index: edit_msg_i.unwrap_or(first_msg_i),
+                    fork_index: last_msg_i,
                 });
             }
             Event::System(s) => {
@@ -244,6 +307,7 @@ pub fn render_session(session: &Session) -> RenderedSession {
     RenderedSession {
         project_label: session.project_label.clone(),
         id: session.id.to_string(),
+        source_path: session.file_path.to_string_lossy().into_owned(),
         title,
         event_count: session.events.len(),
         stats,
