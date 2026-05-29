@@ -4,6 +4,8 @@
 **Status:** Draft — iterating on feature surface
 **Goal:** Turn the webui from a read-only transcript viewer into a full-featured editor for Claude Code session history — manual editing, structural edits, reordering, and moving/copying messages and sessions across sessions and projects.
 
+> **Phase 0 result (2026-05-30): PASS.** A fully-regenerated, flattened, copy-on-edit session file (new session UUID, regenerated `parentUuid` chain, lossless raw-value rewrite via `core::session::edit::commit`) was resumed with `claude --resume`. Claude Code accepted the file, reconstructed conversation context from it (it correctly recalled the prior user message), and continued appending new turns to it normally (file grew from 5 → 20 lines, all appends carrying the resumed `sessionId`). No special envelope fields beyond what `commit` already writes were required. The riskiest assumption in this design is validated; UI work (phases 1+) is unblocked.
+
 ---
 
 ## 1. Motivation
