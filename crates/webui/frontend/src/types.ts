@@ -69,3 +69,28 @@ export interface ToolCallResult {
   text: string;
   is_error: boolean;
 }
+
+export interface EditableTurn {
+  index: number;
+  uuid: string;
+  role: string;
+  text: string;
+}
+
+export interface EditableSession {
+  source_path: string;
+  cwd: string;
+  git_branch: string | null;
+  turns: EditableTurn[];
+}
+
+export interface Violation {
+  kind: string;
+  detail: string;
+}
+
+export interface CommitResult {
+  new_session_id: string;
+  new_path: string;
+  repairs: Violation[];
+}
