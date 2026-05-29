@@ -27,6 +27,10 @@ struct Cli {
     /// Print discovered sessions to stdout and exit, instead of launching the TUI.
     #[arg(long)]
     print: bool,
+
+    /// Dev: fork an existing session file to a new flattened session, print the new id, then exit.
+    #[arg(long)]
+    fork_test: Option<std::path::PathBuf>,
 }
 
 fn main() -> Result<()> {
@@ -35,6 +39,27 @@ fn main() -> Result<()> {
         .root
         .or_else(paths::default_claude_root)
         .context("could not locate ~/.claude (HOME unset?)")?;
+
+    if let Some(src) = cli.fork_test.clone() {
+        use claude_manager_core::session::edit::{commit, CommitOpts};
+        use claude_manager_core::session::raw::{active_path, read_raw};
+        let lines = read_raw(&src)?;
+        let path = active_path(&lines);
+        let cwd = lines
+            .iter()
+            .find_map(|l| l.value.get("cwd").and_then(|v| v.as_str()).map(|s| s.to_string()))
+            .unwrap_or_else(|| ".".to_string());
+        let git_branch = lines
+            .iter()
+            .find_map(|l| l.value.get("gitBranch").and_then(|v| v.as_str()).map(|s| s.to_string()));
+        let opts = CommitOpts { target_cwd: cwd, git_branch, custom_title: Some("fork-test".into()) };
+        let res = commit(&root, &path, &opts)?;
+        println!("new session: {}", res.new_session_id);
+        println!("path: {}", res.new_path);
+        println!("repairs: {}", res.repairs.len());
+        println!("resume with: claude --resume {}", res.new_session_id);
+        return Ok(());
+    }
 
     if cli.print {
         let disc = store::discover(&root)?;
