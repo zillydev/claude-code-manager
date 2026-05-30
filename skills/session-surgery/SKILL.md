@@ -99,6 +99,8 @@ Give them: the new session's `claude --resume <id>` command (copyable), the savi
    ```
 4. Report the new `claude --resume <id>`, the savings line, and what you removed. Original untouched.
 
+> Note: you cannot prune the very first user turn of a session — the result must start with a user message. If the user wants to drop the opening, summarize it instead (summarize inserts a user-role message). The binary will refuse a prune that would leave a leading assistant message.
+
 ## Handling errors from the binary
 
 - **"from/to id ... is not on the active path"** — the uuid isn't a message on the current conversation path (maybe it's from an abandoned branch, or a metadata line, or a typo). Ask the user to re-copy the id from the webui, or list the path's message ids to help them pick.

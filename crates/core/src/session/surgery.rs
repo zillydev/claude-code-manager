@@ -279,6 +279,17 @@ pub fn rewrite(
         return Err(anyhow!("refusing: the result would contain no messages"));
     }
 
+    // A conversation must start with a user message. Pruning from the head can
+    // leave a leading assistant message (parentUuid becomes null), which Claude
+    // Code may reject on resume. Refuse with a clear, recoverable message.
+    if let Some(first) = path_refs.iter().find(|l| is_message(l)) {
+        if first.kind == "assistant" {
+            return Err(anyhow!(
+                "refusing: the result would start with an assistant message — include the first user turn in the kept range, or use summary mode (which inserts a user message)"
+            ));
+        }
+    }
+
     let commit_result = commit(root, &path_refs, &opts)?;
 
     let result_lines = read_raw(Path::new(&commit_result.new_path))?;
@@ -458,6 +469,21 @@ mod tests {
         let b = "00000000-0000-0000-0000-0000000000b2".parse().unwrap();
         let out = rewrite(&root, &p, b, b, RewriteMode::Prune, None).unwrap();
         assert!(out.commit.repairs.is_empty(), "clean turn-aligned cut should need no repairs");
+        std::fs::remove_file(&p).ok();
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn prune_from_head_leaving_leading_assistant_is_refused() {
+        let p = fixture();
+        let root = std::env::temp_dir().join(format!("cm-surg-root-h-{}", std::process::id()));
+        let a = "00000000-0000-0000-0000-0000000000a1".parse().unwrap();
+        // Prune just user A (turn 0). The first surviving message becomes
+        // assistant B → must be refused.
+        let err = rewrite(&root, &p, a, a, RewriteMode::Prune, None);
+        assert!(err.is_err(), "pruning the leading user turn should be refused");
+        let msg = format!("{}", err.unwrap_err());
+        assert!(msg.contains("start with an assistant message"), "got: {}", msg);
         std::fs::remove_file(&p).ok();
         std::fs::remove_dir_all(&root).ok();
     }
