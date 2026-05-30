@@ -7,6 +7,7 @@ use anyhow::{anyhow, Result};
 use serde_json::Value;
 use uuid::Uuid;
 
+use super::edit::{commit, CommitOpts, CommitResult};
 use super::raw::{active_path, read_raw, RawLine};
 use crate::store::paths;
 
@@ -198,11 +199,102 @@ pub fn resolve_session_path(root: &Path, session: &str) -> Result<PathBuf> {
     ))
 }
 
+/// Which surgery to perform on the range.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum RewriteMode {
+    /// Delete the range entirely.
+    Prune,
+    /// Replace the range with a single summary message.
+    Summary,
+}
+
+/// Result of a rewrite: the committed new session plus before/after sizing.
+#[derive(Debug, Clone)]
+pub struct RewriteOutcome {
+    pub commit: CommitResult,
+    pub removed_bytes: usize,
+    pub messages_before: usize,
+    pub messages_after: usize,
+}
+
+/// Rewrite a session by pruning or summarizing the turn-snapped range
+/// `[from, to]`. Always copy-on-edit: writes a new flattened session via
+/// `edit::commit`; the source file is read-only.
+pub fn rewrite(
+    root: &Path,
+    path: &Path,
+    from: Uuid,
+    to: Uuid,
+    mode: RewriteMode,
+    summary: Option<&str>,
+) -> Result<RewriteOutcome> {
+    let lines = read_raw(path)?;
+    let active = active_path(&lines);
+    let (a, b) = snap_range(&active, from, to)?;
+
+    let is_msg = |l: &&&RawLine| l.kind == "user" || l.kind == "assistant";
+    let messages_before = active.iter().filter(is_msg).count();
+    let removed_bytes: usize = active[a..=b].iter().map(|l| l.value.to_string().len()).sum();
+
+    let cwd = active
+        .iter()
+        .find_map(|l| l.value.get("cwd").and_then(|v| v.as_str()).map(|s| s.to_string()))
+        .unwrap_or_else(|| ".".to_string());
+    let git_branch = active
+        .iter()
+        .find_map(|l| l.value.get("gitBranch").and_then(|v| v.as_str()).map(|s| s.to_string()));
+    let opts = CommitOpts { target_cwd: cwd, git_branch, custom_title: None };
+
+    // The summary line is owned and must outlive the &RawLine refs vec below.
+    let summary_line: Option<RawLine> = match mode {
+        RewriteMode::Summary => {
+            let text = summary.ok_or_else(|| anyhow!("summary mode requires summary text"))?;
+            let marked = format!(
+                "[Earlier session context — summarized to save tokens. Treat as established history.]\n\n{}",
+                text
+            );
+            let v = serde_json::json!({
+                "type": "user",
+                "message": { "role": "user", "content": marked }
+            });
+            Some(RawLine::from_value(v))
+        }
+        RewriteMode::Prune => None,
+    };
+
+    let mut path_refs: Vec<&RawLine> = Vec::new();
+    path_refs.extend(active[..a].iter().copied());
+    if let Some(sl) = &summary_line {
+        path_refs.push(sl);
+    }
+    path_refs.extend(active[b + 1..].iter().copied());
+
+    if path_refs.iter().filter(|l| is_msg(l)).count() == 0 {
+        return Err(anyhow!("refusing: the result would contain no messages"));
+    }
+
+    let commit_result = commit(root, &path_refs, &opts)?;
+
+    let result_lines = read_raw(Path::new(&commit_result.new_path))?;
+    let messages_after = result_lines
+        .iter()
+        .filter(|l| l.kind == "user" || l.kind == "assistant")
+        .count();
+
+    Ok(RewriteOutcome {
+        commit: commit_result,
+        removed_bytes,
+        messages_before,
+        messages_after,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use std::path::PathBuf;
 
     use super::*;
+    use super::super::edit::validate;
     use super::super::raw::{active_path, read_raw};
 
     fn write_tmp(name: &str, body: &str) -> PathBuf {
@@ -294,5 +386,59 @@ mod tests {
         let root = std::env::temp_dir();
         assert_eq!(resolve_session_path(&root, p.to_str().unwrap()).unwrap(), p);
         std::fs::remove_file(&p).ok();
+    }
+
+    #[test]
+    fn prune_drops_the_range_and_revalidates_clean() {
+        let p = fixture();
+        let root = std::env::temp_dir().join(format!("cm-surg-root-p-{}", std::process::id()));
+        let b = "00000000-0000-0000-0000-0000000000b2".parse().unwrap();
+        // Active path message lines: A(user), B(assistant), tool_result(user),
+        // C(assistant), D(user) = 5. Pruning B's turn (B + tool_result + C, since
+        // turns merge consecutive assistants across the tool_result) leaves A, D.
+        let out = rewrite(&root, &p, b, b, RewriteMode::Prune, None).unwrap();
+        assert_eq!(out.messages_after, 2);
+        let written = read_raw(std::path::Path::new(&out.commit.new_path)).unwrap();
+        let vals: Vec<serde_json::Value> = written
+            .iter()
+            .filter(|l| l.kind == "user" || l.kind == "assistant")
+            .map(|l| l.value.clone())
+            .collect();
+        assert!(validate(&vals).is_empty());
+        std::fs::remove_file(&p).ok();
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn summary_inserts_one_message() {
+        let p = fixture();
+        let root = std::env::temp_dir().join(format!("cm-surg-root-s-{}", std::process::id()));
+        let b = "00000000-0000-0000-0000-0000000000b2".parse().unwrap();
+        // summarize B's turn (B + tool_result + C) -> one summary line; A and D remain.
+        let out = rewrite(&root, &p, b, b, RewriteMode::Summary, Some("did the thing")).unwrap();
+        let written = read_raw(std::path::Path::new(&out.commit.new_path)).unwrap();
+        let msgs: Vec<&RawLine> = written
+            .iter()
+            .filter(|l| l.kind == "user" || l.kind == "assistant")
+            .collect();
+        // A(user) + summary(user) + D(user) = 3 message lines
+        assert_eq!(msgs.len(), 3);
+        let joined: String = written.iter().map(|l| l.value.to_string()).collect();
+        assert!(joined.contains("summarized to save tokens"));
+        assert!(joined.contains("did the thing"));
+        let vals: Vec<serde_json::Value> = msgs.iter().map(|l| l.value.clone()).collect();
+        assert!(validate(&vals).is_empty());
+        std::fs::remove_file(&p).ok();
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn summary_requires_text() {
+        let p = fixture();
+        let root = std::env::temp_dir().join(format!("cm-surg-root-e-{}", std::process::id()));
+        let a = "00000000-0000-0000-0000-0000000000a1".parse().unwrap();
+        assert!(rewrite(&root, &p, a, a, RewriteMode::Summary, None).is_err());
+        std::fs::remove_file(&p).ok();
+        std::fs::remove_dir_all(&root).ok();
     }
 }
