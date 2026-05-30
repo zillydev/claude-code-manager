@@ -276,7 +276,7 @@ function Turn({
           <div className="flex items-baseline gap-2 mb-1">
             <span className="text-xs text-[var(--color-text-dim)]">{ts}</span>
             <span className="font-medium text-[var(--color-user)]">user</span>
-            <TurnActions onEdit={() => onStartEdit(turn.text)} onFork={onFork} />
+            <TurnActions onEdit={() => onStartEdit(turn.text)} onFork={onFork} messageId={turn.uuid} />
           </div>
           {editing ? (
             <EditBox draft={draft} onChange={onChangeDraft} onSave={onSaveEdit} onCancel={onCancelEdit} />
@@ -305,6 +305,7 @@ function Turn({
                 onStartEdit(firstText && firstText.type === "text" ? firstText.text : "");
               }}
               onFork={onFork}
+              messageId={turn.uuid}
             />
           </div>
           {editing && (
@@ -335,22 +336,47 @@ function Turn({
   }
 }
 
-function TurnActions({ onEdit, onFork }: { onEdit: () => void; onFork: () => void }) {
+function TurnActions({
+  onEdit,
+  onFork,
+  messageId,
+}: {
+  onEdit: () => void;
+  onFork: () => void;
+  messageId: string;
+}) {
+  const [copied, setCopied] = useState(false);
+  const btn =
+    "text-[10px] px-1.5 py-0.5 rounded border border-[var(--color-border)] text-[var(--color-text-dim)] hover:border-[var(--color-accent)] hover:text-[var(--color-accent)]";
   return (
     <span className="opacity-0 group-hover:opacity-100 transition-opacity flex gap-2 ml-2">
-      <button
-        onClick={onEdit}
-        className="text-[10px] px-1.5 py-0.5 rounded border border-[var(--color-border)] text-[var(--color-text-dim)] hover:border-[var(--color-accent)] hover:text-[var(--color-accent)]"
-      >
+      <button onClick={onEdit} className={btn}>
         edit
       </button>
       <button
         onClick={onFork}
-        className="text-[10px] px-1.5 py-0.5 rounded border border-[var(--color-border)] text-[var(--color-text-dim)] hover:border-[var(--color-accent)] hover:text-[var(--color-accent)]"
+        className={btn}
         title="Create a new session ending at this message"
       >
         fork from here
       </button>
+      {messageId && (
+        <button
+          onClick={() => {
+            navigator.clipboard.writeText(messageId).then(
+              () => {
+                setCopied(true);
+                setTimeout(() => setCopied(false), 1200);
+              },
+              () => {}
+            );
+          }}
+          className={btn}
+          title={`Copy message id: ${messageId}`}
+        >
+          {copied ? "copied ✓" : "copy id"}
+        </button>
+      )}
     </span>
   );
 }

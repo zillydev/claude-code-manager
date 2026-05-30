@@ -49,6 +49,7 @@ export type RenderedTurn =
       type: "user";
       timestamp: string | null;
       text: string;
+      uuid: string;
       edit_index: number;
       fork_index: number;
     }
@@ -57,6 +58,7 @@ export type RenderedTurn =
       timestamp: string | null;
       model: string | null;
       blocks: RenderedBlock[];
+      uuid: string;
       edit_index: number;
       fork_index: number;
     }

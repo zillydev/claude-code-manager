@@ -51,6 +51,8 @@ pub enum RenderedTurn {
     User {
         timestamp: Option<DateTime<Utc>>,
         text: String,
+        /// The message line's event uuid (empty if absent).
+        uuid: String,
         /// 0-based index among user/assistant message lines on the active path.
         /// Used directly as both the edit target and the fork point.
         edit_index: usize,
@@ -61,6 +63,8 @@ pub enum RenderedTurn {
         timestamp: Option<DateTime<Utc>>,
         model: Option<String>,
         blocks: Vec<RenderedBlock>,
+        /// The FIRST merged assistant event's uuid (the head of the turn).
+        uuid: String,
         /// Message index of the FIRST merged assistant event (the one whose
         /// first text block is shown/edited).
         edit_index: usize,
@@ -215,6 +219,7 @@ pub fn render_session(session: &Session) -> RenderedSession {
                 turns.push(RenderedTurn::User {
                     timestamp: ev.timestamp(),
                     text,
+                    uuid: ev.uuid().map(|u| u.to_string()).unwrap_or_default(),
                     edit_index: idx,
                     fork_index: idx,
                 });
@@ -228,6 +233,7 @@ pub fn render_session(session: &Session) -> RenderedSession {
                 }
                 // Merge consecutive assistant events into one turn.
                 let timestamp = ev.timestamp();
+                let head_uuid = ev.uuid().map(|u| u.to_string()).unwrap_or_default();
                 let mut model = a.message.model.clone();
                 let mut blocks = render_assistant_blocks(a);
                 // `last_msg_i` drives the fork cutoff so the whole reply (plus
@@ -278,6 +284,7 @@ pub fn render_session(session: &Session) -> RenderedSession {
                     timestamp,
                     model,
                     blocks,
+                    uuid: head_uuid,
                     edit_index: edit_msg_i.unwrap_or(first_msg_i),
                     fork_index: last_msg_i,
                 });
