@@ -3,7 +3,7 @@ use std::time::SystemTime;
 
 use uuid::Uuid;
 
-use super::event::{Event, MessageContent, Usage};
+use super::event::{Event, MessageContent};
 
 /// One row of the sessions list.
 #[derive(Debug, Clone, serde::Serialize)]
@@ -15,6 +15,9 @@ pub struct SessionSummary {
     pub git_branch: Option<String>,
     pub title: String,
     pub mtime: SystemTime,
+    /// Current context-window size — the last real assistant turn's full
+    /// request input (input + cache_creation + cache_read). Matches the token
+    /// count Claude Code's TUI shows, not a cumulative lifetime sum.
     pub total_tokens: u64,
 }
 
@@ -85,17 +88,18 @@ pub fn summarize(
                 }
             }
             Event::Assistant(a) => {
-                if let Some(Usage {
-                    input_tokens,
-                    output_tokens,
-                    cache_creation_input_tokens,
-                    ..
-                }) = a.message.usage
-                {
-                    total_tokens = total_tokens
-                        .saturating_add(input_tokens)
-                        .saturating_add(output_tokens)
-                        .saturating_add(cache_creation_input_tokens);
+                // Report the current context-window size, not a cumulative sum:
+                // the LAST real assistant turn's full request input
+                // (fresh input + cache writes + cache reads). This matches the
+                // token count Claude Code's TUI shows ("how big is this
+                // conversation now"), rather than total tokens ever processed.
+                if a.message.model.as_deref() != Some("<synthetic>") {
+                    if let Some(u) = &a.message.usage {
+                        total_tokens = u
+                            .input_tokens
+                            .saturating_add(u.cache_creation_input_tokens)
+                            .saturating_add(u.cache_read_input_tokens);
+                    }
                 }
             }
             _ => {}
@@ -201,21 +205,21 @@ mod tests {
     use chrono::Utc;
     use std::time::UNIX_EPOCH;
 
-    fn assistant_with_tokens(input: u64, output: u64) -> Event {
+    fn assistant_with_usage(input: u64, cache_creation: u64, cache_read: u64) -> Event {
         Event::Assistant(AssistantEvent {
             uuid: Some(uuid::Uuid::new_v4()),
             parent_uuid: None,
             timestamp: Some(Utc::now()),
             is_sidechain: false,
             message: AssistantMessage {
-                model: Some("claude-opus-4-7".into()),
+                model: Some("claude-opus-4-8".into()),
                 stop_reason: None,
                 content: vec![],
                 usage: Some(Usage {
                     input_tokens: input,
-                    output_tokens: output,
-                    cache_creation_input_tokens: 0,
-                    cache_read_input_tokens: 0,
+                    output_tokens: 0,
+                    cache_creation_input_tokens: cache_creation,
+                    cache_read_input_tokens: cache_read,
                 }),
             },
             cwd: None, git_branch: None,
@@ -311,10 +315,13 @@ mod tests {
     }
 
     #[test]
-    fn tokens_sum_excludes_cache_read() {
+    fn context_tokens_uses_last_turn_full_input() {
+        // total_tokens reflects the current context-window size: the LAST real
+        // assistant turn's full request input (input + cache_creation +
+        // cache_read), not a cumulative sum across turns.
         let events = vec![
-            assistant_with_tokens(10, 20),
-            assistant_with_tokens(5, 5),
+            assistant_with_usage(100, 50, 200), // earlier turn — ignored
+            assistant_with_usage(10, 5, 700),   // last turn → 10 + 5 + 700 = 715
         ];
         let s = summarize(
             &events,
@@ -323,7 +330,7 @@ mod tests {
             "proj".into(),
             UNIX_EPOCH,
         );
-        assert_eq!(s.total_tokens, 40);
+        assert_eq!(s.total_tokens, 715);
     }
 
     #[test]

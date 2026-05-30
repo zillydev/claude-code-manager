@@ -29,6 +29,7 @@ export interface SessionStats {
   duration_secs: number | null;
   models: ModelUsage[];
   tokens: TokenBreakdown;
+  context_tokens: number;
 }
 
 export interface ModelUsage {

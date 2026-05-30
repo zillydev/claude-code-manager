@@ -77,7 +77,13 @@ export default function Transcript({ session, onBack }: Props) {
       </div>
 
       {/* Session detail panel */}
-      {statsOpen && <StatsPanel stats={stats} eventCount={session.event_count} />}
+      {statsOpen && (
+        <StatsPanel
+          stats={stats}
+          eventCount={session.event_count}
+          sessionId={session.id}
+        />
+      )}
 
       {/* Turns */}
       <div className="flex-1 overflow-y-auto overflow-x-hidden px-4 py-4 space-y-4">
@@ -153,18 +159,42 @@ function filterCompact(turns: RenderedTurn[]): RenderedTurn[] {
 function StatsPanel({
   stats,
   eventCount,
+  sessionId,
 }: {
   stats: SessionStats;
   eventCount: number;
+  sessionId: string;
 }) {
   const totalTokens =
     stats.tokens.input +
     stats.tokens.output +
     stats.tokens.cache_creation;
+  const [copied, setCopied] = useState(false);
+  const resumeCmd = `claude --resume ${sessionId}`;
+  const copyResume = () => {
+    navigator.clipboard.writeText(resumeCmd).then(
+      () => {
+        setCopied(true);
+        setTimeout(() => setCopied(false), 1200);
+      },
+      () => {}
+    );
+  };
 
   return (
     <div className="px-4 py-3 border-b border-[var(--color-border)] bg-[var(--color-surface)] text-xs shrink-0">
-      <div className="grid gap-y-1" style={{ gridTemplateColumns: "auto 1fr" }}>
+      <div className="grid gap-y-1 items-baseline" style={{ gridTemplateColumns: "auto 1fr" }}>
+        <span className="text-[var(--color-text-dim)] opacity-60 pr-3 text-right">session</span>
+        <span className="flex items-center gap-2 min-w-0">
+          <span className="text-[var(--color-text)] font-mono truncate">{sessionId}</span>
+          <button
+            onClick={copyResume}
+            title={`Copy: ${resumeCmd}`}
+            className="shrink-0 text-[10px] px-1.5 py-0.5 rounded border border-[var(--color-border)] text-[var(--color-text-dim)] hover:border-[var(--color-accent)] hover:text-[var(--color-accent)] transition-colors"
+          >
+            {copied ? "copied ✓" : "copy resume"}
+          </button>
+        </span>
         {stats.cwd && (
           <>
             <span className="text-[var(--color-text-dim)] opacity-60 pr-3 text-right">cwd</span>
@@ -191,9 +221,16 @@ function StatsPanel({
           </>
         )}
         <>
-          <span className="text-[var(--color-text-dim)] opacity-60 pr-3 text-right">tokens</span>
+          <span className="text-[var(--color-text-dim)] opacity-60 pr-3 text-right">context</span>
           <span>
-            <span className="text-[var(--color-text)]">{compact(totalTokens)} total</span>
+            <span className="text-[var(--color-text)]">{compact(stats.context_tokens)} tokens</span>
+            <span className="text-[var(--color-text-dim)] ml-3">current window size</span>
+          </span>
+        </>
+        <>
+          <span className="text-[var(--color-text-dim)] opacity-60 pr-3 text-right">lifetime</span>
+          <span>
+            <span className="text-[var(--color-text)]">{compact(totalTokens)} processed</span>
             <span className="text-[var(--color-text-dim)] ml-3">
               {compact(stats.tokens.input)} in · {compact(stats.tokens.output)} out · {compact(stats.tokens.cache_creation)} cache-w · {compact(stats.tokens.cache_read)} cache-r
             </span>

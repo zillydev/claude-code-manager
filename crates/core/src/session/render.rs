@@ -23,7 +23,11 @@ pub struct SessionStats {
     pub git_branch: Option<String>,
     pub duration_secs: Option<i64>,
     pub models: Vec<ModelUsage>,
+    /// Cumulative token usage across every turn (lifetime processed).
     pub tokens: TokenBreakdown,
+    /// Current context-window size: the last real assistant turn's full request
+    /// input (input + cache_creation + cache_read). Matches Claude Code's TUI.
+    pub context_tokens: u64,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -321,6 +325,7 @@ pub fn compute_stats(path: &[&Event]) -> SessionStats {
     let mut first_ts: Option<DateTime<Utc>> = None;
     let mut last_ts: Option<DateTime<Utc>> = None;
     let mut model_counts: HashMap<String, u32> = HashMap::new();
+    let mut context_tokens: u64 = 0;
     let mut tokens = TokenBreakdown {
         input: 0,
         output: 0,
@@ -364,6 +369,13 @@ pub fn compute_stats(path: &[&Event]) -> SessionStats {
                 tokens.cache_read = tokens
                     .cache_read
                     .saturating_add(usage.cache_read_input_tokens);
+                // Current context-window size = the last real turn's full input.
+                if a.message.model.as_deref() != Some("<synthetic>") {
+                    context_tokens = usage
+                        .input_tokens
+                        .saturating_add(usage.cache_creation_input_tokens)
+                        .saturating_add(usage.cache_read_input_tokens);
+                }
             }
         }
     }
@@ -385,6 +397,7 @@ pub fn compute_stats(path: &[&Event]) -> SessionStats {
         duration_secs,
         models,
         tokens,
+        context_tokens,
     }
 }
 
