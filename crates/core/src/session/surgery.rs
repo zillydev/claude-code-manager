@@ -28,10 +28,10 @@ fn is_real_user(line: &RawLine) -> bool {
 
 /// Partition the active path into inclusive `(start, end)` turn spans. A real
 /// user message is its own single-line turn; an assistant turn begins with an
-/// assistant line and absorbs any immediately following tool_result user lines,
-/// stopping at the next real user message OR the next assistant line (so that a
-/// tool round-trip B→tool_result→C produces two separate turns: `[B, tool_result]`
-/// and `[C]`, rather than one large span).
+/// assistant line and extends until the next real user message, absorbing all
+/// interleaved tool_result lines and consecutive assistant lines. This mirrors
+/// the webui renderer, which merges consecutive assistant events across the
+/// suppressed tool_result lines into one displayed turn.
 fn turn_spans(active: &[&RawLine]) -> Vec<(usize, usize)> {
     let mut spans = Vec::new();
     let n = active.len();
@@ -41,8 +41,12 @@ fn turn_spans(active: &[&RawLine]) -> Vec<(usize, usize)> {
         if is_real_user(active[i]) {
             i += 1;
         } else {
+            // Assistant turn: absorb following tool_result lines AND consecutive
+            // assistant lines until the next real user message. Mirrors the
+            // webui renderer, which merges consecutive assistant events across
+            // the suppressed tool_result line into one turn.
             i += 1;
-            while i < n && !is_real_user(active[i]) && active[i].kind != "assistant" {
+            while i < n && !is_real_user(active[i]) {
                 i += 1;
             }
         }
@@ -115,11 +119,12 @@ mod tests {
         let p = fixture();
         let lines = read_raw(&p).unwrap();
         let active = active_path(&lines);
-        // from = assistant B head, to = assistant B head: the turn is B + its
-        // tool_result line (indices 1..=2).
+        // from = assistant B head, to = assistant B head. B's turn absorbs the
+        // tool_result line AND the following assistant text C (mirrors the
+        // renderer merging consecutive assistant events) → indices 1..=3.
         let b = "00000000-0000-0000-0000-0000000000b2".parse().unwrap();
         let (a_start, b_end) = snap_range(&active, b, b).unwrap();
-        assert_eq!((a_start, b_end), (1, 2));
+        assert_eq!((a_start, b_end), (1, 3));
         std::fs::remove_file(&p).ok();
     }
 
