@@ -11,6 +11,10 @@ use super::edit::{commit, CommitOpts, CommitResult};
 use super::raw::{active_path, read_raw, RawLine};
 use crate::store::paths;
 
+fn is_message(l: &RawLine) -> bool {
+    l.kind == "user" || l.kind == "assistant"
+}
+
 /// A user line is a "real" message unless its content is an array consisting
 /// entirely of `tool_result` blocks — those belong to the preceding assistant
 /// turn, not a user prompt.
@@ -232,10 +236,12 @@ pub fn rewrite(
     let active = active_path(&lines);
     let (a, b) = snap_range(&active, from, to)?;
 
-    let is_msg = |l: &&&RawLine| l.kind == "user" || l.kind == "assistant";
-    let messages_before = active.iter().filter(is_msg).count();
+    let messages_before = active.iter().filter(|l| is_message(l)).count();
     let removed_bytes: usize = active[a..=b].iter().map(|l| l.value.to_string().len()).sum();
 
+    // Inherit the source session's cwd so the new session lands in the same
+    // project dir. Falls back to "." only for a session with no cwd anywhere
+    // (e.g. a metadata-only stub) — harmless, just an unusual target dir.
     let cwd = active
         .iter()
         .find_map(|l| l.value.get("cwd").and_then(|v| v.as_str()).map(|s| s.to_string()))
@@ -269,7 +275,7 @@ pub fn rewrite(
     }
     path_refs.extend(active[b + 1..].iter().copied());
 
-    if path_refs.iter().filter(|l| is_msg(l)).count() == 0 {
+    if path_refs.iter().filter(|l| is_message(l)).count() == 0 {
         return Err(anyhow!("refusing: the result would contain no messages"));
     }
 
@@ -438,6 +444,20 @@ mod tests {
         let root = std::env::temp_dir().join(format!("cm-surg-root-e-{}", std::process::id()));
         let a = "00000000-0000-0000-0000-0000000000a1".parse().unwrap();
         assert!(rewrite(&root, &p, a, a, RewriteMode::Summary, None).is_err());
+        std::fs::remove_file(&p).ok();
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn prune_keeps_tool_pairs_intact_no_repairs() {
+        // Pruning B's turn removes the tool_use T1 AND its tool_result together
+        // (turn-snapping absorbs the tool_result), so no orphan is created and
+        // the commit pipeline performs no tool-pairing repairs.
+        let p = fixture();
+        let root = std::env::temp_dir().join(format!("cm-surg-root-np-{}", std::process::id()));
+        let b = "00000000-0000-0000-0000-0000000000b2".parse().unwrap();
+        let out = rewrite(&root, &p, b, b, RewriteMode::Prune, None).unwrap();
+        assert!(out.commit.repairs.is_empty(), "clean turn-aligned cut should need no repairs");
         std::fs::remove_file(&p).ok();
         std::fs::remove_dir_all(&root).ok();
     }
