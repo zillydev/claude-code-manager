@@ -290,3 +290,19 @@ pub fn fork_session(
     let opts = CommitOpts { target_cwd: cwd, git_branch, custom_title };
     commit(&root, &prefix, &opts).map_err(|e| e.to_string())
 }
+
+/// Delete a single message (turn) by its uuid, writing a new flattened session
+/// (copy-on-edit). Reuses the surgery prune path: passing the turn's uuid as
+/// both ends of the range turn-snaps to the whole turn (an assistant turn pulls
+/// in its tool calls + results), repairs tool-pairing across the cut, and
+/// refuses a delete that would leave a leading assistant message.
+#[tauri::command]
+pub fn delete_message(file_path: String, message_uuid: String) -> Result<CommitResult, String> {
+    use claude_manager_core::session::surgery::{rewrite, RewriteMode};
+    let root = paths::default_claude_root().ok_or("could not locate ~/.claude")?;
+    let path = PathBuf::from(&file_path);
+    let id = uuid::Uuid::parse_str(&message_uuid)
+        .map_err(|e| format!("invalid message uuid: {e}"))?;
+    let out = rewrite(&root, &path, id, id, RewriteMode::Prune, None).map_err(|e| e.to_string())?;
+    Ok(out.commit)
+}

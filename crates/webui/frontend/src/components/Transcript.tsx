@@ -121,6 +121,11 @@ export default function Transcript({ session, onBack }: Props) {
                   editor.fork(sourcePath, turn.fork_index);
                 }
               }}
+              onDelete={() => {
+                if (turn.type === "user" || turn.type === "assistant") {
+                  editor.deleteMessage(sourcePath, turn.uuid);
+                }
+              }}
             />
           );
         })}
@@ -257,6 +262,7 @@ function Turn({
   onCancelEdit,
   onSaveEdit,
   onFork,
+  onDelete,
 }: {
   turn: RenderedTurn;
   editing: boolean;
@@ -266,6 +272,7 @@ function Turn({
   onCancelEdit: () => void;
   onSaveEdit: () => void;
   onFork: () => void;
+  onDelete: () => void;
 }) {
   const ts = turn.timestamp ? formatTime(turn.timestamp) : "--:--";
 
@@ -276,7 +283,7 @@ function Turn({
           <div className="flex items-baseline gap-2 mb-1">
             <span className="text-xs text-[var(--color-text-dim)]">{ts}</span>
             <span className="font-medium text-[var(--color-user)]">user</span>
-            <TurnActions onEdit={() => onStartEdit(turn.text)} onFork={onFork} messageId={turn.uuid} />
+            <TurnActions onEdit={() => onStartEdit(turn.text)} onFork={onFork} onDelete={onDelete} messageId={turn.uuid} />
           </div>
           {editing ? (
             <EditBox draft={draft} onChange={onChangeDraft} onSave={onSaveEdit} onCancel={onCancelEdit} />
@@ -305,6 +312,7 @@ function Turn({
                 onStartEdit(firstText && firstText.type === "text" ? firstText.text : "");
               }}
               onFork={onFork}
+              onDelete={onDelete}
               messageId={turn.uuid}
             />
           </div>
@@ -339,13 +347,16 @@ function Turn({
 function TurnActions({
   onEdit,
   onFork,
+  onDelete,
   messageId,
 }: {
   onEdit: () => void;
   onFork: () => void;
+  onDelete: () => void;
   messageId: string;
 }) {
   const [copied, setCopied] = useState(false);
+  const [confirming, setConfirming] = useState(false);
   const btn =
     "text-[10px] px-1.5 py-0.5 rounded border border-[var(--color-border)] text-[var(--color-text-dim)] hover:border-[var(--color-accent)] hover:text-[var(--color-accent)]";
   return (
@@ -360,6 +371,31 @@ function TurnActions({
       >
         fork from here
       </button>
+      {confirming ? (
+        <span className="flex gap-1 items-center">
+          <span className="text-[10px] text-[var(--color-error)]">delete?</span>
+          <button
+            onClick={() => {
+              setConfirming(false);
+              onDelete();
+            }}
+            className="text-[10px] px-1.5 py-0.5 rounded border border-[var(--color-error)] text-[var(--color-error)]"
+          >
+            yes
+          </button>
+          <button onClick={() => setConfirming(false)} className={btn}>
+            no
+          </button>
+        </span>
+      ) : (
+        <button
+          onClick={() => setConfirming(true)}
+          className={btn}
+          title="Delete this message (writes a new session without it)"
+        >
+          delete
+        </button>
+      )}
       {messageId && (
         <button
           onClick={() => {

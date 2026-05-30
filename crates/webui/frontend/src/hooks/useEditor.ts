@@ -52,7 +52,28 @@ export function useEditor() {
     []
   );
 
+  const deleteMessage = useCallback(
+    async (filePath: string, messageUuid: string) => {
+      setBusy(true);
+      setError(null);
+      try {
+        const res = await invoke<CommitResult>("delete_message", {
+          filePath,
+          messageUuid,
+        });
+        setResult(res);
+        return res;
+      } catch (e) {
+        setError(String(e));
+        return null;
+      } finally {
+        setBusy(false);
+      }
+    },
+    []
+  );
+
   const dismiss = useCallback(() => setResult(null), []);
 
-  return { result, busy, error, commitEdit, fork, dismiss };
+  return { result, busy, error, commitEdit, fork, deleteMessage, dismiss };
 }
