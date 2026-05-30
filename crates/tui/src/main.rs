@@ -5,13 +5,15 @@ use std::io;
 use std::path::PathBuf;
 
 use anyhow::{Context, Result};
-use clap::Parser;
+use clap::{Parser, Subcommand};
 use crossterm::execute;
 use crossterm::terminal::{
     disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen,
 };
 use ratatui::backend::CrosstermBackend;
 use ratatui::Terminal;
+
+use uuid::Uuid;
 
 use claude_manager_core::session::summary;
 use claude_manager_core::store;
@@ -31,6 +33,49 @@ struct Cli {
     /// Dev: fork an existing session file to a new flattened session, print the new id, then exit.
     #[arg(long)]
     fork_test: Option<std::path::PathBuf>,
+
+    #[command(subcommand)]
+    command: Option<Command>,
+}
+
+#[derive(Subcommand, Debug)]
+enum Command {
+    /// Rewrite session history to reduce context (summarize or prune a range).
+    Surgery {
+        #[command(subcommand)]
+        op: SurgeryOp,
+    },
+}
+
+#[derive(Subcommand, Debug)]
+enum SurgeryOp {
+    /// Print the messages in the range [from..to] (turn-snapped) for summarizing.
+    Extract {
+        /// Session file path or bare session id.
+        #[arg(long)]
+        session: String,
+        /// Start message id (uuid).
+        #[arg(long)]
+        from: String,
+        /// End message id (uuid).
+        #[arg(long)]
+        to: String,
+    },
+    /// Write a new session with the range pruned or replaced by a summary.
+    Rewrite {
+        #[arg(long)]
+        session: String,
+        #[arg(long)]
+        from: String,
+        #[arg(long)]
+        to: String,
+        /// "prune" or "summary".
+        #[arg(long)]
+        mode: String,
+        /// File containing the summary text (required for --mode summary).
+        #[arg(long)]
+        summary_file: Option<PathBuf>,
+    },
 }
 
 fn main() -> Result<()> {
@@ -39,6 +84,44 @@ fn main() -> Result<()> {
         .root
         .or_else(paths::default_claude_root)
         .context("could not locate ~/.claude (HOME unset?)")?;
+
+    if let Some(Command::Surgery { op }) = &cli.command {
+        use claude_manager_core::session::surgery::{self, RewriteMode};
+        match op {
+            SurgeryOp::Extract { session, from, to } => {
+                let path = surgery::resolve_session_path(&root, session)?;
+                let a = Uuid::parse_str(from).context("invalid --from uuid")?;
+                let b = Uuid::parse_str(to).context("invalid --to uuid")?;
+                print!("{}", surgery::extract(&path, a, b)?);
+            }
+            SurgeryOp::Rewrite { session, from, to, mode, summary_file } => {
+                let path = surgery::resolve_session_path(&root, session)?;
+                let a = Uuid::parse_str(from).context("invalid --from uuid")?;
+                let b = Uuid::parse_str(to).context("invalid --to uuid")?;
+                let m = match mode.as_str() {
+                    "prune" => RewriteMode::Prune,
+                    "summary" => RewriteMode::Summary,
+                    other => anyhow::bail!("--mode must be 'prune' or 'summary', got '{}'", other),
+                };
+                let summary_text = match summary_file {
+                    Some(f) => Some(std::fs::read_to_string(f).context("could not read --summary-file")?),
+                    None => None,
+                };
+                let out = surgery::rewrite(&root, &path, a, b, m, summary_text.as_deref())?;
+                println!("new session: {}", out.commit.new_session_id);
+                println!("path: {}", out.commit.new_path);
+                println!("resume with: claude --resume {}", out.commit.new_session_id);
+                println!(
+                    "messages: {} -> {}  (removed ~{} bytes)",
+                    out.messages_before, out.messages_after, out.removed_bytes
+                );
+                if !out.commit.repairs.is_empty() {
+                    println!("tool-pairing repairs: {}", out.commit.repairs.len());
+                }
+            }
+        }
+        return Ok(());
+    }
 
     if let Some(src) = cli.fork_test.clone() {
         use claude_manager_core::session::edit::{commit, CommitOpts};
