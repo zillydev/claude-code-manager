@@ -16,7 +16,7 @@ pub struct RawLine {
 }
 
 impl RawLine {
-    fn from_value(value: Value) -> Self {
+    pub fn from_value(value: Value) -> Self {
         let uuid = value
             .get("uuid")
             .and_then(Value::as_str)

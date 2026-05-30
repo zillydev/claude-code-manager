@@ -4,6 +4,7 @@ pub mod parse;
 pub mod raw;
 pub mod render;
 pub mod summary;
+pub mod surgery;
 pub mod tree;
 
 use std::path::PathBuf;
