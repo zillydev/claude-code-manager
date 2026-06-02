@@ -1,6 +1,7 @@
 use std::path::Path;
 
 use anyhow::Result;
+use chrono::{SecondsFormat, Utc};
 use serde::Serialize;
 use serde_json::{json, Value};
 use uuid::Uuid;
@@ -115,6 +116,24 @@ pub fn commit(root: &Path, path_lines: &[&RawLine], opts: &CommitOpts) -> Result
 
     // 2. Tool-pairing repair.
     let repairs = repair_tool_pairing(&mut values);
+
+    // 2.5. Backfill timestamps. Claude Code's session discovery rejects a file
+    // with a null/absent `timestamp` on a message line, so every emitted message
+    // must carry a valid timestamp. Synthesized lines (a surgery summary, a
+    // repaired tool_result) and any source message lacking one are filled by
+    // carrying forward the last valid timestamp; a leading gap (no prior valid
+    // ts) uses the first valid timestamp in the list, else now.
+    let fallback_ts = values
+        .iter()
+        .find_map(|v| v.get("timestamp").and_then(Value::as_str).map(str::to_string))
+        .unwrap_or_else(|| Utc::now().to_rfc3339_opts(SecondsFormat::Millis, true));
+    let mut last_ts = fallback_ts;
+    for v in values.iter_mut() {
+        match v.get("timestamp").and_then(Value::as_str) {
+            Some(ts) => last_ts = ts.to_string(),
+            None => set_str(v, "timestamp", &last_ts),
+        }
+    }
 
     // 3. Regenerate uuids + relink parentUuid; stamp identity.
     let new_session = Uuid::new_v4();
@@ -310,6 +329,41 @@ mod tests {
         let v = validate(&[assistant, user]);
         assert!(v.iter().any(|x| x.kind == "dangling_tool_use" && x.detail == "T1"));
         assert!(v.iter().any(|x| x.kind == "orphan_tool_result" && x.detail == "T9"));
+    }
+
+    #[test]
+    fn commit_backfills_null_and_missing_timestamps() {
+        // a1 has a timestamp; b2 has timestamp:null; c3 has no timestamp field.
+        // Claude Code's discovery rejects a session with a null-timestamp message,
+        // so every emitted message must come out with a non-null string timestamp.
+        let body = concat!(
+            r#"{"type":"user","uuid":"00000000-0000-0000-0000-0000000000a1","parentUuid":null,"timestamp":"2026-05-22T10:00:00.000Z","message":{"role":"user","content":"hello"}}"#, "\n",
+            r#"{"type":"assistant","uuid":"00000000-0000-0000-0000-0000000000b2","parentUuid":"00000000-0000-0000-0000-0000000000a1","timestamp":null,"message":{"role":"assistant","content":[{"type":"text","text":"hi"}]}}"#, "\n",
+            r#"{"type":"user","uuid":"00000000-0000-0000-0000-0000000000c3","parentUuid":"00000000-0000-0000-0000-0000000000b2","message":{"role":"user","content":"bye"}}"#, "\n"
+        );
+        let src = write_tmp("ts-backfill", body);
+        let lines = read_raw(&src).unwrap();
+        let path = active_path(&lines);
+        let root = std::env::temp_dir().join(format!("cm-root-ts-{}", std::process::id()));
+        let opts = CommitOpts { target_cwd: "/tmp/p".into(), git_branch: None, custom_title: None };
+        let res = commit(&root, &path, &opts).unwrap();
+
+        let written = read_raw(std::path::Path::new(&res.new_path)).unwrap();
+        let msgs: Vec<&RawLine> = written
+            .iter()
+            .filter(|l| l.kind == "user" || l.kind == "assistant")
+            .collect();
+        assert_eq!(msgs.len(), 3);
+        for m in &msgs {
+            let ts = m.value.get("timestamp").and_then(|v| v.as_str());
+            assert!(
+                ts.map(|s| !s.is_empty()).unwrap_or(false),
+                "every emitted message must have a non-null timestamp; got {:?}",
+                m.value.get("timestamp")
+            );
+        }
+        std::fs::remove_file(&src).ok();
+        std::fs::remove_dir_all(&root).ok();
     }
 
     #[test]

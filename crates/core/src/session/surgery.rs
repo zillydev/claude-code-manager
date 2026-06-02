@@ -427,6 +427,28 @@ mod tests {
     }
 
     #[test]
+    fn summary_message_has_timestamp() {
+        // The inserted summary line is built without a timestamp; commit must
+        // backfill one, or Claude Code's discovery rejects the resumed file.
+        let p = fixture();
+        let root = std::env::temp_dir().join(format!("cm-surg-root-ts-{}", std::process::id()));
+        let b = "00000000-0000-0000-0000-0000000000b2".parse().unwrap();
+        let out = rewrite(&root, &p, b, b, RewriteMode::Summary, Some("the summary")).unwrap();
+        let written = read_raw(std::path::Path::new(&out.commit.new_path)).unwrap();
+        // Every emitted message line — including the inserted summary — has a ts.
+        for m in written.iter().filter(|l| l.kind == "user" || l.kind == "assistant") {
+            let ts = m.value.get("timestamp").and_then(|v| v.as_str());
+            assert!(
+                ts.map(|s| !s.is_empty()).unwrap_or(false),
+                "message line missing timestamp: {}",
+                m.value
+            );
+        }
+        std::fs::remove_file(&p).ok();
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
     fn summary_inserts_one_message() {
         let p = fixture();
         let root = std::env::temp_dir().join(format!("cm-surg-root-s-{}", std::process::id()));
