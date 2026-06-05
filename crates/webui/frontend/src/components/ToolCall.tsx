@@ -1,12 +1,17 @@
 import { useState } from "react";
 import type { RenderedBlock, ToolCallResult } from "../types";
+import { makeSegId } from "../lib/segments";
 
 interface Props {
   block: Extract<RenderedBlock, { type: "tool_call" }>;
+  turnIndex: number;
+  blockIndex: number;
+  forceExpand?: boolean;
 }
 
-export default function ToolCall({ block }: Props) {
+export default function ToolCall({ block, turnIndex, blockIndex, forceExpand }: Props) {
   const [expanded, setExpanded] = useState(false);
+  const open = expanded || !!forceExpand;
 
   return (
     <div className="my-1">
@@ -15,9 +20,12 @@ export default function ToolCall({ block }: Props) {
         className="flex items-baseline text-left w-full hover:bg-[var(--color-surface-hover)] rounded px-2 py-1 transition-colors"
       >
         <span className="text-[var(--color-tool)] w-4 shrink-0 text-center">
-          {expanded ? "▾" : "▸"}
+          {open ? "▾" : "▸"}
         </span>
-        <span className="text-[var(--color-tool)] font-semibold text-sm shrink-0 mr-1.5">
+        <span
+          data-seg-id={makeSegId(turnIndex, blockIndex, "tool-name")}
+          className="text-[var(--color-tool)] font-semibold text-sm shrink-0 mr-1.5"
+        >
           {block.name}:
         </span>
         <span className="text-[var(--color-text-dim)] text-xs truncate min-w-0">
@@ -25,11 +33,11 @@ export default function ToolCall({ block }: Props) {
         </span>
       </button>
 
-      {expanded && (
+      {open && (
         <div className="ml-4">
-          <ToolInput input={block.input_full} />
+          <ToolInput input={block.input_full} segId={makeSegId(turnIndex, blockIndex, "tool-input")} />
           {block.result ? (
-            <ToolResult result={block.result} />
+            <ToolResult result={block.result} segId={makeSegId(turnIndex, blockIndex, "tool-result")} />
           ) : (
             <div className="px-3 py-1.5 text-xs text-[var(--color-text-dim)] italic">
               (no result)
@@ -41,9 +49,10 @@ export default function ToolCall({ block }: Props) {
   );
 }
 
-function ToolInput({ input }: { input: Record<string, unknown> }) {
+function ToolInput({ input, segId }: { input: Record<string, unknown>; segId: string }) {
   return (
     <pre
+      data-seg-id={segId}
       className="px-3 py-2 rounded text-xs whitespace-pre-wrap break-words overflow-hidden border-l-2 border-l-[var(--color-tool)] bg-[var(--color-tool-result-bg)] text-[var(--color-text)] mb-1"
       style={{ maxHeight: "300px", overflowY: "auto" }}
     >
@@ -52,9 +61,10 @@ function ToolInput({ input }: { input: Record<string, unknown> }) {
   );
 }
 
-function ToolResult({ result }: { result: ToolCallResult }) {
+function ToolResult({ result, segId }: { result: ToolCallResult; segId: string }) {
   return (
     <pre
+      data-seg-id={segId}
       className={`px-3 py-2 rounded text-xs whitespace-pre-wrap break-words overflow-hidden border-l-2 ${
         result.is_error
           ? "border-l-[var(--color-error)] bg-[var(--color-tool-result-bg)] text-[var(--color-error)]"
