@@ -60,7 +60,7 @@ export default function Transcript({ session, onBack }: Props) {
     : session.turns;
 
   return (
-    <div className="flex flex-col h-full relative">
+    <div className="flex flex-col h-full">
       {/* Header bar */}
       <div className="flex items-center gap-3 px-4 py-2.5 border-b border-[var(--color-border)] bg-[var(--color-surface)] shrink-0">
         <button
@@ -109,21 +109,25 @@ export default function Transcript({ session, onBack }: Props) {
       )}
 
       {/* Turns */}
-      {find.open && (
-        <FindBar
-          query={find.query}
-          setQuery={find.setQuery}
-          opts={find.opts}
-          setOpts={find.setOpts}
-          count={find.count}
-          activeIndex={find.activeIndex}
-          error={find.error}
-          onNext={find.next}
-          onPrev={find.prev}
-          onClose={find.close}
-        />
-      )}
       <div ref={turnsRef} className="flex-1 overflow-y-auto overflow-x-hidden px-4 py-4 space-y-4">
+        {find.open && (
+          <div className="sticky top-0 z-20 flex justify-end pointer-events-none">
+            <div className="pointer-events-auto">
+              <FindBar
+                query={find.query}
+                setQuery={find.setQuery}
+                opts={find.opts}
+                setOpts={find.setOpts}
+                count={find.count}
+                activeIndex={find.activeIndex}
+                error={find.error}
+                onNext={find.next}
+                onPrev={find.prev}
+                onClose={find.close}
+              />
+            </div>
+          </div>
+        )}
         {editor.result && (
           <CommitResultBanner result={editor.result} onDismiss={editor.dismiss} />
         )}

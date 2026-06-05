@@ -49,7 +49,7 @@ export default function FindBar({
       : `${activeIndex + 1} / ${count}`;
 
   return (
-    <div className="absolute top-2 right-4 z-10 flex items-center gap-2 px-2 py-1.5 rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] shadow-lg">
+    <div className="flex items-center gap-2 px-2 py-1.5 rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] shadow-lg">
       <input
         ref={inputRef}
         value={query}
