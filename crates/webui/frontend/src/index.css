@@ -102,3 +102,18 @@ html, body, #root {
 ::-webkit-scrollbar-thumb:hover {
   background: var(--color-text-dim);
 }
+
+/* In-session find highlights (CSS Custom Highlight API) */
+::highlight(cm-find) {
+  background-color: rgba(210, 153, 34, 0.30);
+}
+::highlight(cm-find-active) {
+  background-color: var(--color-system);
+  color: var(--color-bg);
+}
+/* Fallback flash when the Highlight API is unavailable */
+.cm-flash {
+  outline: 2px solid var(--color-system);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
