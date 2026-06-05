@@ -19,6 +19,7 @@ export interface UseFind {
   error: string | null;
   next: () => void;
   prev: () => void;
+  goTo: (index: number) => void;
   revealedToolKeys: Set<string>;
 }
 
@@ -99,6 +100,10 @@ export function useFind(containerRef: React.RefObject<HTMLElement | null>, turns
   const prev = useCallback(() => {
     setActiveIndex((i) => (matches.length === 0 ? 0 : (i - 1 + matches.length) % matches.length));
   }, [matches.length]);
+  // Jump directly to a 0-based match index, clamped into range.
+  const goTo = useCallback((index: number) => {
+    setActiveIndex(() => (matches.length === 0 ? 0 : Math.max(0, Math.min(index, matches.length - 1))));
+  }, [matches.length]);
 
   return {
     open,
@@ -113,6 +118,7 @@ export function useFind(containerRef: React.RefObject<HTMLElement | null>, turns
     error,
     next,
     prev,
+    goTo,
     revealedToolKeys,
   };
 }

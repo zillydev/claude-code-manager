@@ -123,6 +123,7 @@ export default function Transcript({ session, onBack }: Props) {
                 error={find.error}
                 onNext={find.next}
                 onPrev={find.prev}
+                onGoto={find.goTo}
                 onClose={find.close}
               />
             </div>
