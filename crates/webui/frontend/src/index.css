@@ -103,14 +103,9 @@ html, body, #root {
   background: var(--color-text-dim);
 }
 
-/* In-session find highlights (CSS Custom Highlight API) */
-::highlight(cm-find) {
-  background-color: rgba(210, 153, 34, 0.30);
-}
-::highlight(cm-find-active) {
-  background-color: var(--color-system);
-  color: var(--color-bg);
-}
+/* In-session find: the ::highlight(cm-find) / ::highlight(cm-find-active) rules
+   live as a raw <style> in index.html — lightningcss does not recognize the
+   ::highlight() pseudo-element and strips it from this processed stylesheet. */
 /* Fallback flash when the Highlight API is unavailable */
 .cm-flash {
   outline: 2px solid var(--color-system);
