@@ -188,6 +188,10 @@ function filterCompact(turns: RenderedTurn[]): RenderedTurn[] {
     if (turns[i].type === "user") userIndices.push(i);
   }
   const visible = new Set<number>();
+  // Always keep compaction dividers so the boundary stays marked in compact view.
+  for (let i = 0; i < turns.length; i++) {
+    if (turns[i].type === "compaction") visible.add(i);
+  }
   for (const ui of userIndices) {
     visible.add(ui);
     // Assistant turn just before this user message
