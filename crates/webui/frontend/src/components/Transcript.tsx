@@ -12,6 +12,7 @@ import { useEditor } from "../hooks/useEditor";
 import CommitResultBanner from "./CommitResultBanner";
 import FindBar from "./FindBar";
 import { useFind } from "../hooks/useFind";
+import { usePersistentState } from "../hooks/usePersistentState";
 import { makeSegId } from "../lib/segments";
 
 interface Props {
@@ -20,7 +21,7 @@ interface Props {
 }
 
 export default function Transcript({ session, onBack }: Props) {
-  const [statsOpen, setStatsOpen] = useState(true);
+  const [statsOpen, setStatsOpen] = usePersistentState("cm.detailsOpen", true);
   const [compact, setCompact] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
   const turnsRef = useRef<HTMLDivElement>(null);
