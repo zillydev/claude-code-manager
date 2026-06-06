@@ -102,3 +102,13 @@ html, body, #root {
 ::-webkit-scrollbar-thumb:hover {
   background: var(--color-text-dim);
 }
+
+/* In-session find: the ::highlight(cm-find) / ::highlight(cm-find-active) rules
+   live as a raw <style> in index.html — lightningcss does not recognize the
+   ::highlight() pseudo-element and strips it from this processed stylesheet. */
+/* Fallback flash when the Highlight API is unavailable */
+.cm-flash {
+  outline: 2px solid var(--color-system);
+  outline-offset: 2px;
+  border-radius: 2px;
+}

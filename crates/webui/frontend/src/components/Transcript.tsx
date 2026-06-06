@@ -10,6 +10,9 @@ import type {
 import ToolCall from "./ToolCall";
 import { useEditor } from "../hooks/useEditor";
 import CommitResultBanner from "./CommitResultBanner";
+import FindBar from "./FindBar";
+import { useFind } from "../hooks/useFind";
+import { makeSegId } from "../lib/segments";
 
 interface Props {
   session: RenderedSession;
@@ -20,19 +23,39 @@ export default function Transcript({ session, onBack }: Props) {
   const [statsOpen, setStatsOpen] = useState(true);
   const [compact, setCompact] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const turnsRef = useRef<HTMLDivElement>(null);
 
   const editor = useEditor();
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
   const [draft, setDraft] = useState("");
   const sourcePath = session.source_path;
 
+  const find = useFind(turnsRef, session.turns);
+  const { openFind, next: findNext, prev: findPrev } = find;
+
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [session.turns.length]);
 
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "f") {
+        e.preventDefault();
+        openFind();
+      } else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "g") {
+        e.preventDefault();
+        if (e.shiftKey) findPrev();
+        else findNext();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [openFind, findNext, findPrev]);
+
   const { stats } = session;
 
-  const visibleTurns = compact
+  // Suspend compact while find is open so every match is mounted & countable.
+  const visibleTurns = compact && !find.open
     ? filterCompact(session.turns)
     : session.turns;
 
@@ -86,7 +109,26 @@ export default function Transcript({ session, onBack }: Props) {
       )}
 
       {/* Turns */}
-      <div className="flex-1 overflow-y-auto overflow-x-hidden px-4 py-4 space-y-4">
+      <div ref={turnsRef} className="flex-1 overflow-y-auto overflow-x-hidden px-4 py-4 space-y-4">
+        {find.open && (
+          <div className="sticky top-0 z-20 flex justify-end pointer-events-none">
+            <div className="pointer-events-auto">
+              <FindBar
+                query={find.query}
+                setQuery={find.setQuery}
+                opts={find.opts}
+                setOpts={find.setOpts}
+                count={find.count}
+                activeIndex={find.activeIndex}
+                error={find.error}
+                onNext={find.next}
+                onPrev={find.prev}
+                onGoto={find.goTo}
+                onClose={find.close}
+              />
+            </div>
+          </div>
+        )}
         {editor.result && (
           <CommitResultBanner result={editor.result} onDismiss={editor.dismiss} />
         )}
@@ -100,6 +142,8 @@ export default function Transcript({ session, onBack }: Props) {
             <Turn
               key={i}
               turn={turn}
+              turnIndex={i}
+              revealedToolKeys={find.revealedToolKeys}
               editing={editIndex !== null && editingIndex === editIndex}
               draft={draft}
               onStartEdit={(text) => {
@@ -255,6 +299,8 @@ function StatsPanel({
 
 function Turn({
   turn,
+  turnIndex,
+  revealedToolKeys,
   editing,
   draft,
   onStartEdit,
@@ -265,6 +311,8 @@ function Turn({
   onDelete,
 }: {
   turn: RenderedTurn;
+  turnIndex: number;
+  revealedToolKeys: Set<string>;
   editing: boolean;
   draft: string;
   onStartEdit: (text: string) => void;
@@ -288,7 +336,12 @@ function Turn({
           {editing ? (
             <EditBox draft={draft} onChange={onChangeDraft} onSave={onSaveEdit} onCancel={onCancelEdit} />
           ) : (
-            <div className="pl-4 text-sm whitespace-pre-wrap break-words">{turn.text}</div>
+            <div
+              data-seg-id={makeSegId(turnIndex, null, "user-text")}
+              className="pl-4 text-sm whitespace-pre-wrap break-words"
+            >
+              {turn.text}
+            </div>
           )}
         </div>
       );
@@ -321,7 +374,13 @@ function Turn({
           )}
           <div className="pl-4">
             {turn.blocks.map((block, j) => (
-              <BlockRenderer key={j} block={block} />
+              <BlockRenderer
+                key={j}
+                block={block}
+                turnIndex={turnIndex}
+                blockIndex={j}
+                revealedToolKeys={revealedToolKeys}
+              />
             ))}
           </div>
         </div>
@@ -330,7 +389,8 @@ function Turn({
     case "system":
       return (
         <div className="text-[var(--color-system)] text-sm opacity-70">
-          <span className="text-xs">{ts}</span> system: {turn.content}
+          <span className="text-xs">{ts}</span> system:{" "}
+          <span data-seg-id={makeSegId(turnIndex, null, "system")}>{turn.content}</span>
         </div>
       );
 
@@ -338,7 +398,12 @@ function Turn({
       return (
         <div className="border-t border-b border-[var(--color-border)] py-2 my-2 text-xs text-[var(--color-text-dim)] italic">
           ── compaction summary ──
-          <div className="mt-1 whitespace-pre-wrap break-words">{turn.content}</div>
+          <div
+            data-seg-id={makeSegId(turnIndex, null, "summary")}
+            className="mt-1 whitespace-pre-wrap break-words"
+          >
+            {turn.content}
+          </div>
         </div>
       );
   }
@@ -448,11 +513,24 @@ function EditBox({
   );
 }
 
-function BlockRenderer({ block }: { block: RenderedBlock }) {
+function BlockRenderer({
+  block,
+  turnIndex,
+  blockIndex,
+  revealedToolKeys,
+}: {
+  block: RenderedBlock;
+  turnIndex: number;
+  blockIndex: number;
+  revealedToolKeys: Set<string>;
+}) {
   switch (block.type) {
     case "text":
       return (
-        <div className="prose prose-sm prose-invert max-w-none mb-2">
+        <div
+          data-seg-id={makeSegId(turnIndex, blockIndex, "assistant-text")}
+          className="prose prose-sm prose-invert max-w-none mb-2"
+        >
           <Markdown components={{ a: ExternalLink }}>{block.text}</Markdown>
         </div>
       );
@@ -461,7 +539,14 @@ function BlockRenderer({ block }: { block: RenderedBlock }) {
       return null;
 
     case "tool_call":
-      return <ToolCall block={block} />;
+      return (
+        <ToolCall
+          block={block}
+          turnIndex={turnIndex}
+          blockIndex={blockIndex}
+          forceExpand={revealedToolKeys.has(`${turnIndex}:${blockIndex}`)}
+        />
+      );
   }
 }
 
