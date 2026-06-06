@@ -22,7 +22,7 @@ interface Props {
 
 export default function Transcript({ session, onBack }: Props) {
   const [statsOpen, setStatsOpen] = usePersistentState("cm.detailsOpen", true);
-  const [compact, setCompact] = useState(false);
+  const [compact, setCompact] = usePersistentState("cm.compact", false);
   const bottomRef = useRef<HTMLDivElement>(null);
   const turnsRef = useRef<HTMLDivElement>(null);
 
