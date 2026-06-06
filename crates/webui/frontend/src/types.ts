@@ -52,6 +52,7 @@ export type RenderedTurn =
       uuid: string;
       edit_index: number;
       fork_index: number;
+      editable: boolean;
     }
   | {
       type: "assistant";
@@ -61,9 +62,11 @@ export type RenderedTurn =
       uuid: string;
       edit_index: number;
       fork_index: number;
+      editable: boolean;
     }
   | { type: "system"; timestamp: string | null; content: string }
-  | { type: "summary"; timestamp: string | null; content: string };
+  | { type: "summary"; timestamp: string | null; content: string }
+  | { type: "compaction"; messages_before: number };
 
 export type RenderedBlock =
   | { type: "text"; text: string }

@@ -57,6 +57,10 @@ pub enum RenderedTurn {
         /// Used directly as both the edit target and the fork point.
         edit_index: usize,
         fork_index: usize,
+        /// True only on the active (post-compaction) segment. Pre-compaction
+        /// turns are view-only; their indices are segment-local and must not be
+        /// used by the backend.
+        editable: bool,
     },
     #[serde(rename = "assistant")]
     Assistant {
@@ -71,6 +75,7 @@ pub enum RenderedTurn {
         /// Message index of the LAST merged assistant event, so a fork includes
         /// the whole reply plus its interleaved tool-result lines.
         fork_index: usize,
+        editable: bool,
     },
     #[serde(rename = "system")]
     System {
@@ -82,6 +87,11 @@ pub enum RenderedTurn {
         timestamp: Option<DateTime<Utc>>,
         content: String,
     },
+    /// A boundary between two conversation trees in the same file (an
+    /// auto-compaction point). `messages_before` counts the user/assistant turns
+    /// in the segment immediately above this divider.
+    #[serde(rename = "compaction")]
+    Compaction { messages_before: usize },
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -107,11 +117,10 @@ pub struct ToolCallResult {
     pub is_error: bool,
 }
 
-/// Render a fully-parsed session into a flattened, frontend-ready structure.
-/// Resolves the conversation tree and pairs tool calls with their results.
-pub fn render_session(session: &Session) -> RenderedSession {
-    let path = session.current_path();
-    let tool_results = collect_tool_results(&path);
+/// Render one conversation path (a single tree's active path) into turns.
+/// `editable` marks whether these turns belong to the active segment.
+fn render_path_turns(path: &[&Event], editable: bool) -> Vec<RenderedTurn> {
+    let tool_results = collect_tool_results(path);
 
     // Track user events that are pure tool-result containers.
     let mut suppressed: std::collections::HashSet<usize> = std::collections::HashSet::new();
@@ -129,17 +138,9 @@ pub fn render_session(session: &Session) -> RenderedSession {
         }
     }
 
-    let title = session_title(session);
     let mut turns: Vec<RenderedTurn> = Vec::new();
 
-    // Per-event message index: the 0-based position of each user/assistant event
-    // among ALL user/assistant events on the path. This MUST count every such
-    // event — including suppressed tool-result, meta, command, and synthetic
-    // ones — because the backend's commit_session/fork_session index over raw
-    // `kind == "user" | "assistant"` lines with no further filtering. Rendered
-    // turns are a lossy projection (assistant events are merged, several user
-    // events are dropped), so the index cannot be reconstructed downstream and
-    // is carried per turn instead.
+    // Per-event message index over ALL user/assistant events on this path.
     let msg_index: Vec<Option<usize>> = {
         let mut out = Vec::with_capacity(path.len());
         let mut m = 0usize;
@@ -155,7 +156,6 @@ pub fn render_session(session: &Session) -> RenderedSession {
         out
     };
 
-    // Helper: extract rendered blocks from one assistant event.
     let render_assistant_blocks = |a: &super::event::AssistantEvent| -> Vec<RenderedBlock> {
         let mut blocks = Vec::new();
         for blk in &a.message.content {
@@ -222,31 +222,21 @@ pub fn render_session(session: &Session) -> RenderedSession {
                     uuid: ev.uuid().map(|u| u.to_string()).unwrap_or_default(),
                     edit_index: idx,
                     fork_index: idx,
+                    editable,
                 });
                 i += 1;
             }
             Event::Assistant(a) => {
-                // Skip synthetic messages ("No response requested." etc.)
                 if a.message.model.as_deref() == Some("<synthetic>") {
                     i += 1;
                     continue;
                 }
-                // Merge consecutive assistant events into one turn.
                 let timestamp = ev.timestamp();
                 let head_uuid = ev.uuid().map(|u| u.to_string()).unwrap_or_default();
                 let mut model = a.message.model.clone();
                 let mut blocks = render_assistant_blocks(a);
-                // `last_msg_i` drives the fork cutoff so the whole reply (plus
-                // its interleaved tool-result lines) is included.
                 let first_msg_i = msg_index[i].expect("assistant event has a message index");
                 let mut last_msg_i = first_msg_i;
-                // The frontend edits the FIRST text block across all merged
-                // events. The line holding that text is the first merged event
-                // that contributes a `Text` block — which is NOT always the
-                // first merged event (a tool-use-only first event is common).
-                // `edit_index` must point at that text-bearing line, or a commit
-                // would rewrite the wrong line. Fall back to the first event if
-                // the turn has no text at all.
                 let block_has_text =
                     |bs: &[RenderedBlock]| bs.iter().any(|b| matches!(b, RenderedBlock::Text { .. }));
                 let mut edit_msg_i = if block_has_text(&blocks) {
@@ -287,6 +277,7 @@ pub fn render_session(session: &Session) -> RenderedSession {
                     uuid: head_uuid,
                     edit_index: edit_msg_i.unwrap_or(first_msg_i),
                     fork_index: last_msg_i,
+                    editable,
                 });
             }
             Event::System(s) => {
@@ -313,13 +304,40 @@ pub fn render_session(session: &Session) -> RenderedSession {
         }
     }
 
-    let stats = compute_stats(&path);
+    turns
+}
+
+/// Render a fully-parsed session into a flattened, frontend-ready structure.
+/// Renders every conversation tree in the file (one extra per auto-compaction),
+/// oldest first, with a `Compaction` divider between trees. Only the active
+/// (last) segment is editable; stats/title/indices come from the active path.
+pub fn render_session(session: &Session) -> RenderedSession {
+    let segs = super::tree::segments(&session.events);
+    let active_idx = segs.len().saturating_sub(1);
+
+    let mut turns: Vec<RenderedTurn> = Vec::new();
+    let mut prev_seg_msgs = 0usize;
+    for (s, seg) in segs.iter().enumerate() {
+        if s > 0 {
+            turns.push(RenderedTurn::Compaction { messages_before: prev_seg_msgs });
+        }
+        let seg_turns = render_path_turns(seg, s == active_idx);
+        prev_seg_msgs = seg_turns
+            .iter()
+            .filter(|t| matches!(t, RenderedTurn::User { .. } | RenderedTurn::Assistant { .. }))
+            .count();
+        turns.extend(seg_turns);
+    }
+
+    let empty: Vec<&Event> = Vec::new();
+    let active_path = segs.get(active_idx).unwrap_or(&empty);
+    let stats = compute_stats(active_path);
 
     RenderedSession {
         project_label: session.project_label.clone(),
         id: session.id.to_string(),
         source_path: session.file_path.to_string_lossy().into_owned(),
-        title,
+        title: session_title(session),
         event_count: session.events.len(),
         stats,
         turns,
@@ -508,5 +526,115 @@ fn truncate(s: &str, max: usize) -> String {
     } else {
         let head: String = one_line.chars().take(max - 1).collect();
         format!("{}…", head)
+    }
+}
+
+#[cfg(test)]
+mod render_tests {
+    use super::*;
+    use crate::session::event::{Message, MessageContent, UserEvent};
+    use crate::session::Session;
+    use chrono::Utc;
+    use std::path::PathBuf;
+    use std::time::SystemTime;
+    use uuid::Uuid;
+
+    fn uev(uuid: &str, parent: Option<&str>, text: &str) -> Event {
+        Event::User(UserEvent {
+            uuid: Some(uuid.parse().unwrap()),
+            parent_uuid: parent.map(|p| p.parse().unwrap()),
+            timestamp: Some(Utc::now()),
+            is_sidechain: false,
+            is_meta: None,
+            message: Message {
+                role: Some("user".into()),
+                content: MessageContent::Text(text.into()),
+            },
+            tool_use_result: None,
+            cwd: None,
+            git_branch: None,
+        })
+    }
+
+    fn sess(events: Vec<Event>) -> Session {
+        let leaf = crate::session::tree::resolve_leaf(&events);
+        Session {
+            project_label: "p".into(),
+            id: Uuid::nil(),
+            file_path: PathBuf::from("/x.jsonl"),
+            events,
+            leaf,
+            mtime: SystemTime::now(),
+            bytes_read: 0,
+        }
+    }
+
+    #[test]
+    fn single_tree_has_no_divider_sequential_editable_indices() {
+        let a = "00000000-0000-0000-0000-0000000000a1";
+        let b = "00000000-0000-0000-0000-0000000000b2";
+        let c = "00000000-0000-0000-0000-0000000000c3";
+        let r = render_session(&sess(vec![
+            uev(a, None, "one"),
+            uev(b, Some(a), "two"),
+            uev(c, Some(b), "three"),
+        ]));
+        assert!(!r.turns.iter().any(|t| matches!(t, RenderedTurn::Compaction { .. })));
+        let users: Vec<(usize, bool)> = r
+            .turns
+            .iter()
+            .filter_map(|t| match t {
+                RenderedTurn::User { edit_index, editable, .. } => Some((*edit_index, *editable)),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(users, vec![(0, true), (1, true), (2, true)]);
+    }
+
+    #[test]
+    fn two_trees_get_divider_precompaction_viewonly_active_indices_reset() {
+        let a = "00000000-0000-0000-0000-0000000000a1";
+        let b = "00000000-0000-0000-0000-0000000000b2";
+        let c = "00000000-0000-0000-0000-0000000000c3";
+        let d = "00000000-0000-0000-0000-0000000000d4";
+        // pre-compaction tree a->b ; active tree (new root) c->d.
+        let r = render_session(&sess(vec![
+            uev(a, None, "old1"),
+            uev(b, Some(a), "old2"),
+            uev(c, None, "new1"),
+            uev(d, Some(c), "new2"),
+        ]));
+        let mut it = r.turns.iter();
+        match it.next().unwrap() {
+            RenderedTurn::User { editable, text, .. } => {
+                assert!(!editable);
+                assert_eq!(text, "old1");
+            }
+            other => panic!("expected pre-compaction User, got {other:?}"),
+        }
+        match it.next().unwrap() {
+            RenderedTurn::User { editable, .. } => assert!(!editable),
+            other => panic!("expected pre-compaction User, got {other:?}"),
+        }
+        match it.next().unwrap() {
+            RenderedTurn::Compaction { messages_before } => assert_eq!(*messages_before, 2),
+            other => panic!("expected Compaction, got {other:?}"),
+        }
+        match it.next().unwrap() {
+            RenderedTurn::User { editable, edit_index, text, .. } => {
+                assert!(editable);
+                assert_eq!(*edit_index, 0); // active indices reset, not continued from pre-compaction
+                assert_eq!(text, "new1");
+            }
+            other => panic!("expected active User, got {other:?}"),
+        }
+        match it.next().unwrap() {
+            RenderedTurn::User { editable, edit_index, .. } => {
+                assert!(editable);
+                assert_eq!(*edit_index, 1);
+            }
+            other => panic!("expected active User, got {other:?}"),
+        }
+        assert!(it.next().is_none());
     }
 }

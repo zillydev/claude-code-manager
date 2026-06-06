@@ -137,8 +137,10 @@ export default function Transcript({ session, onBack }: Props) {
           <div className="text-[var(--color-error)] text-xs mb-2">{editor.error}</div>
         )}
         {visibleTurns.map((turn, i) => {
-          const isMessage = turn.type === "user" || turn.type === "assistant";
-          const editIndex = isMessage ? turn.edit_index : null;
+          const editIndex =
+            (turn.type === "user" || turn.type === "assistant") && turn.editable
+              ? turn.edit_index
+              : null;
           return (
             <Turn
               key={i}
@@ -186,6 +188,10 @@ function filterCompact(turns: RenderedTurn[]): RenderedTurn[] {
     if (turns[i].type === "user") userIndices.push(i);
   }
   const visible = new Set<number>();
+  // Always keep compaction dividers so the boundary stays marked in compact view.
+  for (let i = 0; i < turns.length; i++) {
+    if (turns[i].type === "compaction") visible.add(i);
+  }
   for (const ui of userIndices) {
     visible.add(ui);
     // Assistant turn just before this user message
@@ -323,7 +329,7 @@ function Turn({
   onFork: () => void;
   onDelete: () => void;
 }) {
-  const ts = turn.timestamp ? formatTime(turn.timestamp) : "--:--";
+  const ts = "timestamp" in turn && turn.timestamp ? formatTime(turn.timestamp) : "--:--";
 
   switch (turn.type) {
     case "user":
@@ -332,7 +338,9 @@ function Turn({
           <div className="flex items-baseline gap-2 mb-1">
             <span className="text-xs text-[var(--color-text-dim)]">{ts}</span>
             <span className="font-medium text-[var(--color-user)]">user</span>
-            <TurnActions onEdit={() => onStartEdit(turn.text)} onFork={onFork} onDelete={onDelete} messageId={turn.uuid} />
+            {turn.editable && (
+              <TurnActions onEdit={() => onStartEdit(turn.text)} onFork={onFork} onDelete={onDelete} messageId={turn.uuid} />
+            )}
           </div>
           {editing ? (
             <EditBox draft={draft} onChange={onChangeDraft} onSave={onSaveEdit} onCancel={onCancelEdit} />
@@ -360,15 +368,17 @@ function Turn({
                 ({shortModel(turn.model)})
               </span>
             )}
-            <TurnActions
-              onEdit={() => {
-                const firstText = turn.blocks.find((b) => b.type === "text");
-                onStartEdit(firstText && firstText.type === "text" ? firstText.text : "");
-              }}
-              onFork={onFork}
-              onDelete={onDelete}
-              messageId={turn.uuid}
-            />
+            {turn.editable && (
+              <TurnActions
+                onEdit={() => {
+                  const firstText = turn.blocks.find((b) => b.type === "text");
+                  onStartEdit(firstText && firstText.type === "text" ? firstText.text : "");
+                }}
+                onFork={onFork}
+                onDelete={onDelete}
+                messageId={turn.uuid}
+              />
+            )}
           </div>
           {editing && (
             <EditBox draft={draft} onChange={onChangeDraft} onSave={onSaveEdit} onCancel={onCancelEdit} />
@@ -405,6 +415,17 @@ function Turn({
           >
             {turn.content}
           </div>
+        </div>
+      );
+
+    case "compaction":
+      return (
+        <div className="flex items-center gap-3 my-5">
+          <div className="flex-1 border-t border-[var(--color-border)]" />
+          <span className="text-[10px] uppercase tracking-wider text-[var(--color-text-dim)] whitespace-nowrap">
+            context compacted · {turn.messages_before} messages above
+          </span>
+          <div className="flex-1 border-t border-[var(--color-border)]" />
         </div>
       );
   }
