@@ -2,7 +2,7 @@ import { useCallback, useDeferredValue, useEffect, useLayoutEffect, useState } f
 import type { RenderedTurn } from "../types";
 import { compileMatcher, type FindOpts } from "../lib/search";
 import { exactMatches, compareMatches, type FindMatch } from "../lib/segments";
-import { domMarkdownMatches, paintHighlights, clearHighlights } from "../lib/highlight";
+import { domMarkdownMatches, paintHighlights, scrollMatchIntoView, clearHighlights } from "../lib/highlight";
 
 const DEFAULT_OPTS: FindOpts = { caseSensitive: false, wholeWord: false, regex: false };
 
@@ -91,7 +91,7 @@ export function useFind(containerRef: React.RefObject<HTMLElement | null>, turns
       return;
     }
     const activeRange = paintHighlights(container, matches, activeIndex);
-    activeRange?.startContainer.parentElement?.scrollIntoView({ block: "center", behavior: "smooth" });
+    if (activeRange) scrollMatchIntoView(activeRange);
   }, [matches, activeIndex, revealedToolKeys, containerRef]);
 
   const next = useCallback(() => {

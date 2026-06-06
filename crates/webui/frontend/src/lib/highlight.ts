@@ -103,6 +103,35 @@ export function paintHighlights(container: HTMLElement, matches: FindMatch[], ac
   return activeRange;
 }
 
+/**
+ * Scroll the matched text itself (not just its parent element) to the vertical
+ * center of every scrollable ancestor. Walking the ancestor chain innermost-first
+ * and recomputing the match rect after each scroll handles nested scroll
+ * containers — e.g. a match deep inside a tool-result <pre> with its own
+ * `overflow-y: auto`, which `parentElement.scrollIntoView` leaves clipped inside
+ * the <pre>. No DOM mutation, so the live highlight Ranges are undisturbed.
+ */
+export function scrollMatchIntoView(range: Range): void {
+  let el: Element | null =
+    range.startContainer.nodeType === Node.ELEMENT_NODE
+      ? (range.startContainer as Element)
+      : range.startContainer.parentElement;
+
+  while (el) {
+    const style = getComputedStyle(el);
+    const scrollableY =
+      /(auto|scroll|overlay)/.test(style.overflowY) && el.scrollHeight > el.clientHeight;
+    if (scrollableY) {
+      const matchRect = range.getBoundingClientRect();
+      const elRect = el.getBoundingClientRect();
+      const matchCenter = matchRect.top + matchRect.height / 2;
+      const elCenter = elRect.top + el.clientHeight / 2;
+      el.scrollTop += matchCenter - elCenter;
+    }
+    el = el.parentElement;
+  }
+}
+
 export function clearHighlights(): void {
   if (isHighlightSupported()) {
     (CSS as any).highlights.delete("cm-find");
