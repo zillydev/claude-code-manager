@@ -52,7 +52,9 @@ pub fn summarize(
             }
         }
         match ev {
-            Event::CustomTitle(t) if custom_title.is_none() => {
+            // Last wins: Claude Code appends a new custom-title event on each
+            // /rename, so the most recent one is the current title.
+            Event::CustomTitle(t) => {
                 custom_title = Some(t.custom_title.clone());
             }
             Event::AiTitle(_) => {}
@@ -257,6 +259,28 @@ mod tests {
             UNIX_EPOCH,
         );
         assert_eq!(s.title, "custom");
+    }
+
+    #[test]
+    fn last_custom_title_wins() {
+        // Claude Code appends a fresh custom-title event on every /rename, so the
+        // CURRENT title is the most recent one. An early stray title (here, a
+        // local-command echo that got captured) must not win.
+        let events = vec![
+            Event::CustomTitle(CustomTitleEvent {
+                custom_title: "<local-command-caveat>old garbage".into(),
+            }),
+            user("a user message", false),
+            Event::CustomTitle(CustomTitleEvent { custom_title: "stripe-branch".into() }),
+        ];
+        let s = summarize(
+            &events,
+            uuid::Uuid::new_v4(),
+            PathBuf::from("/x.jsonl"),
+            "proj".into(),
+            UNIX_EPOCH,
+        );
+        assert_eq!(s.title, "stripe-branch");
     }
 
     #[test]

@@ -433,7 +433,8 @@ fn session_title(session: &Session) -> String {
 
     for ev in &session.events {
         match ev {
-            Event::CustomTitle(t) if custom.is_none() => custom = Some(t.custom_title.clone()),
+            // Last wins: the most recent /rename is the current title.
+            Event::CustomTitle(t) => custom = Some(t.custom_title.clone()),
             Event::LastPrompt(lp) => {
                 if let Some(p) = &lp.last_prompt {
                     let trimmed = p.trim();
@@ -532,7 +533,7 @@ fn truncate(s: &str, max: usize) -> String {
 #[cfg(test)]
 mod render_tests {
     use super::*;
-    use crate::session::event::{Message, MessageContent, UserEvent};
+    use crate::session::event::{CustomTitleEvent, Message, MessageContent, UserEvent};
     use crate::session::Session;
     use chrono::Utc;
     use std::path::PathBuf;
@@ -636,5 +637,20 @@ mod render_tests {
             other => panic!("expected active User, got {other:?}"),
         }
         assert!(it.next().is_none());
+    }
+
+    #[test]
+    fn title_uses_last_custom_title() {
+        // The current title is the most recent custom-title event, not the first.
+        let a = "00000000-0000-0000-0000-0000000000a1";
+        let events = vec![
+            Event::CustomTitle(CustomTitleEvent {
+                custom_title: "<local-command-caveat>old garbage".into(),
+            }),
+            uev(a, None, "hi"),
+            Event::CustomTitle(CustomTitleEvent { custom_title: "stripe-branch".into() }),
+        ];
+        let r = render_session(&sess(events));
+        assert_eq!(r.title, "stripe-branch");
     }
 }
