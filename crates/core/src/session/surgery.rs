@@ -8,7 +8,7 @@ use serde_json::Value;
 use uuid::Uuid;
 
 use super::edit::{commit, CommitOpts, CommitResult};
-use super::raw::{active_path, read_raw, RawLine};
+use super::raw::{active_path, first_cwd, read_raw, RawLine};
 use crate::store::paths;
 
 fn is_message(l: &RawLine) -> bool {
@@ -239,13 +239,13 @@ pub fn rewrite(
     let messages_before = active.iter().filter(|l| is_message(l)).count();
     let removed_bytes: usize = active[a..=b].iter().map(|l| l.value.to_string().len()).sum();
 
-    // Inherit the source session's cwd so the new session lands in the same
-    // project dir. Falls back to "." only for a session with no cwd anywhere
-    // (e.g. a metadata-only stub) — harmless, just an unusual target dir.
-    let cwd = active
-        .iter()
-        .find_map(|l| l.value.get("cwd").and_then(|v| v.as_str()).map(|s| s.to_string()))
-        .unwrap_or_else(|| ".".to_string());
+    // Inherit the source session's LAUNCH cwd (first cwd in file order) so the
+    // new session lands in the same project dir and stays resumable. Using the
+    // active path's first cwd is wrong for a compacted session: the active path
+    // begins post-compaction, often in a directory the agent had cd'd into, so
+    // the new session would be filed under the wrong project. Falls back to "."
+    // only for a session with no cwd anywhere (e.g. a metadata-only stub).
+    let cwd = first_cwd(&lines).unwrap_or_else(|| ".".to_string());
     let git_branch = active
         .iter()
         .find_map(|l| l.value.get("gitBranch").and_then(|v| v.as_str()).map(|s| s.to_string()));
@@ -507,6 +507,37 @@ mod tests {
         let msg = format!("{}", err.unwrap_err());
         assert!(msg.contains("start with an assistant message"), "got: {}", msg);
         std::fs::remove_file(&p).ok();
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn rewrite_files_new_session_under_launch_cwd_not_active_path_cwd() {
+        // A compacted session: the pre-compaction tree (launch cwd, FIRST in
+        // file order) is orphaned in the same file; the active path is the
+        // post-compaction tree, whose cwd is an inner dir the agent had cd'd
+        // into. The new session MUST land in the launch project dir so
+        // `claude --resume` from the launch dir finds it — not the inner dir.
+        let body = concat!(
+            r#"{"type":"user","uuid":"00000000-0000-0000-0000-0000000000a1","parentUuid":null,"cwd":"/launch","message":{"role":"user","content":"OLD"}}"#, "\n",
+            r#"{"type":"user","uuid":"00000000-0000-0000-0000-0000000000b2","parentUuid":null,"cwd":"/launch/inner","message":{"role":"user","content":"NEW1"}}"#, "\n",
+            r#"{"type":"assistant","uuid":"00000000-0000-0000-0000-0000000000c3","parentUuid":"00000000-0000-0000-0000-0000000000b2","cwd":"/launch/inner","message":{"role":"assistant","content":[{"type":"text","text":"R"}]}}"#, "\n",
+            r#"{"type":"user","uuid":"00000000-0000-0000-0000-0000000000d4","parentUuid":"00000000-0000-0000-0000-0000000000c3","cwd":"/launch/inner","message":{"role":"user","content":"NEW2"}}"#, "\n"
+        );
+        let src = write_tmp("compact-cwd", body);
+        let root = std::env::temp_dir().join(format!("cm-surg-root-cwd-{}", std::process::id()));
+        let d4 = "00000000-0000-0000-0000-0000000000d4".parse().unwrap();
+        let out = rewrite(&root, &src, d4, d4, RewriteMode::Prune, None).unwrap();
+        let parent = std::path::Path::new(&out.commit.new_path)
+            .parent()
+            .and_then(|p| p.file_name())
+            .and_then(|n| n.to_str())
+            .unwrap()
+            .to_string();
+        assert_eq!(
+            parent, "-launch",
+            "new session must be filed under the launch cwd's project dir, got {parent}"
+        );
+        std::fs::remove_file(&src).ok();
         std::fs::remove_dir_all(&root).ok();
     }
 }
