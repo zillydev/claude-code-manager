@@ -76,6 +76,17 @@ export default function App() {
                   console.error("delete failed:", e);
                 }
               }}
+              onRename={async (s, newTitle) => {
+                try {
+                  await invoke("rename_session", {
+                    filePath: s.file_path,
+                    newTitle,
+                  });
+                  refresh();
+                } catch (e) {
+                  console.error("rename failed:", e);
+                }
+              }}
             />
           </div>
           {/* Drag handle */}
