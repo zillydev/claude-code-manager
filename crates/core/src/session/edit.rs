@@ -1,3 +1,4 @@
+use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::Path;
 
 use anyhow::Result;
@@ -307,6 +308,53 @@ pub fn set_message_text(line: &mut RawLine, text: &str) {
     }
 }
 
+/// Rename a session in place by appending a `custom-title` event — exactly what
+/// Claude Code's `/rename` writes. The most-recent custom-title wins (see
+/// `summary::summarize` / `render::session_title`), so the appended title becomes
+/// the displayed one in both claude-manager and `claude --resume`.
+///
+/// This is the one place we mutate the original file: a custom-title is pure
+/// metadata (never conversation content), and a rename must keep the same session
+/// id, so copy-on-edit does not apply. The line is appended (no rewrite); the file
+/// is first padded with a newline if it does not already end with one.
+pub fn append_custom_title(path: &Path, title: &str) -> Result<()> {
+    let title = title.trim();
+    if title.is_empty() {
+        anyhow::bail!("refusing to set an empty session title");
+    }
+    let session_id = path
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or_default();
+    let line = json!({
+        "type": "custom-title",
+        "customTitle": title,
+        "sessionId": session_id,
+    })
+    .to_string();
+
+    // Append mode; ensure the existing content ends with a newline first so the
+    // new line is its own jsonl record.
+    let needs_newline = match std::fs::metadata(path) {
+        Ok(m) if m.len() > 0 => {
+            let mut f = std::fs::File::open(path)?;
+            f.seek(SeekFrom::End(-1))?;
+            let mut last = [0u8; 1];
+            f.read_exact(&mut last)?;
+            last[0] != b'\n'
+        }
+        _ => false,
+    };
+
+    let mut out = std::fs::OpenOptions::new().append(true).open(path)?;
+    if needs_newline {
+        out.write_all(b"\n")?;
+    }
+    out.write_all(line.as_bytes())?;
+    out.write_all(b"\n")?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -464,5 +512,54 @@ mod tests {
 
         std::fs::remove_file(&src).ok();
         std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn append_custom_title_becomes_the_displayed_title() {
+        // Append a new title onto a session that already has an older one; the
+        // most-recent custom-title must win when summarized.
+        let body = concat!(
+            r#"{"type":"custom-title","customTitle":"old name","sessionId":"x"}"#, "\n",
+            r#"{"type":"user","uuid":"00000000-0000-0000-0000-0000000000a1","parentUuid":null,"message":{"role":"user","content":"hi"}}"#, "\n",
+        );
+        let src = write_tmp("rename", body);
+
+        append_custom_title(&src, "  Renamed Session  ").unwrap();
+
+        let events = crate::session::parse::parse_file(&src).unwrap().events;
+        let s = crate::session::summary::summarize(
+            &events,
+            uuid::Uuid::nil(),
+            src.clone(),
+            "proj".into(),
+            std::time::UNIX_EPOCH,
+        );
+        assert_eq!(s.title, "Renamed Session"); // trimmed, last-wins
+        std::fs::remove_file(&src).ok();
+    }
+
+    #[test]
+    fn append_custom_title_rejects_empty() {
+        let src = write_tmp("rename-empty", "{\"type\":\"user\",\"message\":{\"role\":\"user\",\"content\":\"hi\"}}\n");
+        let before = std::fs::read_to_string(&src).unwrap();
+        assert!(append_custom_title(&src, "   ").is_err());
+        // The file is untouched on rejection.
+        assert_eq!(std::fs::read_to_string(&src).unwrap(), before);
+        std::fs::remove_file(&src).ok();
+    }
+
+    #[test]
+    fn append_custom_title_pads_missing_trailing_newline() {
+        // A source file with no trailing newline must not get its last line fused
+        // with the appended one.
+        let src = write_tmp("rename-nonl", r#"{"type":"user","message":{"role":"user","content":"hi"}}"#);
+        append_custom_title(&src, "Title").unwrap();
+        let lines = read_raw(&src).unwrap();
+        assert_eq!(lines.len(), 2);
+        assert_eq!(
+            lines[1].value.get("customTitle").and_then(|v| v.as_str()),
+            Some("Title")
+        );
+        std::fs::remove_file(&src).ok();
     }
 }
