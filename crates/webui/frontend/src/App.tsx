@@ -10,7 +10,7 @@ const DEFAULT_WIDTH = 320;
 
 export default function App() {
   const { sessions, loading, refresh } = useSessions();
-  const { transcript, loading: txLoading, open, close } = useTranscript();
+  const { transcript, loading: txLoading, open, close, updateTitle } = useTranscript();
   const [sidebarWidth, setSidebarWidth] = useState(DEFAULT_WIDTH);
   const [collapsed, setCollapsed] = useState(false);
   const dragging = useRef(false);
@@ -82,6 +82,8 @@ export default function App() {
                     filePath: s.file_path,
                     newTitle,
                   });
+                  // Patch the open transcript's header too, if it's this session.
+                  if (transcript?.id === s.id) updateTitle(newTitle);
                   refresh();
                 } catch (e) {
                   console.error("rename failed:", e);
