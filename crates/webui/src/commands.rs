@@ -3,7 +3,7 @@ use std::sync::Mutex;
 
 use claude_manager_core::session::edit::{commit, CommitOpts, CommitResult};
 use claude_manager_core::session::parse::parse_tail;
-use claude_manager_core::session::raw::{active_path, read_raw, RawLine};
+use claude_manager_core::session::raw::{active_path, first_cwd, read_raw, RawLine};
 use claude_manager_core::session::render::{render_session, RenderedSession, RenderedTurn};
 use claude_manager_core::session::summary::SessionSummary;
 use claude_manager_core::session::tree;
@@ -236,10 +236,10 @@ pub fn commit_session(
         lines.iter().filter_map(|l| l.uuid.map(|u| (u, l))).collect();
     let path_refs: Vec<&RawLine> = active_uuids.iter().filter_map(|u| by_uuid.get(u).copied()).collect();
 
-    let cwd = path_refs
-        .iter()
-        .find_map(|l| l.value.get("cwd").and_then(|v| v.as_str()).map(|s| s.to_string()))
-        .unwrap_or_else(|| ".".to_string());
+    // Launch cwd (first cwd in file order) so the new session lands in the same
+    // project dir as the source and stays resumable — not the active path's cwd,
+    // which for a compacted session begins post-compaction in a cd'd directory.
+    let cwd = first_cwd(&lines).unwrap_or_else(|| ".".to_string());
     let git_branch = path_refs
         .iter()
         .find_map(|l| l.value.get("gitBranch").and_then(|v| v.as_str()).map(|s| s.to_string()));
@@ -280,10 +280,10 @@ pub fn fork_session(
         }
     }
     let prefix: Vec<&RawLine> = active.into_iter().take(cutoff).collect();
-    let cwd = prefix
-        .iter()
-        .find_map(|l| l.value.get("cwd").and_then(|v| v.as_str()).map(|s| s.to_string()))
-        .unwrap_or_else(|| ".".to_string());
+    // Launch cwd (first cwd in file order) so the fork lands in the same project
+    // dir as the source and stays resumable — not the active-path prefix's cwd,
+    // which for a compacted session begins post-compaction in a cd'd directory.
+    let cwd = first_cwd(&lines).unwrap_or_else(|| ".".to_string());
     let git_branch = prefix
         .iter()
         .find_map(|l| l.value.get("gitBranch").and_then(|v| v.as_str()).map(|s| s.to_string()));

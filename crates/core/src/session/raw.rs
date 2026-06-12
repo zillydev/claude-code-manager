@@ -84,6 +84,18 @@ pub fn active_path(lines: &[RawLine]) -> Vec<&RawLine> {
     path
 }
 
+/// The session's launch cwd: the first `cwd` field in FILE ORDER. This is the
+/// directory the session was started in (and thus the project dir it lives in),
+/// even if the agent later `cd`'d elsewhere or the active path begins
+/// post-compaction in a different directory. Copy-on-edit writers use this so a
+/// new session lands in the same project dir as its source and stays resumable
+/// (Claude Code resolves `--resume <id>` within the current directory's project).
+pub fn first_cwd(lines: &[RawLine]) -> Option<String> {
+    lines
+        .iter()
+        .find_map(|l| l.value.get("cwd").and_then(Value::as_str).map(str::to_string))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -145,6 +157,22 @@ mod tests {
             .filter_map(|l| l.uuid.map(|u| u.to_string()))
             .collect();
         assert_eq!(ids, vec![a.to_string(), c.to_string()]);
+        std::fs::remove_file(&path).ok();
+    }
+
+    #[test]
+    fn first_cwd_is_the_file_order_launch_dir() {
+        // The launch cwd is the FIRST cwd in file order — not whatever the agent
+        // had cd'd into later (here the second line carries an inner dir).
+        let body = concat!(
+            r#"{"type":"user","uuid":"00000000-0000-0000-0000-0000000000a1","parentUuid":null,"cwd":"/launch","message":{"role":"user","content":"x"}}"#,
+            "\n",
+            r#"{"type":"user","uuid":"00000000-0000-0000-0000-0000000000b2","parentUuid":"00000000-0000-0000-0000-0000000000a1","cwd":"/launch/inner","message":{"role":"user","content":"y"}}"#,
+            "\n",
+        );
+        let path = write_tmp("firstcwd", body);
+        let lines = read_raw(&path).unwrap();
+        assert_eq!(first_cwd(&lines).as_deref(), Some("/launch"));
         std::fs::remove_file(&path).ok();
     }
 }
