@@ -52,6 +52,8 @@ export type RenderedTurn =
       uuid: string;
       edit_index: number;
       fork_index: number;
+      edit_uuid: string;
+      fork_uuid: string;
       editable: boolean;
     }
   | {
@@ -62,6 +64,8 @@ export type RenderedTurn =
       uuid: string;
       edit_index: number;
       fork_index: number;
+      edit_uuid: string;
+      fork_uuid: string;
       editable: boolean;
     }
   | { type: "system"; timestamp: string | null; content: string }

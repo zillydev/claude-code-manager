@@ -27,7 +27,7 @@ export default function Transcript({ session, onBack }: Props) {
   const turnsRef = useRef<HTMLDivElement>(null);
 
   const editor = useEditor();
-  const [editingIndex, setEditingIndex] = useState<number | null>(null);
+  const [editingUuid, setEditingUuid] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
   const sourcePath = session.source_path;
 
@@ -137,9 +137,9 @@ export default function Transcript({ session, onBack }: Props) {
           <div className="text-[var(--color-error)] text-xs mb-2">{editor.error}</div>
         )}
         {visibleTurns.map((turn, i) => {
-          const editIndex =
+          const editUuid =
             (turn.type === "user" || turn.type === "assistant") && turn.editable
-              ? turn.edit_index
+              ? turn.edit_uuid
               : null;
           return (
             <Turn
@@ -147,25 +147,25 @@ export default function Transcript({ session, onBack }: Props) {
               turn={turn}
               turnIndex={i}
               revealedToolKeys={find.revealedToolKeys}
-              editing={editIndex !== null && editingIndex === editIndex}
+              editing={editUuid !== null && editingUuid === editUuid}
               draft={draft}
               onStartEdit={(text) => {
-                if (editIndex !== null) {
-                  setEditingIndex(editIndex);
+                if (editUuid !== null) {
+                  setEditingUuid(editUuid);
                   setDraft(text);
                 }
               }}
               onChangeDraft={setDraft}
-              onCancelEdit={() => setEditingIndex(null)}
+              onCancelEdit={() => setEditingUuid(null)}
               onSaveEdit={async () => {
-                if (editIndex !== null) {
-                  await editor.commitEdit(sourcePath, editIndex, draft);
-                  setEditingIndex(null);
+                if (editUuid !== null) {
+                  await editor.commitEdit(sourcePath, editUuid, draft);
+                  setEditingUuid(null);
                 }
               }}
               onFork={() => {
                 if (turn.type === "user" || turn.type === "assistant") {
-                  editor.fork(sourcePath, turn.fork_index);
+                  editor.fork(sourcePath, turn.fork_uuid);
                 }
               }}
               onDelete={() => {

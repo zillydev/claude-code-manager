@@ -201,12 +201,15 @@ pub fn open_for_edit(file_path: String) -> Result<EditableSession, String> {
     Ok(EditableSession { source_path: file_path, cwd, git_branch, turns })
 }
 
-/// Commit an edit: optionally set the text of the message-turn at `edit_index`,
-/// then write the full active path as a new flattened session (copy-on-edit).
+/// Commit an edit: optionally set the text of the message-turn identified by
+/// `edit_uuid`, then write the full active path as a new flattened session
+/// (copy-on-edit). Resolving by uuid (not a positional index) is required: the
+/// live-tail renders streamed turns with batch-local indices, so an index can
+/// point at the wrong message; the uuid is stable.
 #[tauri::command]
 pub fn commit_session(
     file_path: String,
-    edit_index: Option<usize>,
+    edit_uuid: Option<String>,
     new_text: Option<String>,
     custom_title: Option<String>,
 ) -> Result<CommitResult, String> {
@@ -217,17 +220,13 @@ pub fn commit_session(
     // Snapshot the active path's uuids (order) BEFORE any edit.
     let active_uuids: Vec<uuid::Uuid> = active_path(&lines).iter().filter_map(|l| l.uuid).collect();
 
-    // Optionally edit the text of the message-turn at edit_index.
-    if let (Some(idx), Some(text)) = (edit_index, new_text.as_ref()) {
-        let msg_uuids: Vec<uuid::Uuid> = active_path(&lines)
-            .iter()
-            .filter(|l| l.kind == "user" || l.kind == "assistant")
-            .filter_map(|l| l.uuid)
-            .collect();
-        if let Some(target) = msg_uuids.get(idx).copied() {
-            if let Some(line) = lines.iter_mut().find(|l| l.uuid == Some(target)) {
-                claude_manager_core::session::edit::set_message_text(line, text);
-            }
+    // Optionally edit the text of the message line identified by edit_uuid.
+    if let (Some(uuid_str), Some(text)) = (edit_uuid, new_text.as_ref()) {
+        let target = uuid::Uuid::parse_str(&uuid_str)
+            .map_err(|e| format!("invalid edit uuid: {e}"))?;
+        match lines.iter_mut().find(|l| l.uuid == Some(target)) {
+            Some(line) => claude_manager_core::session::edit::set_message_text(line, text),
+            None => return Err(format!("edit target {uuid_str} not found in session")),
         }
     }
 
@@ -255,12 +254,15 @@ pub fn delete_session(file_path: String) -> Result<(), String> {
     Ok(())
 }
 
-/// Fork: write the prefix up to and including the message-turn at `fork_index`
-/// as a new session (copy-on-edit).
+/// Fork: write the prefix up to and including the event identified by `fork_uuid`
+/// as a new session (copy-on-edit). Resolving by uuid against the current file
+/// (not a positional `fork_index`) is required: the live-tail renders streamed
+/// turns with batch-local indices, so an index can truncate the fork; the uuid
+/// is stable and found at its true position here.
 #[tauri::command]
 pub fn fork_session(
     file_path: String,
-    fork_index: usize,
+    fork_uuid: String,
     custom_title: Option<String>,
 ) -> Result<CommitResult, String> {
     let root = paths::default_claude_root().ok_or("could not locate ~/.claude")?;
@@ -268,17 +270,13 @@ pub fn fork_session(
     let lines = read_raw(&path).map_err(|e| e.to_string())?;
     let active = active_path(&lines);
 
-    let mut msg_seen = 0usize;
-    let mut cutoff = active.len();
-    for (i, l) in active.iter().enumerate() {
-        if l.kind == "user" || l.kind == "assistant" {
-            if msg_seen == fork_index {
-                cutoff = i + 1;
-                break;
-            }
-            msg_seen += 1;
-        }
-    }
+    let fork_target = uuid::Uuid::parse_str(&fork_uuid)
+        .map_err(|e| format!("invalid fork uuid: {e}"))?;
+    let cutoff = active
+        .iter()
+        .position(|l| l.uuid == Some(fork_target))
+        .map(|i| i + 1)
+        .ok_or_else(|| format!("fork point {fork_uuid} not found on the active path"))?;
     let prefix: Vec<&RawLine> = active.into_iter().take(cutoff).collect();
     // Launch cwd (first cwd in file order) so the fork lands in the same project
     // dir as the source and stays resumable — not the active-path prefix's cwd,

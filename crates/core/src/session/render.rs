@@ -53,10 +53,15 @@ pub enum RenderedTurn {
         text: String,
         /// The message line's event uuid (empty if absent).
         uuid: String,
-        /// 0-based index among user/assistant message lines on the active path.
-        /// Used directly as both the edit target and the fork point.
+        /// 0-based index among user/assistant message lines on the active path
+        /// (display/diagnostic only — mutations resolve by `edit_uuid`/`fork_uuid`).
         edit_index: usize,
         fork_index: usize,
+        /// Stable uuid of the edit target / fork cutoff event. Mutations resolve
+        /// these against the current file, so they survive the live-tail (which
+        /// renders streamed turns with batch-local, unusable indices).
+        edit_uuid: String,
+        fork_uuid: String,
         /// True only on the active (post-compaction) segment. Pre-compaction
         /// turns are view-only; their indices are segment-local and must not be
         /// used by the backend.
@@ -70,11 +75,15 @@ pub enum RenderedTurn {
         /// The FIRST merged assistant event's uuid (the head of the turn).
         uuid: String,
         /// Message index of the FIRST merged assistant event (the one whose
-        /// first text block is shown/edited).
+        /// first text block is shown/edited). Display/diagnostic only.
         edit_index: usize,
-        /// Message index of the LAST merged assistant event, so a fork includes
-        /// the whole reply plus its interleaved tool-result lines.
+        /// Message index of the LAST merged assistant event. Display/diagnostic only.
         fork_index: usize,
+        /// Stable uuid of the text-bearing event that an edit rewrites.
+        edit_uuid: String,
+        /// Stable uuid of the LAST merged event — the fork cutoff (so a fork
+        /// includes the whole reply plus its interleaved tool-result lines).
+        fork_uuid: String,
         editable: bool,
     },
     #[serde(rename = "system")]
@@ -216,12 +225,15 @@ fn render_path_turns(path: &[&Event], editable: bool) -> Vec<RenderedTurn> {
                     continue;
                 }
                 let idx = msg_index[i].expect("user event has a message index");
+                let uuid = ev.uuid().map(|u| u.to_string()).unwrap_or_default();
                 turns.push(RenderedTurn::User {
                     timestamp: ev.timestamp(),
                     text,
-                    uuid: ev.uuid().map(|u| u.to_string()).unwrap_or_default(),
+                    uuid: uuid.clone(),
                     edit_index: idx,
                     fork_index: idx,
+                    edit_uuid: uuid.clone(),
+                    fork_uuid: uuid,
                     editable,
                 });
                 i += 1;
@@ -237,13 +249,13 @@ fn render_path_turns(path: &[&Event], editable: bool) -> Vec<RenderedTurn> {
                 let mut blocks = render_assistant_blocks(a);
                 let first_msg_i = msg_index[i].expect("assistant event has a message index");
                 let mut last_msg_i = first_msg_i;
+                // Track the cutoff/edit-target uuids alongside the indices.
+                let mut fork_uuid = head_uuid.clone();
                 let block_has_text =
                     |bs: &[RenderedBlock]| bs.iter().any(|b| matches!(b, RenderedBlock::Text { .. }));
-                let mut edit_msg_i = if block_has_text(&blocks) {
-                    Some(first_msg_i)
-                } else {
-                    None
-                };
+                let has_text_first = block_has_text(&blocks);
+                let mut edit_msg_i = if has_text_first { Some(first_msg_i) } else { None };
+                let mut edit_uuid: Option<String> = if has_text_first { Some(head_uuid.clone()) } else { None };
                 i += 1;
                 while i < path.len() {
                     if suppressed.contains(&i) {
@@ -257,14 +269,17 @@ fn render_path_turns(path: &[&Event], editable: bool) -> Vec<RenderedTurn> {
                         }
                         let next_blocks = render_assistant_blocks(next_a);
                         let this_msg_i = msg_index[i].expect("assistant event has a message index");
+                        let this_uuid = path[i].uuid().map(|u| u.to_string()).unwrap_or_default();
                         if edit_msg_i.is_none() && block_has_text(&next_blocks) {
                             edit_msg_i = Some(this_msg_i);
+                            edit_uuid = Some(this_uuid.clone());
                         }
                         blocks.extend(next_blocks);
                         if model.is_none() {
                             model = next_a.message.model.clone();
                         }
                         last_msg_i = this_msg_i;
+                        fork_uuid = this_uuid;
                         i += 1;
                     } else {
                         break;
@@ -274,9 +289,11 @@ fn render_path_turns(path: &[&Event], editable: bool) -> Vec<RenderedTurn> {
                     timestamp,
                     model,
                     blocks,
-                    uuid: head_uuid,
+                    uuid: head_uuid.clone(),
                     edit_index: edit_msg_i.unwrap_or(first_msg_i),
                     fork_index: last_msg_i,
+                    edit_uuid: edit_uuid.unwrap_or(head_uuid),
+                    fork_uuid,
                     editable,
                 });
             }
@@ -533,7 +550,10 @@ fn truncate(s: &str, max: usize) -> String {
 #[cfg(test)]
 mod render_tests {
     use super::*;
-    use crate::session::event::{CustomTitleEvent, Message, MessageContent, UserEvent};
+    use crate::session::event::{
+        AssistantEvent, AssistantMessage, Block, CustomTitleEvent, Message, MessageContent,
+        UserEvent,
+    };
     use crate::session::Session;
     use chrono::Utc;
     use std::path::PathBuf;
@@ -555,6 +575,65 @@ mod render_tests {
             cwd: None,
             git_branch: None,
         })
+    }
+
+    fn aev(uuid: &str, parent: Option<&str>, text: &str) -> Event {
+        Event::Assistant(AssistantEvent {
+            uuid: Some(uuid.parse().unwrap()),
+            parent_uuid: parent.map(|p| p.parse().unwrap()),
+            timestamp: Some(Utc::now()),
+            is_sidechain: false,
+            message: AssistantMessage {
+                model: Some("claude".into()),
+                stop_reason: None,
+                content: vec![Block::Text { text: text.into() }],
+                usage: None,
+            },
+            cwd: None,
+            git_branch: None,
+        })
+    }
+
+    #[test]
+    fn merged_assistant_carries_head_edit_and_fork_uuids() {
+        // Two consecutive assistant events merge into one turn. uuid=head,
+        // edit_uuid=first text-bearing event, fork_uuid=LAST merged event — so a
+        // fork includes the whole reply. These uuids (not indices) drive fork/edit.
+        let a = "00000000-0000-0000-0000-0000000000a1";
+        let b = "00000000-0000-0000-0000-0000000000b2";
+        let c = "00000000-0000-0000-0000-0000000000c3";
+        let r = render_session(&sess(vec![
+            uev(a, None, "hi"),
+            aev(b, Some(a), "first"),
+            aev(c, Some(b), "second"),
+        ]));
+        let got = r
+            .turns
+            .iter()
+            .find_map(|t| match t {
+                RenderedTurn::Assistant { uuid, edit_uuid, fork_uuid, .. } => {
+                    Some((uuid.clone(), edit_uuid.clone(), fork_uuid.clone()))
+                }
+                _ => None,
+            })
+            .expect("an assistant turn");
+        assert_eq!(got.0, b, "head uuid");
+        assert_eq!(got.1, b, "edit target = first text-bearing event");
+        assert_eq!(got.2, c, "fork cutoff = last merged event");
+    }
+
+    #[test]
+    fn user_turn_edit_and_fork_uuid_equal_its_own_uuid() {
+        let a = "00000000-0000-0000-0000-0000000000a1";
+        let r = render_session(&sess(vec![uev(a, None, "hi")]));
+        match &r.turns[0] {
+            RenderedTurn::User { uuid, edit_uuid, fork_uuid, .. } => {
+                assert_eq!(uuid, a);
+                assert_eq!(edit_uuid, a);
+                assert_eq!(fork_uuid, a);
+            }
+            _ => panic!("expected user turn"),
+        }
     }
 
     fn sess(events: Vec<Event>) -> Session {
