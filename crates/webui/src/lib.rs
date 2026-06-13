@@ -15,6 +15,7 @@ pub fn run() {
             commands::commit_session,
             commands::fork_session,
             commands::delete_session,
+            commands::rename_session,
             commands::delete_message,
         ])
         .run(tauri::generate_context!())

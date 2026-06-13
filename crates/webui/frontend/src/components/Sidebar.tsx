@@ -10,6 +10,7 @@ interface Props {
   onRefresh: () => void;
   onCollapse: () => void;
   onDelete: (s: SessionSummary) => void;
+  onRename: (s: SessionSummary, newTitle: string) => void;
 }
 
 export default function Sidebar({
@@ -20,6 +21,7 @@ export default function Sidebar({
   onRefresh,
   onCollapse,
   onDelete,
+  onRename,
 }: Props) {
   const [textFilter, setTextFilter] = useState("");
   const [projectFilter, setProjectFilter] = useState<string | null>(null);
@@ -30,6 +32,8 @@ export default function Sidebar({
   const [searchHits, setSearchHits] = useState<Set<string> | null>(null);
   const [searching, setSearching] = useState(false);
   const [confirmingId, setConfirmingId] = useState<string | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [draftTitle, setDraftTitle] = useState("");
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Unique project labels and cwds for dropdown options.
@@ -244,7 +248,9 @@ export default function Sidebar({
             No sessions found
           </div>
         ) : (
-          sorted.map((s) => (
+          sorted.map((s) => {
+            const editing = editingId === s.id;
+            return (
             <div
               key={s.id}
               className={`relative flex group border-b border-[var(--color-border)] hover:bg-[var(--color-surface-hover)] transition-colors ${
@@ -253,73 +259,114 @@ export default function Sidebar({
                   : ""
               }`}
             >
-              {/* Main clickable area */}
-              <button
-                onClick={() => onSelect(s)}
-                className="flex-1 text-left px-3 py-2 min-w-0"
-              >
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-medium text-[var(--color-accent)] truncate">
-                    {s.project_label}
-                  </span>
-                  <span className="text-[10px] text-[var(--color-text-dim)] ml-2 shrink-0">
-                    {relativeTime(s.mtime.secs_since_epoch)}
-                  </span>
+              {editing ? (
+                /* Inline rename input (an input can't live inside the row button) */
+                <div className="flex-1 px-3 py-2 min-w-0">
+                  <input
+                    autoFocus
+                    value={draftTitle}
+                    onChange={(e) => setDraftTitle(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        const t = draftTitle.trim();
+                        if (t && t !== s.title) onRename(s, t);
+                        setEditingId(null);
+                      } else if (e.key === "Escape") {
+                        e.preventDefault();
+                        setEditingId(null);
+                      }
+                    }}
+                    onBlur={() => setEditingId(null)}
+                    className="w-full bg-[var(--color-bg)] text-[var(--color-text)] text-sm px-1.5 py-1 rounded border border-[var(--color-accent)] outline-none"
+                  />
                 </div>
-                <div className="text-sm text-[var(--color-text)] truncate mt-0.5">
-                  {s.title}
-                </div>
-                <div className="flex items-center gap-2 text-[10px] text-[var(--color-text-dim)] mt-0.5">
-                  <span>{compactTokens(s.total_tokens)}</span>
-                  {s.git_branch && (
-                    <span className="text-[var(--color-accent)] opacity-70">
-                      {s.git_branch}
+              ) : (
+                /* Main clickable area */
+                <button
+                  onClick={() => onSelect(s)}
+                  className="flex-1 text-left px-3 py-2 min-w-0"
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-medium text-[var(--color-accent)] truncate">
+                      {s.project_label}
                     </span>
+                    <span className="text-[10px] text-[var(--color-text-dim)] ml-2 shrink-0">
+                      {relativeTime(s.mtime.secs_since_epoch)}
+                    </span>
+                  </div>
+                  <div className="text-sm text-[var(--color-text)] truncate mt-0.5">
+                    {s.title}
+                  </div>
+                  <div className="flex items-center gap-2 text-[10px] text-[var(--color-text-dim)] mt-0.5">
+                    <span>{compactTokens(s.total_tokens)}</span>
+                    {s.git_branch && (
+                      <span className="text-[var(--color-accent)] opacity-70">
+                        {s.git_branch}
+                      </span>
+                    )}
+                  </div>
+                </button>
+              )}
+
+              {/* Rename + delete affordances (hidden while editing this row) */}
+              {!editing && (
+                <div className="flex items-center shrink-0 pr-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                  {confirmingId === s.id ? (
+                    <span className="flex items-center gap-0.5">
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setConfirmingId(null);
+                          onDelete(s);
+                        }}
+                        className="text-[10px] px-1.5 py-0.5 rounded text-[var(--color-error)] border border-[var(--color-error)] hover:bg-[var(--color-error)] hover:text-[var(--color-bg)] transition-colors"
+                        title="Confirm delete"
+                      >
+                        ✓
+                      </button>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setConfirmingId(null);
+                        }}
+                        className="text-[10px] px-1.5 py-0.5 rounded text-[var(--color-text-dim)] border border-[var(--color-border)] hover:text-[var(--color-text)] hover:bg-[var(--color-surface-hover)] transition-colors"
+                        title="Cancel"
+                      >
+                        ✗
+                      </button>
+                    </span>
+                  ) : (
+                    <>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setConfirmingId(null);
+                          setDraftTitle(s.title);
+                          setEditingId(s.id);
+                        }}
+                        className="text-[11px] px-1 py-0.5 rounded text-[var(--color-text-dim)] hover:text-[var(--color-accent)] transition-colors"
+                        title="Rename session"
+                      >
+                        ✎
+                      </button>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setConfirmingId(s.id);
+                        }}
+                        className="text-[10px] px-1 py-0.5 rounded text-[var(--color-text-dim)] hover:text-[var(--color-error)] transition-colors"
+                        title="Delete session"
+                      >
+                        ×
+                      </button>
+                    </>
                   )}
                 </div>
-              </button>
-
-              {/* Delete affordance */}
-              <div className="flex items-center shrink-0 pr-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
-                {confirmingId === s.id ? (
-                  <span className="flex items-center gap-0.5">
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setConfirmingId(null);
-                        onDelete(s);
-                      }}
-                      className="text-[10px] px-1.5 py-0.5 rounded text-[var(--color-error)] border border-[var(--color-error)] hover:bg-[var(--color-error)] hover:text-[var(--color-bg)] transition-colors"
-                      title="Confirm delete"
-                    >
-                      ✓
-                    </button>
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setConfirmingId(null);
-                      }}
-                      className="text-[10px] px-1.5 py-0.5 rounded text-[var(--color-text-dim)] border border-[var(--color-border)] hover:text-[var(--color-text)] hover:bg-[var(--color-surface-hover)] transition-colors"
-                      title="Cancel"
-                    >
-                      ✗
-                    </button>
-                  </span>
-                ) : (
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setConfirmingId(s.id);
-                    }}
-                    className="text-[10px] px-1 py-0.5 rounded text-[var(--color-text-dim)] hover:text-[var(--color-error)] transition-colors"
-                    title="Delete session"
-                  >
-                    ×
-                  </button>
-                )}
-              </div>
+              )}
             </div>
-          ))
+            );
+          })
         )}
       </div>
 
