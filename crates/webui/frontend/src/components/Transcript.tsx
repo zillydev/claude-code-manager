@@ -338,9 +338,13 @@ function Turn({
           <div className="flex items-baseline gap-2 mb-1">
             <span className="text-xs text-[var(--color-text-dim)]">{ts}</span>
             <span className="font-medium text-[var(--color-user)]">user</span>
-            {turn.editable && (
-              <TurnActions onEdit={() => onStartEdit(turn.text)} onFork={onFork} onDelete={onDelete} messageId={turn.uuid} />
-            )}
+            <TurnActions
+              onEdit={() => onStartEdit(turn.text)}
+              onFork={onFork}
+              onDelete={onDelete}
+              messageId={turn.uuid}
+              canMutate={turn.editable}
+            />
           </div>
           {editing ? (
             <EditBox draft={draft} onChange={onChangeDraft} onSave={onSaveEdit} onCancel={onCancelEdit} />
@@ -368,17 +372,16 @@ function Turn({
                 ({shortModel(turn.model)})
               </span>
             )}
-            {turn.editable && (
-              <TurnActions
-                onEdit={() => {
-                  const firstText = turn.blocks.find((b) => b.type === "text");
-                  onStartEdit(firstText && firstText.type === "text" ? firstText.text : "");
-                }}
-                onFork={onFork}
-                onDelete={onDelete}
-                messageId={turn.uuid}
-              />
-            )}
+            <TurnActions
+              onEdit={() => {
+                const firstText = turn.blocks.find((b) => b.type === "text");
+                onStartEdit(firstText && firstText.type === "text" ? firstText.text : "");
+              }}
+              onFork={onFork}
+              onDelete={onDelete}
+              messageId={turn.uuid}
+              canMutate={turn.editable}
+            />
           </div>
           {editing && (
             <EditBox draft={draft} onChange={onChangeDraft} onSave={onSaveEdit} onCancel={onCancelEdit} />
@@ -436,11 +439,16 @@ function TurnActions({
   onFork,
   onDelete,
   messageId,
+  canMutate,
 }: {
   onEdit: () => void;
   onFork: () => void;
   onDelete: () => void;
   messageId: string;
+  /// Edit/delete operate on the active path, so they're offered only on the
+  /// active segment. Fork (resolves by uuid against the message's own tree) and
+  /// copy-id (read-only) are always available — including pre-compaction turns.
+  canMutate: boolean;
 }) {
   const [copied, setCopied] = useState(false);
   const [confirming, setConfirming] = useState(false);
@@ -448,9 +456,11 @@ function TurnActions({
     "text-[10px] px-1.5 py-0.5 rounded border border-[var(--color-border)] text-[var(--color-text-dim)] hover:border-[var(--color-accent)] hover:text-[var(--color-accent)]";
   return (
     <span className="opacity-0 group-hover:opacity-100 transition-opacity flex gap-2 ml-2">
-      <button onClick={onEdit} className={btn}>
-        edit
-      </button>
+      {canMutate && (
+        <button onClick={onEdit} className={btn}>
+          edit
+        </button>
+      )}
       <button
         onClick={onFork}
         className={btn}
@@ -458,31 +468,32 @@ function TurnActions({
       >
         fork from here
       </button>
-      {confirming ? (
-        <span className="flex gap-1 items-center">
-          <span className="text-[10px] text-[var(--color-error)]">delete?</span>
+      {canMutate &&
+        (confirming ? (
+          <span className="flex gap-1 items-center">
+            <span className="text-[10px] text-[var(--color-error)]">delete?</span>
+            <button
+              onClick={() => {
+                setConfirming(false);
+                onDelete();
+              }}
+              className="text-[10px] px-1.5 py-0.5 rounded border border-[var(--color-error)] text-[var(--color-error)]"
+            >
+              yes
+            </button>
+            <button onClick={() => setConfirming(false)} className={btn}>
+              no
+            </button>
+          </span>
+        ) : (
           <button
-            onClick={() => {
-              setConfirming(false);
-              onDelete();
-            }}
-            className="text-[10px] px-1.5 py-0.5 rounded border border-[var(--color-error)] text-[var(--color-error)]"
+            onClick={() => setConfirming(true)}
+            className={btn}
+            title="Delete this message (writes a new session without it)"
           >
-            yes
+            delete
           </button>
-          <button onClick={() => setConfirming(false)} className={btn}>
-            no
-          </button>
-        </span>
-      ) : (
-        <button
-          onClick={() => setConfirming(true)}
-          className={btn}
-          title="Delete this message (writes a new session without it)"
-        >
-          delete
-        </button>
-      )}
+        ))}
       {messageId && (
         <button
           onClick={() => {

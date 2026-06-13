@@ -268,16 +268,16 @@ pub fn fork_session(
     let root = paths::default_claude_root().ok_or("could not locate ~/.claude")?;
     let path = PathBuf::from(&file_path);
     let lines = read_raw(&path).map_err(|e| e.to_string())?;
-    let active = active_path(&lines);
 
+    // Walk from the fork point back to its own tree's root. This works for any
+    // message — including one in an orphaned pre-compaction tree — so forking a
+    // pre-compaction message yields the full raw history up to that point.
     let fork_target = uuid::Uuid::parse_str(&fork_uuid)
         .map_err(|e| format!("invalid fork uuid: {e}"))?;
-    let cutoff = active
-        .iter()
-        .position(|l| l.uuid == Some(fork_target))
-        .map(|i| i + 1)
-        .ok_or_else(|| format!("fork point {fork_uuid} not found on the active path"))?;
-    let prefix: Vec<&RawLine> = active.into_iter().take(cutoff).collect();
+    let prefix = claude_manager_core::session::raw::path_to(&lines, fork_target);
+    if prefix.is_empty() {
+        return Err(format!("fork point {fork_uuid} not found in session"));
+    }
     // Launch cwd (first cwd in file order) so the fork lands in the same project
     // dir as the source and stays resumable — not the active-path prefix's cwd,
     // which for a compacted session begins post-compaction in a cd'd directory.

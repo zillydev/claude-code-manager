@@ -56,12 +56,11 @@ pub fn resolve_leaf(lines: &[RawLine]) -> Option<Uuid> {
     lines.iter().rev().find_map(|l| l.uuid)
 }
 
-/// Return references to the lines on the active path, oldest first, by walking
-/// `parent` from the leaf. Lines without a uuid (metadata) are not on the path.
-pub fn active_path(lines: &[RawLine]) -> Vec<&RawLine> {
-    let Some(leaf) = resolve_leaf(lines) else {
-        return Vec::new();
-    };
+/// Return the path ending at `leaf`, oldest first, by walking `parent` back to
+/// its tree root. Works for ANY node — including a message in an orphaned
+/// pre-compaction tree — so a fork can be built from the fork point's own tree
+/// rather than only the active path. Lines without a uuid (metadata) are skipped.
+pub fn path_to(lines: &[RawLine], leaf: Uuid) -> Vec<&RawLine> {
     let mut by_uuid: HashMap<Uuid, &RawLine> = HashMap::with_capacity(lines.len());
     for l in lines {
         if let Some(u) = l.uuid {
@@ -82,6 +81,15 @@ pub fn active_path(lines: &[RawLine]) -> Vec<&RawLine> {
     }
     path.reverse();
     path
+}
+
+/// Return references to the lines on the active path, oldest first, by walking
+/// `parent` from the leaf. Lines without a uuid (metadata) are not on the path.
+pub fn active_path(lines: &[RawLine]) -> Vec<&RawLine> {
+    match resolve_leaf(lines) {
+        Some(leaf) => path_to(lines, leaf),
+        None => Vec::new(),
+    }
 }
 
 /// The session's launch cwd: the first `cwd` field in FILE ORDER. This is the
@@ -173,6 +181,33 @@ mod tests {
         let path = write_tmp("firstcwd", body);
         let lines = read_raw(&path).unwrap();
         assert_eq!(first_cwd(&lines).as_deref(), Some("/launch"));
+        std::fs::remove_file(&path).ok();
+    }
+
+    #[test]
+    fn path_to_walks_the_targets_own_tree_not_the_active_one() {
+        // Two disconnected trees (mirrors a compaction): tree 1 a->b, tree 2
+        // (active) c->d. path_to(b) returns tree 1's path, so a fork from a
+        // pre-compaction message yields that message's own history — while
+        // active_path still resolves to the active tree.
+        let a = "00000000-0000-0000-0000-0000000000a1";
+        let b = "00000000-0000-0000-0000-0000000000b2";
+        let c = "00000000-0000-0000-0000-0000000000c3";
+        let d = "00000000-0000-0000-0000-0000000000d4";
+        let body = format!(
+            "{}\n{}\n{}\n{}\n",
+            line(a, None, "user"),
+            line(b, Some(a), "assistant"),
+            line(c, None, "user"),
+            line(d, Some(c), "assistant"),
+        );
+        let path = write_tmp("pathto", &body);
+        let lines = read_raw(&path).unwrap();
+        let ids = |ls: Vec<&RawLine>| -> Vec<String> {
+            ls.iter().filter_map(|l| l.uuid.map(|u| u.to_string())).collect()
+        };
+        assert_eq!(ids(path_to(&lines, b.parse().unwrap())), vec![a.to_string(), b.to_string()]);
+        assert_eq!(ids(active_path(&lines)), vec![c.to_string(), d.to_string()]);
         std::fs::remove_file(&path).ok();
     }
 }
