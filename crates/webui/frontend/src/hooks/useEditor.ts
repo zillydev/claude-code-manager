@@ -8,13 +8,13 @@ export function useEditor() {
   const [error, setError] = useState<string | null>(null);
 
   const commitEdit = useCallback(
-    async (filePath: string, editIndex: number, newText: string) => {
+    async (filePath: string, editUuid: string, newText: string) => {
       setBusy(true);
       setError(null);
       try {
         const res = await invoke<CommitResult>("commit_session", {
           filePath,
-          editIndex,
+          editUuid,
           newText,
           customTitle: null,
         });
@@ -31,13 +31,13 @@ export function useEditor() {
   );
 
   const fork = useCallback(
-    async (filePath: string, forkIndex: number) => {
+    async (filePath: string, forkUuid: string) => {
       setBusy(true);
       setError(null);
       try {
         const res = await invoke<CommitResult>("fork_session", {
           filePath,
-          forkIndex,
+          forkUuid,
           customTitle: null,
         });
         setResult(res);

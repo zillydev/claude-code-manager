@@ -32,7 +32,7 @@ describe("segRank ordering", () => {
 
 describe("exactMatches", () => {
   const turns: RenderedTurn[] = [
-    { type: "user", timestamp: null, text: "find the cat", uuid: "u1", edit_index: 0, fork_index: 0, editable: true },
+    { type: "user", timestamp: null, text: "find the cat", uuid: "u1", edit_index: 0, fork_index: 0, edit_uuid: "u1", fork_uuid: "u1", editable: true },
     {
       type: "assistant",
       timestamp: null,
@@ -40,6 +40,8 @@ describe("exactMatches", () => {
       uuid: "a1",
       edit_index: 1,
       fork_index: 1,
+      edit_uuid: "a1",
+      fork_uuid: "a1",
       editable: true,
       blocks: [
         { type: "text", text: "a cat appears" }, // markdown — NOT exact-matched
