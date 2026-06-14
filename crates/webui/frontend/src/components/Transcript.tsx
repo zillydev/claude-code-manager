@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback, memo } from "react";
 import Markdown from "react-markdown";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import type {
@@ -33,6 +33,35 @@ export default function Transcript({ session, onBack }: Props) {
 
   const find = useFind(turnsRef, session.turns);
   const { openFind, next: findNext, prev: findPrev } = find;
+
+  // Stable handlers so the memoized <Turn>s don't re-render on every find
+  // keystroke. useEditor's methods are useCallback([])-stable, and sourcePath
+  // is stable, so these identities only change when `draft` does (during an
+  // edit) — never while typing in the find box.
+  const handleStartEdit = useCallback((uuid: string, text: string) => {
+    setEditingUuid(uuid);
+    setDraft(text);
+  }, []);
+  const handleCancelEdit = useCallback(() => setEditingUuid(null), []);
+  const handleSaveEdit = useCallback(
+    async (uuid: string) => {
+      await editor.commitEdit(sourcePath, uuid, draft);
+      setEditingUuid(null);
+    },
+    [editor.commitEdit, sourcePath, draft],
+  );
+  const handleFork = useCallback(
+    (forkUuid: string) => {
+      editor.fork(sourcePath, forkUuid);
+    },
+    [editor.fork, sourcePath],
+  );
+  const handleDelete = useCallback(
+    (uuid: string) => {
+      editor.deleteMessage(sourcePath, uuid);
+    },
+    [editor.deleteMessage, sourcePath],
+  );
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -141,38 +170,22 @@ export default function Transcript({ session, onBack }: Props) {
             (turn.type === "user" || turn.type === "assistant") && turn.editable
               ? turn.edit_uuid
               : null;
+          const editing = editUuid !== null && editingUuid === editUuid;
           return (
             <Turn
               key={i}
               turn={turn}
               turnIndex={i}
+              editUuid={editUuid}
               revealedToolKeys={find.revealedToolKeys}
-              editing={editUuid !== null && editingUuid === editUuid}
-              draft={draft}
-              onStartEdit={(text) => {
-                if (editUuid !== null) {
-                  setEditingUuid(editUuid);
-                  setDraft(text);
-                }
-              }}
+              editing={editing}
+              draft={editing ? draft : ""}
+              onStartEdit={handleStartEdit}
               onChangeDraft={setDraft}
-              onCancelEdit={() => setEditingUuid(null)}
-              onSaveEdit={async () => {
-                if (editUuid !== null) {
-                  await editor.commitEdit(sourcePath, editUuid, draft);
-                  setEditingUuid(null);
-                }
-              }}
-              onFork={() => {
-                if (turn.type === "user" || turn.type === "assistant") {
-                  editor.fork(sourcePath, turn.fork_uuid);
-                }
-              }}
-              onDelete={() => {
-                if (turn.type === "user" || turn.type === "assistant") {
-                  editor.deleteMessage(sourcePath, turn.uuid);
-                }
-              }}
+              onCancelEdit={handleCancelEdit}
+              onSaveEdit={handleSaveEdit}
+              onFork={handleFork}
+              onDelete={handleDelete}
             />
           );
         })}
@@ -304,9 +317,10 @@ function StatsPanel({
   );
 }
 
-function Turn({
+const Turn = memo(function Turn({
   turn,
   turnIndex,
+  editUuid,
   revealedToolKeys,
   editing,
   draft,
@@ -319,15 +333,16 @@ function Turn({
 }: {
   turn: RenderedTurn;
   turnIndex: number;
+  editUuid: string | null;
   revealedToolKeys: Set<string>;
   editing: boolean;
   draft: string;
-  onStartEdit: (text: string) => void;
+  onStartEdit: (uuid: string, text: string) => void;
   onChangeDraft: (s: string) => void;
   onCancelEdit: () => void;
-  onSaveEdit: () => void;
-  onFork: () => void;
-  onDelete: () => void;
+  onSaveEdit: (uuid: string) => void;
+  onFork: (forkUuid: string) => void;
+  onDelete: (uuid: string) => void;
 }) {
   const ts = "timestamp" in turn && turn.timestamp ? formatTime(turn.timestamp) : "--:--";
 
@@ -339,15 +354,20 @@ function Turn({
             <span className="text-xs text-[var(--color-text-dim)]">{ts}</span>
             <span className="font-medium text-[var(--color-user)]">user</span>
             <TurnActions
-              onEdit={() => onStartEdit(turn.text)}
-              onFork={onFork}
-              onDelete={onDelete}
+              onEdit={() => editUuid && onStartEdit(editUuid, turn.text)}
+              onFork={() => onFork(turn.fork_uuid)}
+              onDelete={() => onDelete(turn.uuid)}
               messageId={turn.uuid}
               canMutate={turn.editable}
             />
           </div>
           {editing ? (
-            <EditBox draft={draft} onChange={onChangeDraft} onSave={onSaveEdit} onCancel={onCancelEdit} />
+            <EditBox
+              draft={draft}
+              onChange={onChangeDraft}
+              onSave={() => editUuid && onSaveEdit(editUuid)}
+              onCancel={onCancelEdit}
+            />
           ) : (
             <div
               data-seg-id={makeSegId(turnIndex, null, "user-text")}
@@ -374,17 +394,23 @@ function Turn({
             )}
             <TurnActions
               onEdit={() => {
+                if (!editUuid) return;
                 const firstText = turn.blocks.find((b) => b.type === "text");
-                onStartEdit(firstText && firstText.type === "text" ? firstText.text : "");
+                onStartEdit(editUuid, firstText && firstText.type === "text" ? firstText.text : "");
               }}
-              onFork={onFork}
-              onDelete={onDelete}
+              onFork={() => onFork(turn.fork_uuid)}
+              onDelete={() => onDelete(turn.uuid)}
               messageId={turn.uuid}
               canMutate={turn.editable}
             />
           </div>
           {editing && (
-            <EditBox draft={draft} onChange={onChangeDraft} onSave={onSaveEdit} onCancel={onCancelEdit} />
+            <EditBox
+              draft={draft}
+              onChange={onChangeDraft}
+              onSave={() => editUuid && onSaveEdit(editUuid)}
+              onCancel={onCancelEdit}
+            />
           )}
           <div className="pl-4">
             {turn.blocks.map((block, j) => (
@@ -432,7 +458,7 @@ function Turn({
         </div>
       );
   }
-}
+});
 
 function TurnActions({
   onEdit,
@@ -546,7 +572,17 @@ function EditBox({
   );
 }
 
-function BlockRenderer({
+// Markdown parsing (react-markdown → AST) is the single most expensive thing in
+// a render. Memoizing on the source text means each block is parsed once and is
+// NOT re-parsed when the transcript re-renders for an unrelated reason (e.g. a
+// find keystroke). `MD_COMPONENTS` is module-level so its identity is stable.
+const MD_COMPONENTS = { a: ExternalLink };
+
+const MarkdownBlock = memo(function MarkdownBlock({ text }: { text: string }) {
+  return <Markdown components={MD_COMPONENTS}>{text}</Markdown>;
+});
+
+const BlockRenderer = memo(function BlockRenderer({
   block,
   turnIndex,
   blockIndex,
@@ -564,7 +600,7 @@ function BlockRenderer({
           data-seg-id={makeSegId(turnIndex, blockIndex, "assistant-text")}
           className="prose prose-sm prose-invert max-w-none mb-2"
         >
-          <Markdown components={{ a: ExternalLink }}>{block.text}</Markdown>
+          <MarkdownBlock text={block.text} />
         </div>
       );
 
@@ -581,7 +617,7 @@ function BlockRenderer({
         />
       );
   }
-}
+});
 
 function ExternalLink({
   href,
