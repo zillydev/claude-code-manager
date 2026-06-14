@@ -7,6 +7,8 @@ export interface SessionSummary {
   title: string;
   mtime: { secs_since_epoch: number; nanos_since_epoch: number };
   total_tokens: number;
+  /// The source session this one was forked from (null if not derived).
+  forked_from: string | null;
 }
 
 export type SortField = "updated" | "project" | "title" | "tokens";

@@ -34,7 +34,35 @@ export default function Sidebar({
   const [confirmingId, setConfirmingId] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [draftTitle, setDraftTitle] = useState("");
+  const [hoveredId, setHoveredId] = useState<string | null>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Fork lineage: look up a session by id, and find children forked from a source.
+  const byId = useMemo(
+    () => new Map(sessions.map((s) => [s.id, s])),
+    [sessions]
+  );
+  const childrenBySource = useMemo(() => {
+    const m = new Map<string, SessionSummary[]>();
+    for (const s of sessions) {
+      if (s.forked_from) {
+        const arr = m.get(s.forked_from);
+        if (arr) arr.push(s);
+        else m.set(s.forked_from, [s]);
+      }
+    }
+    return m;
+  }, [sessions]);
+
+  // Rows to accent while hovering a session: its source + its forks.
+  const relatedIds = useMemo(() => {
+    if (!hoveredId) return null;
+    const ids = new Set<string>();
+    const h = byId.get(hoveredId);
+    if (h?.forked_from) ids.add(h.forked_from);
+    for (const c of childrenBySource.get(hoveredId) ?? []) ids.add(c.id);
+    return ids.size ? ids : null;
+  }, [hoveredId, byId, childrenBySource]);
 
   // Unique project labels and cwds for dropdown options.
   const projects = useMemo(
@@ -253,9 +281,15 @@ export default function Sidebar({
             return (
             <div
               key={s.id}
+              onMouseEnter={() => setHoveredId(s.id)}
+              onMouseLeave={() => setHoveredId((h) => (h === s.id ? null : h))}
               className={`relative flex group border-b border-[var(--color-border)] hover:bg-[var(--color-surface-hover)] transition-colors ${
                 activeId === s.id
                   ? "bg-[var(--color-surface-hover)] border-l-2 border-l-[var(--color-accent)]"
+                  : ""
+              } ${
+                relatedIds?.has(s.id)
+                  ? "ring-1 ring-inset ring-[var(--color-accent)]"
                   : ""
               }`}
             >
@@ -305,7 +339,38 @@ export default function Sidebar({
                         {s.git_branch}
                       </span>
                     )}
+                    {childrenBySource.has(s.id) && (
+                      <span
+                        className="text-[var(--color-accent)] opacity-80"
+                        title={`${childrenBySource.get(s.id)!.length} session(s) forked from this`}
+                      >
+                        ⑂ {childrenBySource.get(s.id)!.length}
+                      </span>
+                    )}
                   </div>
+                  {s.forked_from && (
+                    <div className="mt-1">
+                      <span
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          const src = byId.get(s.forked_from!);
+                          if (src) onSelect(src);
+                        }}
+                        title={
+                          byId.has(s.forked_from)
+                            ? "Forked from this session — click to open"
+                            : `Forked from ${s.forked_from} (not in list)`
+                        }
+                        className={`inline-flex max-w-full items-center gap-1 truncate text-[10px] px-1.5 py-0.5 rounded border border-[var(--color-border)] text-[var(--color-text-dim)] ${
+                          byId.has(s.forked_from)
+                            ? "hover:border-[var(--color-accent)] hover:text-[var(--color-accent)] cursor-pointer"
+                            : "opacity-60"
+                        }`}
+                      >
+                        ⮌ from {byId.get(s.forked_from)?.title ?? s.forked_from.slice(0, 8)}
+                      </span>
+                    </div>
+                  )}
                 </button>
               )}
 
