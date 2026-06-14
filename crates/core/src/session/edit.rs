@@ -136,10 +136,18 @@ pub fn commit(root: &Path, path_lines: &[&RawLine], opts: &CommitOpts) -> Result
         }
     }
 
-    // 3. Regenerate uuids + relink parentUuid; stamp identity.
+    // 3. Regenerate uuids + relink parentUuid; stamp identity; record fork
+    //    provenance. We point `forkedFrom` at the source session (its original
+    //    sessionId, captured before we overwrite it) — matching Claude Code's
+    //    own format — so the derived session links back to its immediate parent.
+    let source_session = values
+        .iter()
+        .find_map(|v| v.get("sessionId").and_then(Value::as_str))
+        .map(str::to_string);
     let new_session = Uuid::new_v4();
     let mut prev: Option<Uuid> = None;
     for v in values.iter_mut() {
+        let original_uuid = v.get("uuid").and_then(Value::as_str).map(str::to_string);
         let new_uuid = Uuid::new_v4();
         set_str(v, "uuid", &new_uuid.to_string());
         match prev {
@@ -154,6 +162,16 @@ pub fn commit(root: &Path, path_lines: &[&RawLine], opts: &CommitOpts) -> Result
         set_str(v, "cwd", &opts.target_cwd);
         if let Some(b) = &opts.git_branch {
             set_str(v, "gitBranch", b);
+        }
+        if let Some(src) = &source_session {
+            if let Some(obj) = v.as_object_mut() {
+                let mut ff = serde_json::Map::new();
+                ff.insert("sessionId".into(), Value::String(src.clone()));
+                if let Some(mu) = original_uuid {
+                    ff.insert("messageUuid".into(), Value::String(mu));
+                }
+                obj.insert("forkedFrom".into(), Value::Object(ff));
+            }
         }
         prev = Some(new_uuid);
     }
@@ -447,6 +465,36 @@ mod tests {
         let lp = written.iter().find(|l| l.kind == "last-prompt").unwrap();
         assert_eq!(lp.value.get("leafUuid").and_then(|v| v.as_str()).map(|s| s.to_string()),
                    leaf.map(|u| u.to_string()));
+
+        std::fs::remove_file(&src).ok();
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn commit_records_forked_from_the_source_session() {
+        let body = concat!(
+            r#"{"type":"user","uuid":"00000000-0000-0000-0000-0000000000a1","parentUuid":null,"sessionId":"src-session","message":{"role":"user","content":"A"}}"#, "\n",
+            r#"{"type":"assistant","uuid":"00000000-0000-0000-0000-0000000000b2","parentUuid":"00000000-0000-0000-0000-0000000000a1","sessionId":"src-session","message":{"role":"assistant","content":[{"type":"text","text":"B"}]}}"#, "\n"
+        );
+        let src = write_tmp("commit-ff", body);
+        let lines = read_raw(&src).unwrap();
+        let path = active_path(&lines);
+        let root = std::env::temp_dir().join(format!("cm-root-ff-{}", std::process::id()));
+        let opts = CommitOpts { target_cwd: "/tmp/p".into(), git_branch: None, custom_title: None };
+        let res = commit(&root, &path, &opts).unwrap();
+
+        let written = read_raw(std::path::Path::new(&res.new_path)).unwrap();
+        let msgs: Vec<&RawLine> =
+            written.iter().filter(|l| l.kind == "user" || l.kind == "assistant").collect();
+        assert_eq!(msgs.len(), 2);
+        // Every emitted line records the source session, and carries a fresh id.
+        for m in &msgs {
+            let ff = m.value.get("forkedFrom").expect("forkedFrom present");
+            assert_eq!(ff.get("sessionId").and_then(|v| v.as_str()), Some("src-session"));
+        }
+        let new_sid = msgs[0].value.get("sessionId").and_then(|v| v.as_str()).unwrap();
+        assert_ne!(new_sid, "src-session");
+        assert_eq!(new_sid, res.new_session_id);
 
         std::fs::remove_file(&src).ok();
         std::fs::remove_dir_all(&root).ok();

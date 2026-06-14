@@ -574,6 +574,7 @@ mod render_tests {
             tool_use_result: None,
             cwd: None,
             git_branch: None,
+            forked_from: None,
         })
     }
 
@@ -591,6 +592,7 @@ mod render_tests {
             },
             cwd: None,
             git_branch: None,
+            forked_from: None,
         })
     }
 

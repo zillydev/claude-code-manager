@@ -49,6 +49,10 @@ pub struct UserEvent {
     pub cwd: Option<String>,
     #[serde(default, rename = "gitBranch")]
     pub git_branch: Option<String>,
+    /// Claude Code provenance: the source session/message this line was forked
+    /// from (also written by claude-manager's own copy-on-edit; see `edit::commit`).
+    #[serde(default, rename = "forkedFrom")]
+    pub forked_from: Option<ForkedFrom>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, Deserialize)]
@@ -66,6 +70,18 @@ pub struct AssistantEvent {
     pub cwd: Option<String>,
     #[serde(default, rename = "gitBranch")]
     pub git_branch: Option<String>,
+    #[serde(default, rename = "forkedFrom")]
+    pub forked_from: Option<ForkedFrom>,
+}
+
+/// Fork provenance recorded on a copied message line. Claude Code's `/branch` and
+/// `--fork-session` write this; claude-manager's `commit` writes it too.
+#[derive(Debug, Clone, serde::Serialize, Deserialize)]
+pub struct ForkedFrom {
+    #[serde(rename = "sessionId")]
+    pub session_id: String,
+    #[serde(default, rename = "messageUuid")]
+    pub message_uuid: Option<String>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, Deserialize)]
@@ -321,6 +337,15 @@ impl Event {
             _ => None,
         }
     }
+
+    /// The source session id this line was forked from, if any.
+    pub fn forked_from_session(&self) -> Option<&str> {
+        match self {
+            Event::User(e) => e.forked_from.as_ref().map(|f| f.session_id.as_str()),
+            Event::Assistant(e) => e.forked_from.as_ref().map(|f| f.session_id.as_str()),
+            _ => None,
+        }
+    }
 }
 
 #[cfg(test)]
@@ -398,5 +423,17 @@ mod tests {
         let line = r#"{"type":"some-future-type","x":1}"#;
         let ev: Event = serde_json::from_str(line).unwrap();
         assert!(matches!(ev, Event::Unknown));
+    }
+
+    #[test]
+    fn parse_forked_from_provenance() {
+        let line = r#"{"type":"user","sessionId":"new","forkedFrom":{"sessionId":"src-session","messageUuid":"m1"},"message":{"role":"user","content":"hi"}}"#;
+        let ev: Event = serde_json::from_str(line).unwrap();
+        assert_eq!(ev.forked_from_session(), Some("src-session"));
+
+        // Absent forkedFrom -> None, and a line without it still parses.
+        let plain = r#"{"type":"user","message":{"role":"user","content":"hi"}}"#;
+        let ev2: Event = serde_json::from_str(plain).unwrap();
+        assert_eq!(ev2.forked_from_session(), None);
     }
 }

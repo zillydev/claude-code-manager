@@ -19,6 +19,9 @@ pub struct SessionSummary {
     /// request input (input + cache_creation + cache_read). Matches the token
     /// count Claude Code's TUI shows, not a cumulative lifetime sum.
     pub total_tokens: u64,
+    /// The source session this one was forked from (Claude Code's `forkedFrom`,
+    /// also written by claude-manager forks/edits). `None` if not derived.
+    pub forked_from: Option<String>,
 }
 
 const TITLE_MAX_CHARS: usize = 60;
@@ -37,8 +40,14 @@ pub fn summarize(
     let mut total_tokens: u64 = 0;
     let mut cwd: Option<String> = None;
     let mut git_branch: Option<String> = None;
+    let mut forked_from: Option<String> = None;
 
     for ev in events {
+        if forked_from.is_none() {
+            if let Some(src) = ev.forked_from_session() {
+                forked_from = Some(src.to_string());
+            }
+        }
         if cwd.is_none() {
             if let Some(c) = ev.cwd() {
                 cwd = Some(c.to_string());
@@ -124,6 +133,7 @@ pub fn summarize(
         title,
         mtime,
         total_tokens,
+        forked_from,
     }
 }
 
@@ -201,8 +211,8 @@ pub fn compact_tokens(n: u64) -> String {
 mod tests {
     use super::*;
     use crate::session::event::{
-        AiTitleEvent, AssistantEvent, AssistantMessage, CustomTitleEvent, Message, MessageContent,
-        Usage, UserEvent,
+        AiTitleEvent, AssistantEvent, AssistantMessage, CustomTitleEvent, ForkedFrom, Message,
+        MessageContent, Usage, UserEvent,
     };
     use chrono::Utc;
     use std::time::UNIX_EPOCH;
@@ -224,7 +234,7 @@ mod tests {
                     cache_read_input_tokens: cache_read,
                 }),
             },
-            cwd: None, git_branch: None,
+            cwd: None, git_branch: None, forked_from: None,
         })
     }
 
@@ -240,7 +250,7 @@ mod tests {
                 content: MessageContent::Text(text.into()),
             },
             tool_use_result: None,
-            cwd: None, git_branch: None,
+            cwd: None, git_branch: None, forked_from: None,
         })
     }
 
@@ -336,6 +346,33 @@ mod tests {
             UNIX_EPOCH,
         );
         assert_eq!(s.title, "(untitled)");
+    }
+
+    #[test]
+    fn forked_from_read_from_provenance() {
+        let mut u = match user("hi", false) {
+            Event::User(u) => u,
+            _ => unreachable!(),
+        };
+        u.forked_from = Some(ForkedFrom { session_id: "src-session".into(), message_uuid: None });
+        let s = summarize(
+            &[Event::User(u)],
+            uuid::Uuid::new_v4(),
+            PathBuf::from("/x.jsonl"),
+            "proj".into(),
+            UNIX_EPOCH,
+        );
+        assert_eq!(s.forked_from.as_deref(), Some("src-session"));
+
+        // A non-derived session leaves it None.
+        let plain = summarize(
+            &[user("hi", false)],
+            uuid::Uuid::new_v4(),
+            PathBuf::from("/x.jsonl"),
+            "proj".into(),
+            UNIX_EPOCH,
+        );
+        assert_eq!(plain.forked_from, None);
     }
 
     #[test]

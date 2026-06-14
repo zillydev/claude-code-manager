@@ -153,7 +153,7 @@ mod tests {
                 content: MessageContent::Text("x".into()),
             },
             tool_use_result: None,
-            cwd: None, git_branch: None,
+            cwd: None, git_branch: None, forked_from: None,
         })
     }
 

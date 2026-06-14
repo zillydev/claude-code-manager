@@ -1,0 +1,7 @@
+# Vite serves the frontend over devUrl (http://localhost:5173) with hot-module
+# reload, so frontend edits update the running window live. Without this ignore,
+# `tauri dev` watches the whole crate — including frontend/ — and does a full
+# Rust rebuild + app restart on every frontend change (which also yanks the
+# window onto the active macOS Space). Ignore the frontend so only Rust changes
+# trigger a rebuild; frontend changes are handled by HMR.
+frontend/
