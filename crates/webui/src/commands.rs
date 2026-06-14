@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::sync::mpsc::channel;
 use std::sync::Mutex;
 
@@ -14,14 +15,16 @@ use serde::Serialize;
 use std::path::PathBuf;
 use tauri::{AppHandle, Emitter, Manager};
 
-/// Mutable state shared between tauri commands — tracks the open session for live tail.
+/// Mutable state shared between tauri commands — one live-tail watcher per
+/// window, keyed by the window's label, so multiple windows tail different
+/// sessions without clobbering each other.
 pub struct WatcherState {
-    pub watcher: Option<watcher::FileWatcher>,
+    pub watchers: HashMap<String, watcher::FileWatcher>,
 }
 
 impl Default for WatcherState {
     fn default() -> Self {
-        Self { watcher: None }
+        Self { watchers: HashMap::new() }
     }
 }
 
@@ -43,18 +46,21 @@ pub fn search_transcripts(query: String) -> Result<Vec<String>, String> {
 pub fn open_session(
     file_path: String,
     project_label: String,
+    window: tauri::WebviewWindow,
     app: AppHandle,
 ) -> Result<RenderedSession, String> {
     let session =
         store::open_session(file_path.clone().into(), project_label).map_err(|e| e.to_string())?;
     let rendered = render_session(&session);
 
-    // Start file watcher for live tail.
+    let label = window.label().to_string();
+
+    // Start file watcher for live tail, scoped to THIS window.
     let state = app.state::<Mutex<WatcherState>>();
     let mut guard = state.lock().map_err(|e| e.to_string())?;
 
-    // Drop any previous watcher.
-    guard.watcher = None;
+    // Drop any previous watcher for this window only.
+    guard.watchers.remove(&label);
 
     let (tx, rx) = channel::<()>();
     let bytes_read = session.bytes_read;
@@ -62,13 +68,13 @@ pub fn open_session(
 
     match watcher::watch_file(std::path::Path::new(&file_path), tx) {
         Ok(w) => {
-            guard.watcher = Some(w);
+            guard.watchers.insert(label.clone(), w);
 
             // Spawn a thread that reads from rx, debounces, tails the file,
-            // renders new events, and emits them to the frontend.
+            // renders new events, and emits them to the originating window.
             let app_clone = app.clone();
             std::thread::spawn(move || {
-                tail_loop(rx, &fp, bytes_read, app_clone);
+                tail_loop(rx, &fp, bytes_read, app_clone, label);
             });
         }
         Err(_) => {
@@ -80,10 +86,10 @@ pub fn open_session(
 }
 
 #[tauri::command]
-pub fn stop_watching(app: AppHandle) -> Result<(), String> {
+pub fn stop_watching(window: tauri::WebviewWindow, app: AppHandle) -> Result<(), String> {
     let state = app.state::<Mutex<WatcherState>>();
     let mut guard = state.lock().map_err(|e| e.to_string())?;
-    guard.watcher = None;
+    guard.watchers.remove(window.label());
     Ok(())
 }
 
@@ -92,6 +98,7 @@ fn tail_loop(
     file_path: &str,
     initial_offset: u64,
     app: AppHandle,
+    label: String,
 ) {
     let debounce = std::time::Duration::from_millis(80);
     let mut offset = initial_offset;
@@ -134,7 +141,7 @@ fn tail_loop(
         let new_turns: Vec<RenderedTurn> = rendered.turns;
 
         if !new_turns.is_empty() {
-            let _ = app.emit("session-updated", &new_turns);
+            let _ = app.emit_to(label.as_str(), "session-updated", &new_turns);
         }
         offset = outcome.bytes_read;
     }

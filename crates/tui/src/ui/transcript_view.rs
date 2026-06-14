@@ -666,7 +666,7 @@ mod tests {
             parent_uuid: None,
             timestamp: Some(Utc::now()),
             is_sidechain: false,
-            cwd: None, git_branch: None,
+            cwd: None, git_branch: None, forked_from: None,
             message: AssistantMessage {
                 model: Some("claude-opus-4-7".into()),
                 stop_reason: None,
@@ -692,7 +692,7 @@ mod tests {
             timestamp: Some(Utc::now()),
             is_sidechain: false,
             is_meta: None,
-            cwd: None, git_branch: None,
+            cwd: None, git_branch: None, forked_from: None,
             tool_use_result: None,
             message: Message {
                 role: Some("user".into()),
