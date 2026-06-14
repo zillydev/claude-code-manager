@@ -3,10 +3,89 @@ mod window;
 
 use std::sync::Mutex;
 
+use tauri::menu::{Menu, MenuItem, PredefinedMenuItem, Submenu};
+use tauri::{Manager, WindowEvent};
+
+/// Build the application menu: the standard macOS App/Edit/Window items
+/// (installing a custom menu replaces the OS default, so the standard
+/// clipboard/edit shortcuts must be re-declared) plus a custom New Window item.
+fn build_menu(handle: &tauri::AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
+    let app_menu = Submenu::with_items(
+        handle,
+        "App",
+        true,
+        &[
+            &PredefinedMenuItem::about(handle, None, None)?,
+            &PredefinedMenuItem::separator(handle)?,
+            &PredefinedMenuItem::services(handle, None)?,
+            &PredefinedMenuItem::separator(handle)?,
+            &PredefinedMenuItem::hide(handle, None)?,
+            &PredefinedMenuItem::hide_others(handle, None)?,
+            &PredefinedMenuItem::show_all(handle, None)?,
+            &PredefinedMenuItem::separator(handle)?,
+            &PredefinedMenuItem::quit(handle, None)?,
+        ],
+    )?;
+
+    let new_window =
+        MenuItem::with_id(handle, "new_window", "New Window", true, Some("CmdOrCtrl+N"))?;
+    let file_menu = Submenu::with_items(
+        handle,
+        "File",
+        true,
+        &[&new_window, &PredefinedMenuItem::close_window(handle, None)?],
+    )?;
+
+    let edit_menu = Submenu::with_items(
+        handle,
+        "Edit",
+        true,
+        &[
+            &PredefinedMenuItem::undo(handle, None)?,
+            &PredefinedMenuItem::redo(handle, None)?,
+            &PredefinedMenuItem::separator(handle)?,
+            &PredefinedMenuItem::cut(handle, None)?,
+            &PredefinedMenuItem::copy(handle, None)?,
+            &PredefinedMenuItem::paste(handle, None)?,
+            &PredefinedMenuItem::select_all(handle, None)?,
+        ],
+    )?;
+
+    let window_menu = Submenu::with_items(
+        handle,
+        "Window",
+        true,
+        &[
+            &PredefinedMenuItem::minimize(handle, None)?,
+            &PredefinedMenuItem::fullscreen(handle, None)?,
+        ],
+    )?;
+
+    Menu::with_items(handle, &[&app_menu, &file_menu, &edit_menu, &window_menu])
+}
+
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .manage(Mutex::new(commands::WatcherState::default()))
+        .menu(build_menu)
+        .on_menu_event(|app, event| {
+            if event.id().as_ref() == "new_window" {
+                window::spawn_window(app);
+            }
+        })
+        .on_window_event(|win, event| {
+            // When a window is destroyed, drop its live-tail watcher (the tail
+            // thread exits when the channel sender is dropped). A backstop for
+            // hard closes where the frontend's stop_watching may not run.
+            if let WindowEvent::Destroyed = event {
+                if let Some(state) = win.try_state::<Mutex<commands::WatcherState>>() {
+                    if let Ok(mut guard) = state.lock() {
+                        guard.watchers.remove(win.label());
+                    }
+                }
+            }
+        })
         .invoke_handler(tauri::generate_handler![
             commands::list_sessions,
             commands::open_session,
