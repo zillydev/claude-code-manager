@@ -4,10 +4,10 @@
   "version": "0.1.0",
   "identifier": "dev.zilly.claude-manager",
   "build": {
-    "frontendDist": "../frontend/dist",
+    "frontendDist": "frontend/dist",
     "devUrl": "http://localhost:5173",
-    "beforeDevCommand": "cd ../frontend && npm run dev",
-    "beforeBuildCommand": "cd ../frontend && npm run build"
+    "beforeDevCommand": "cd webui/frontend && npm run dev",
+    "beforeBuildCommand": "cd webui/frontend && npm run build"
   },
   "app": {
     "withGlobalTauri": true,
