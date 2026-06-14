@@ -4,9 +4,13 @@
 tui:
 	cargo run -p claude-manager-tui
 
-# Launch the web UI (Tauri dev mode)
+# Launch the web UI (Tauri dev mode).
+# --no-watch disables Tauri's Rust file watcher so editing source never
+# rebuilds + relaunches the app (the relaunch stole focus and yanked the
+# window onto whatever macOS Space was active). Frontend edits still
+# hot-reload via Vite HMR. To pick up Rust changes, stop and re-run this.
 webui:
-	cd crates/webui && cargo tauri dev
+	cd crates/webui && cargo tauri dev --no-watch
 
 # Build everything (Rust workspace + frontend)
 build:
