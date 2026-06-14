@@ -1,4 +1,5 @@
 mod commands;
+mod window;
 
 use std::sync::Mutex;
 
