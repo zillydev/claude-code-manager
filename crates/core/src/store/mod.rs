@@ -118,11 +118,15 @@ pub fn discover(root: &Path) -> Result<Discovery> {
         }
 
         // Resolve copy-lineage within this directory and stamp the summaries.
+        // `dir_summaries[i]` and `dir_uuids[i]` are the same session (pushed
+        // together), so the descendant's head — its branch point in the ancestor
+        // — is `dir_uuids[i].head`.
         let links = lineage::copy_lineage(&dir_uuids);
-        for summary in dir_summaries.iter_mut() {
+        for (i, summary) in dir_summaries.iter_mut().enumerate() {
             if let Some((ancestor_id, overlap)) = links.get(&summary.id) {
                 summary.copied_from = Some(ancestor_id.to_string());
                 summary.copied_overlap = Some(*overlap);
+                summary.copied_from_message = dir_uuids[i].head.map(|h| h.to_string());
             }
         }
         sessions.extend(dir_summaries);
@@ -333,6 +337,10 @@ mod tests {
         assert_eq!(b.copied_from.as_deref(), Some(a_id), "B should be copied from A");
         assert_eq!(b.copied_overlap, Some(1), "one shared message");
         assert_eq!(a.copied_from, None, "A is the origin");
+
+        // B's branch point in A = B's head (its first message = the shared root).
+        assert_eq!(b.copied_from_message.as_deref(), Some(shared), "B's branch point is its head");
+        assert_eq!(a.copied_from_message, None);
 
         fs::remove_dir_all(&tmp).ok();
     }
