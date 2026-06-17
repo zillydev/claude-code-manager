@@ -29,6 +29,13 @@ pub struct SessionSummary {
     pub copied_from: Option<String>,
     /// Number of messages shared with `copied_from` (display: "N shared").
     pub copied_overlap: Option<usize>,
+    /// The parent MESSAGE uuid this session forked at (`forkedFrom.messageUuid`).
+    /// The branch point for an explicit fork; `None` otherwise.
+    pub forked_from_message: Option<String>,
+    /// The parent MESSAGE uuid a detected copy branched at — the copy's head
+    /// (shared root) uuid, which is a message in `copied_from`. Set by
+    /// `store::discover`; `None` otherwise.
+    pub copied_from_message: Option<String>,
 }
 
 const TITLE_MAX_CHARS: usize = 60;
@@ -48,11 +55,13 @@ pub fn summarize(
     let mut cwd: Option<String> = None;
     let mut git_branch: Option<String> = None;
     let mut forked_from: Option<String> = None;
+    let mut forked_from_message: Option<String> = None;
 
     for ev in events {
         if forked_from.is_none() {
             if let Some(src) = ev.forked_from_session() {
                 forked_from = Some(src.to_string());
+                forked_from_message = ev.forked_from_message().map(|s| s.to_string());
             }
         }
         if cwd.is_none() {
@@ -143,6 +152,8 @@ pub fn summarize(
         forked_from,
         copied_from: None,
         copied_overlap: None,
+        forked_from_message,
+        copied_from_message: None,
     }
 }
 
@@ -382,6 +393,37 @@ mod tests {
             UNIX_EPOCH,
         );
         assert_eq!(plain.forked_from, None);
+    }
+
+    #[test]
+    fn forked_from_message_read_from_provenance() {
+        let mut u = match user("hi", false) {
+            Event::User(u) => u,
+            _ => unreachable!(),
+        };
+        u.forked_from = Some(ForkedFrom {
+            session_id: "src-session".into(),
+            message_uuid: Some("msg-7".into()),
+        });
+        let s = summarize(
+            &[Event::User(u)],
+            uuid::Uuid::new_v4(),
+            PathBuf::from("/x.jsonl"),
+            "proj".into(),
+            UNIX_EPOCH,
+        );
+        assert_eq!(s.forked_from.as_deref(), Some("src-session"));
+        assert_eq!(s.forked_from_message.as_deref(), Some("msg-7"));
+
+        // No provenance => both None.
+        let plain = summarize(
+            &[user("hi", false)],
+            uuid::Uuid::new_v4(),
+            PathBuf::from("/x.jsonl"),
+            "proj".into(),
+            UNIX_EPOCH,
+        );
+        assert_eq!(plain.forked_from_message, None);
     }
 
     #[test]

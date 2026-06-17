@@ -346,6 +346,16 @@ impl Event {
             _ => None,
         }
     }
+
+    /// The source MESSAGE uuid this line was forked at (`forkedFrom.messageUuid`),
+    /// if any. This is the branch point in the source session.
+    pub fn forked_from_message(&self) -> Option<&str> {
+        match self {
+            Event::User(e) => e.forked_from.as_ref().and_then(|f| f.message_uuid.as_deref()),
+            Event::Assistant(e) => e.forked_from.as_ref().and_then(|f| f.message_uuid.as_deref()),
+            _ => None,
+        }
+    }
 }
 
 #[cfg(test)]
