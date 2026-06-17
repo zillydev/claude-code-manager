@@ -4,6 +4,7 @@ import { useSessions, useTranscript } from "./hooks/useSessions";
 import Sidebar from "./components/Sidebar";
 import Transcript from "./components/Transcript";
 import LineageBanner from "./components/LineageBanner";
+import type { ForkRef } from "./types";
 
 const MIN_WIDTH = 200;
 const MAX_WIDTH = 600;
@@ -111,6 +112,20 @@ export default function App() {
               ? sessions.find((s) => s.id === openSummary.copied_from) ?? null
               : null;
             const copies = sessions.filter((s) => s.copied_from === transcript.id);
+            const branchPoints = new Map<string, ForkRef[]>();
+            const addBranch = (msg: string, ref: ForkRef) => {
+              const arr = branchPoints.get(msg);
+              if (arr) arr.push(ref);
+              else branchPoints.set(msg, [ref]);
+            };
+            for (const s of sessions) {
+              if (s.forked_from === transcript.id && s.forked_from_message) {
+                addBranch(s.forked_from_message, { session: s, kind: "forked" });
+              }
+              if (s.copied_from === transcript.id && s.copied_from_message) {
+                addBranch(s.copied_from_message, { session: s, kind: "copied" });
+              }
+            }
             return (
               <>
                 <LineageBanner
@@ -120,7 +135,12 @@ export default function App() {
                   onOpen={(s) => open(s.file_path, s.project_label)}
                 />
                 <div className="flex-1 overflow-hidden">
-                  <Transcript session={transcript} onBack={close} />
+                  <Transcript
+                    session={transcript}
+                    onBack={close}
+                    branchPoints={branchPoints}
+                    onOpenSession={(s) => open(s.file_path, s.project_label)}
+                  />
                 </div>
               </>
             );

@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback, memo } from "react";
+import { useState, useRef, useEffect, useCallback, memo, Fragment } from "react";
 import Markdown from "react-markdown";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import type {
@@ -6,11 +6,14 @@ import type {
   RenderedTurn,
   RenderedBlock,
   SessionStats,
+  ForkRef,
+  SessionSummary,
 } from "../types";
 import ToolCall from "./ToolCall";
 import { useEditor } from "../hooks/useEditor";
 import CommitResultBanner from "./CommitResultBanner";
 import FindBar from "./FindBar";
+import ForkMarker from "./ForkMarker";
 import { useFind } from "../hooks/useFind";
 import { usePersistentState } from "../hooks/usePersistentState";
 import { makeSegId } from "../lib/segments";
@@ -18,9 +21,11 @@ import { makeSegId } from "../lib/segments";
 interface Props {
   session: RenderedSession;
   onBack: () => void;
+  branchPoints?: Map<string, ForkRef[]>;
+  onOpenSession?: (s: SessionSummary) => void;
 }
 
-export default function Transcript({ session, onBack }: Props) {
+export default function Transcript({ session, onBack, branchPoints, onOpenSession }: Props) {
   const [statsOpen, setStatsOpen] = usePersistentState("cm.detailsOpen", true);
   const [compact, setCompact] = usePersistentState("cm.compact", false);
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -171,22 +176,35 @@ export default function Transcript({ session, onBack }: Props) {
               ? turn.edit_uuid
               : null;
           const editing = editUuid !== null && editingUuid === editUuid;
+          const forkUuid =
+            turn.type === "user" || turn.type === "assistant" ? turn.fork_uuid : null;
+          const ownUuid =
+            turn.type === "user" || turn.type === "assistant" ? turn.uuid : null;
+          let marks: ForkRef[] | undefined;
+          if (branchPoints) {
+            if (forkUuid) marks = branchPoints.get(forkUuid);
+            if (!marks && ownUuid) marks = branchPoints.get(ownUuid);
+          }
           return (
-            <Turn
-              key={i}
-              turn={turn}
-              turnIndex={i}
-              editUuid={editUuid}
-              revealedToolKeys={find.revealedToolKeys}
-              editing={editing}
-              draft={editing ? draft : ""}
-              onStartEdit={handleStartEdit}
-              onChangeDraft={setDraft}
-              onCancelEdit={handleCancelEdit}
-              onSaveEdit={handleSaveEdit}
-              onFork={handleFork}
-              onDelete={handleDelete}
-            />
+            <Fragment key={i}>
+              <Turn
+                turn={turn}
+                turnIndex={i}
+                editUuid={editUuid}
+                revealedToolKeys={find.revealedToolKeys}
+                editing={editing}
+                draft={editing ? draft : ""}
+                onStartEdit={handleStartEdit}
+                onChangeDraft={setDraft}
+                onCancelEdit={handleCancelEdit}
+                onSaveEdit={handleSaveEdit}
+                onFork={handleFork}
+                onDelete={handleDelete}
+              />
+              {marks && onOpenSession && (
+                <ForkMarker refs={marks} onOpen={onOpenSession} />
+              )}
+            </Fragment>
           );
         })}
         <div ref={bottomRef} />
