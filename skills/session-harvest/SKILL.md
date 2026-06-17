@@ -28,15 +28,17 @@ A session can be huge. Never read it all raw. Navigate in passes:
 
 1. **Outline.** Get the compact, id-annotated map (one line per turn — ids + tool-call one-liners, no outputs):
    ```bash
-   "$BIN" surgery extract --session "$SESSION" --outline
+   "$BIN" surgery extract --session "$SESSION" --outline --all-segments
    ```
    This is the "table of contents": it shows the arc and, crucially, the **tool-call sequence** (the "what was done"), with each turn's message uuid. A long session is a few hundred lines here — read it fully.
+
+   The outline covers **every conversation tree** in the file — a compacted session shows `── segment k/N · pre-compaction|active ──` dividers between its trees, so pre-compaction work is harvestable too. A `--from/--to` range must stay within one tree (the binary errors if it spans a compaction boundary).
 
 2. **Identify & classify spans.** From the outline, mark contiguous turn ranges that carry reusable value and classify each (rubric below). Record each candidate's `from`..`to` message uuids from the outline.
 
 3. **Drill down** only into the span(s) you will turn into an artifact:
    ```bash
-   "$BIN" surgery extract --session "$SESSION" --from "$FROM" --to "$TO"
+   "$BIN" surgery extract --session "$SESSION" --from "$FROM" --to "$TO" --all-segments
    ```
    (full text, tool outputs capped, every turn uuid-annotated.)
 
@@ -59,7 +61,7 @@ Return a ranked list. For each candidate:
 
 ```
 N. [type] <proposed title>
-   span: <from-uuid> .. <to-uuid>   (turns #x–#y)
+   span: <from-uuid> .. <to-uuid>   (seg <k>/<N> · <pre-compaction|active>, turns #x–#y)
    why: <one line — what makes this reusable>
 ```
 
