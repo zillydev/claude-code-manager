@@ -8,7 +8,7 @@ use serde_json::Value;
 use uuid::Uuid;
 
 use super::edit::{commit, CommitOpts, CommitResult};
-use super::raw::{active_path, first_cwd, read_raw, RawLine};
+use super::raw::{active_path, first_cwd, read_raw, segments, RawLine};
 use crate::store::paths;
 
 fn is_message(l: &RawLine) -> bool {
@@ -230,32 +230,79 @@ fn render_outline(active: &[&RawLine], a_start: usize, b_end: usize) -> String {
     out
 }
 
-/// Read a session and render either the full text of a range or a compact
-/// outline. With no `from`/`to`, renders the whole active path; with both, the
-/// turn-snapped range. Passing only one of `from`/`to` is an error.
+fn render_seg(seg: &[&RawLine], a: usize, b: usize, outline: bool) -> String {
+    if outline {
+        render_outline(seg, a, b)
+    } else {
+        render_range_text(seg, a, b)
+    }
+}
+
+/// Resolve a (possibly absent) range against a single path. Both absent = the
+/// whole path; both present = turn-snapped; one present = error.
+fn resolve_range(path: &[&RawLine], from: Option<Uuid>, to: Option<Uuid>) -> Result<(usize, usize)> {
+    match (from, to) {
+        (Some(f), Some(t)) => snap_range(path, f, t),
+        (None, None) => {
+            if path.is_empty() {
+                return Err(anyhow!("session has no messages on the active path"));
+            }
+            Ok((0, path.len() - 1))
+        }
+        _ => Err(anyhow!("provide both --from and --to, or neither")),
+    }
+}
+
+/// Read a session and render the full text or a compact outline. With
+/// `all_segments`, covers every conversation tree (pre-compaction + active),
+/// dividing whole-session output by segment; otherwise the active path only.
+/// With both `from`/`to`, renders that turn-snapped range; with neither, the
+/// whole path/session; with one, errors.
 pub fn extract(
     path: &Path,
     from: Option<Uuid>,
     to: Option<Uuid>,
     outline: bool,
+    all_segments: bool,
 ) -> Result<String> {
     let lines = read_raw(path)?;
-    let active = active_path(&lines);
-    let (a, b) = match (from, to) {
-        (Some(f), Some(t)) => snap_range(&active, f, t)?,
-        (None, None) => {
-            if active.is_empty() {
-                return Err(anyhow!("session has no messages on the active path"));
+
+    if !all_segments {
+        let active = active_path(&lines);
+        let (a, b) = resolve_range(&active, from, to)?;
+        return Ok(render_seg(&active, a, b, outline));
+    }
+
+    let segs = segments(&lines);
+    if segs.is_empty() {
+        return Err(anyhow!("session has no messages"));
+    }
+    match (from, to) {
+        (Some(f), Some(t)) => {
+            // The range must live within a single tree.
+            let seg = segs
+                .iter()
+                .find(|s| s.iter().any(|l| l.uuid == Some(f)))
+                .ok_or_else(|| anyhow!("from id {} is not in any conversation tree", f))?;
+            if !seg.iter().any(|l| l.uuid == Some(t)) {
+                return Err(anyhow!("from and to are in different conversation trees"));
             }
-            (0, active.len() - 1)
+            let (a, b) = snap_range(seg, f, t)?;
+            Ok(render_seg(seg, a, b, outline))
         }
-        _ => return Err(anyhow!("provide both --from and --to, or neither")),
-    };
-    Ok(if outline {
-        render_outline(&active, a, b)
-    } else {
-        render_range_text(&active, a, b)
-    })
+        (None, None) => {
+            let n = segs.len();
+            let mut out = String::new();
+            for (k, seg) in segs.iter().enumerate() {
+                let kind = if k + 1 == n { "active" } else { "pre-compaction" };
+                out.push_str(&format!("── segment {}/{} · {} ──\n", k + 1, n, kind));
+                let end = seg.len().saturating_sub(1);
+                out.push_str(&render_seg(seg, 0, end, outline));
+            }
+            Ok(out)
+        }
+        _ => Err(anyhow!("provide both --from and --to, or neither")),
+    }
 }
 
 /// Resolve a session reference (a full file path, or a bare session id) to its
@@ -462,7 +509,7 @@ mod tests {
         let p = fixture();
         let a = "00000000-0000-0000-0000-0000000000a1".parse().unwrap();
         let c = "00000000-0000-0000-0000-0000000000c4".parse().unwrap();
-        let text = extract(&p, Some(a), Some(c), false).unwrap();
+        let text = extract(&p, Some(a), Some(c), false, false).unwrap();
         assert!(text.contains("[user 00000000-0000-0000-0000-0000000000a1]"));
         assert!(text.contains("A"));
         assert!(text.contains("▸ Bash"));
@@ -474,7 +521,7 @@ mod tests {
     #[test]
     fn extract_whole_path_when_no_range() {
         let p = fixture();
-        let text = extract(&p, None, None, false).unwrap();
+        let text = extract(&p, None, None, false, false).unwrap();
         // First and last turns of the fixture are present.
         assert!(text.contains("A"));
         assert!(text.contains("D"));
@@ -485,20 +532,67 @@ mod tests {
     fn extract_rejects_one_sided_range() {
         let p = fixture();
         let a = "00000000-0000-0000-0000-0000000000a1".parse().unwrap();
-        assert!(extract(&p, Some(a), None, false).is_err());
+        assert!(extract(&p, Some(a), None, false, false).is_err());
         std::fs::remove_file(&p).ok();
     }
 
     #[test]
     fn extract_outline_is_compact() {
         let p = fixture();
-        let text = extract(&p, None, None, true).unwrap();
+        let text = extract(&p, None, None, true, false).unwrap();
         // One line per turn, tool-call one-liner present, NO results / no full body.
         assert!(text.contains("#0 [user 00000000-0000-0000-0000-0000000000a1]"));
         assert!(text.contains("▸Bash"));
         assert!(!text.contains("→ result"), "outline omits tool results");
         // The last turn (user "D") shows as its own header line.
         assert!(text.contains("\"D\""));
+        std::fs::remove_file(&p).ok();
+    }
+
+    fn two_tree_fixture() -> PathBuf {
+        // Pre-compaction tree (a1->b2), then a fresh null-parent root (c3->d4).
+        let body = concat!(
+            r#"{"type":"user","uuid":"00000000-0000-0000-0000-0000000000a1","parentUuid":null,"message":{"role":"user","content":"PRE1"}}"#, "\n",
+            r#"{"type":"assistant","uuid":"00000000-0000-0000-0000-0000000000b2","parentUuid":"00000000-0000-0000-0000-0000000000a1","message":{"role":"assistant","content":[{"type":"text","text":"PRE2"}]}}"#, "\n",
+            r#"{"type":"user","uuid":"00000000-0000-0000-0000-0000000000c3","parentUuid":null,"message":{"role":"user","content":"ACT1"}}"#, "\n",
+            r#"{"type":"assistant","uuid":"00000000-0000-0000-0000-0000000000d4","parentUuid":"00000000-0000-0000-0000-0000000000c3","message":{"role":"assistant","content":[{"type":"text","text":"ACT2"}]}}"#, "\n",
+        );
+        let mut p = std::env::temp_dir();
+        p.push(format!("cm-surg-twotree-{}.jsonl", std::process::id()));
+        std::fs::write(&p, body).unwrap();
+        p
+    }
+
+    #[test]
+    fn all_segments_outline_shows_both_trees_with_dividers() {
+        let p = two_tree_fixture();
+        let text = extract(&p, None, None, true, true).unwrap();
+        assert!(text.contains("── segment 1/2 · pre-compaction ──"));
+        assert!(text.contains("── segment 2/2 · active ──"));
+        assert!(text.contains("PRE1"), "pre-compaction tree's turns appear");
+        assert!(text.contains("ACT1"), "active tree's turns appear");
+        std::fs::remove_file(&p).ok();
+    }
+
+    #[test]
+    fn all_segments_range_within_precompaction_tree() {
+        let p = two_tree_fixture();
+        let a = "00000000-0000-0000-0000-0000000000a1".parse().unwrap();
+        let b = "00000000-0000-0000-0000-0000000000b2".parse().unwrap();
+        let text = extract(&p, Some(a), Some(b), false, true).unwrap();
+        assert!(text.contains("PRE1"));
+        assert!(text.contains("PRE2"));
+        assert!(!text.contains("ACT"), "range stays within the pre-compaction tree");
+        std::fs::remove_file(&p).ok();
+    }
+
+    #[test]
+    fn all_segments_range_across_trees_errors() {
+        let p = two_tree_fixture();
+        let a = "00000000-0000-0000-0000-0000000000a1".parse().unwrap();
+        let d = "00000000-0000-0000-0000-0000000000d4".parse().unwrap();
+        let err = extract(&p, Some(a), Some(d), false, true).unwrap_err().to_string();
+        assert!(err.contains("different conversation trees"), "got: {err}");
         std::fs::remove_file(&p).ok();
     }
 

@@ -64,6 +64,9 @@ enum SurgeryOp {
         /// Compact map: one line per turn (ids + tool-call one-liners), no outputs.
         #[arg(long)]
         outline: bool,
+        /// Cover ALL conversation trees (pre-compaction + active), not just the active path.
+        #[arg(long)]
+        all_segments: bool,
     },
     /// Write a new session with the range pruned or replaced by a summary.
     Rewrite {
@@ -92,7 +95,7 @@ fn main() -> Result<()> {
     if let Some(Command::Surgery { op }) = &cli.command {
         use claude_manager_core::session::surgery::{self, RewriteMode};
         match op {
-            SurgeryOp::Extract { session, from, to, outline } => {
+            SurgeryOp::Extract { session, from, to, outline, all_segments } => {
                 let path = surgery::resolve_session_path(&root, session)?;
                 let a = from
                     .as_deref()
@@ -104,7 +107,7 @@ fn main() -> Result<()> {
                     .map(Uuid::parse_str)
                     .transpose()
                     .context("invalid --to uuid")?;
-                print!("{}", surgery::extract(&path, a, b, *outline)?);
+                print!("{}", surgery::extract(&path, a, b, *outline, *all_segments)?);
             }
             SurgeryOp::Rewrite { session, from, to, mode, summary_file } => {
                 let path = surgery::resolve_session_path(&root, session)?;
