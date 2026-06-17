@@ -49,17 +49,21 @@ enum Command {
 
 #[derive(Subcommand, Debug)]
 enum SurgeryOp {
-    /// Print the messages in the range [from..to] (turn-snapped) for summarizing.
+    /// Print the messages in a range (turn-snapped) — or the whole session — for
+    /// summarizing/harvesting. With --outline, print a compact one-line-per-turn map.
     Extract {
         /// Session file path or bare session id.
         #[arg(long)]
         session: String,
-        /// Start message id (uuid).
+        /// Start message id (uuid). Omit (with --to) to read the whole session.
         #[arg(long)]
-        from: String,
-        /// End message id (uuid).
+        from: Option<String>,
+        /// End message id (uuid). Omit (with --from) to read the whole session.
         #[arg(long)]
-        to: String,
+        to: Option<String>,
+        /// Compact map: one line per turn (ids + tool-call one-liners), no outputs.
+        #[arg(long)]
+        outline: bool,
     },
     /// Write a new session with the range pruned or replaced by a summary.
     Rewrite {
@@ -88,11 +92,19 @@ fn main() -> Result<()> {
     if let Some(Command::Surgery { op }) = &cli.command {
         use claude_manager_core::session::surgery::{self, RewriteMode};
         match op {
-            SurgeryOp::Extract { session, from, to } => {
+            SurgeryOp::Extract { session, from, to, outline } => {
                 let path = surgery::resolve_session_path(&root, session)?;
-                let a = Uuid::parse_str(from).context("invalid --from uuid")?;
-                let b = Uuid::parse_str(to).context("invalid --to uuid")?;
-                print!("{}", surgery::extract(&path, a, b)?);
+                let a = from
+                    .as_deref()
+                    .map(Uuid::parse_str)
+                    .transpose()
+                    .context("invalid --from uuid")?;
+                let b = to
+                    .as_deref()
+                    .map(Uuid::parse_str)
+                    .transpose()
+                    .context("invalid --to uuid")?;
+                print!("{}", surgery::extract(&path, a, b, *outline)?);
             }
             SurgeryOp::Rewrite { session, from, to, mode, summary_file } => {
                 let path = surgery::resolve_session_path(&root, session)?;
