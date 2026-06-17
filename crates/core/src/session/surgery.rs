@@ -223,7 +223,10 @@ const OUTLINE_TOOL_CAP: usize = 6;
 /// prose are omitted; this is the "table of contents", not the content.
 fn render_outline(active: &[&RawLine], a_start: usize, b_end: usize) -> String {
     let mut out = String::new();
-    for (idx, (s, e)) in turn_spans(active).iter().enumerate() {
+    // `#N` is a display ordinal over the turns actually shown (skipped machinery
+    // turns don't leave gaps); targeting is by uuid, not this number.
+    let mut shown = 0usize;
+    for (s, e) in turn_spans(active).iter() {
         if *s < a_start || *e > b_end {
             continue; // only turns fully within the range
         }
@@ -274,7 +277,8 @@ fn render_outline(active: &[&RawLine], a_start: usize, b_end: usize) -> String {
         if tools.is_empty() && preview.trim().is_empty() {
             continue;
         }
-        out.push_str(&format!("#{} {} {}\n", idx, role, uuid));
+        out.push_str(&format!("#{} {} {}\n", shown, role, uuid));
+        shown += 1;
         let cleaned =
             super::display::one_line(&preview).unwrap_or_else(|| preview.replace('\n', " "));
         let prev = ellipsis(cleaned.trim(), OUTLINE_PREVIEW_CAP);
