@@ -13,6 +13,16 @@ export interface SessionSummary {
   copied_from: string | null;
   /// Number of messages shared with `copied_from`.
   copied_overlap: number | null;
+  /// The parent message uuid this session forked at (explicit fork branch point).
+  forked_from_message: string | null;
+  /// The parent message uuid a detected copy branched at (its shared-root head).
+  copied_from_message: string | null;
+}
+
+/// A child session that branched from a given message of the open session.
+export interface ForkRef {
+  session: SessionSummary;
+  kind: "forked" | "copied";
 }
 
 export type SortField = "updated" | "project" | "title" | "tokens";

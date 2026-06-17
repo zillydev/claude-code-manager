@@ -29,6 +29,13 @@ pub struct SessionSummary {
     pub copied_from: Option<String>,
     /// Number of messages shared with `copied_from` (display: "N shared").
     pub copied_overlap: Option<usize>,
+    /// The parent MESSAGE uuid this session forked at (`forkedFrom.messageUuid`).
+    /// The branch point for an explicit fork; `None` otherwise.
+    pub forked_from_message: Option<String>,
+    /// The parent MESSAGE uuid a detected copy branched at — the copy's head
+    /// (shared root) uuid, which is a message in `copied_from`. Set by
+    /// `store::discover`; `None` otherwise.
+    pub copied_from_message: Option<String>,
 }
 
 const TITLE_MAX_CHARS: usize = 60;
@@ -48,11 +55,19 @@ pub fn summarize(
     let mut cwd: Option<String> = None;
     let mut git_branch: Option<String> = None;
     let mut forked_from: Option<String> = None;
+    let mut forked_from_message: Option<String> = None;
 
     for ev in events {
-        if forked_from.is_none() {
-            if let Some(src) = ev.forked_from_session() {
+        if let Some(src) = ev.forked_from_session() {
+            if forked_from.is_none() {
                 forked_from = Some(src.to_string());
+            }
+            // `forkedFrom.messageUuid` is per-line provenance — every copied line
+            // records its OWN original uuid. The fork POINT is the deepest copied
+            // message, so the LAST one wins (forked_from_session is only set on
+            // user/assistant events).
+            if let Some(m) = ev.forked_from_message() {
+                forked_from_message = Some(m.to_string());
             }
         }
         if cwd.is_none() {
@@ -143,6 +158,8 @@ pub fn summarize(
         forked_from,
         copied_from: None,
         copied_overlap: None,
+        forked_from_message,
+        copied_from_message: None,
     }
 }
 
@@ -382,6 +399,66 @@ mod tests {
             UNIX_EPOCH,
         );
         assert_eq!(plain.forked_from, None);
+    }
+
+    #[test]
+    fn forked_from_message_read_from_provenance() {
+        let mut u = match user("hi", false) {
+            Event::User(u) => u,
+            _ => unreachable!(),
+        };
+        u.forked_from = Some(ForkedFrom {
+            session_id: "src-session".into(),
+            message_uuid: Some("msg-7".into()),
+        });
+        let s = summarize(
+            &[Event::User(u)],
+            uuid::Uuid::new_v4(),
+            PathBuf::from("/x.jsonl"),
+            "proj".into(),
+            UNIX_EPOCH,
+        );
+        assert_eq!(s.forked_from.as_deref(), Some("src-session"));
+        assert_eq!(s.forked_from_message.as_deref(), Some("msg-7"));
+
+        // No provenance => both None.
+        let plain = summarize(
+            &[user("hi", false)],
+            uuid::Uuid::new_v4(),
+            PathBuf::from("/x.jsonl"),
+            "proj".into(),
+            UNIX_EPOCH,
+        );
+        assert_eq!(plain.forked_from_message, None);
+    }
+
+    #[test]
+    fn forked_from_message_is_the_deepest_copied_turn() {
+        // Every copied line carries forkedFrom with its OWN original uuid, so the
+        // fork POINT is the deepest (last) copied message, not the first.
+        let mk = |msg: &str| {
+            let mut u = match user("x", false) {
+                Event::User(u) => u,
+                _ => unreachable!(),
+            };
+            u.forked_from =
+                Some(ForkedFrom { session_id: "src".into(), message_uuid: Some(msg.into()) });
+            Event::User(u)
+        };
+        let events = vec![mk("first-copied"), mk("deepest-copied")];
+        let s = summarize(
+            &events,
+            uuid::Uuid::new_v4(),
+            PathBuf::from("/x.jsonl"),
+            "p".into(),
+            UNIX_EPOCH,
+        );
+        assert_eq!(s.forked_from.as_deref(), Some("src"), "session id is first-wins");
+        assert_eq!(
+            s.forked_from_message.as_deref(),
+            Some("deepest-copied"),
+            "fork point is the deepest copied message"
+        );
     }
 
     #[test]
