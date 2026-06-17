@@ -8,7 +8,9 @@ export type SegField =
   | "summary"
   | "tool-name"
   | "tool-input"
-  | "tool-result";
+  | "tool-result"
+  | "task-summary"
+  | "task-result";
 
 export interface FindMatch {
   segId: string;
@@ -69,6 +71,10 @@ export function exactMatches(turns: RenderedTurn[], find: (t: string) => Span[])
         break;
       case "summary":
         push(ti, null, "summary", turn.content);
+        break;
+      case "task_notification":
+        push(ti, null, "task-summary", turn.summary);
+        push(ti, null, "task-result", turn.result);
         break;
       case "assistant":
         turn.blocks.forEach((b, bi) => {
