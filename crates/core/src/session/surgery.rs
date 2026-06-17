@@ -261,6 +261,13 @@ fn render_outline(active: &[&RawLine], a_start: usize, b_end: usize) -> String {
                 _ => {}
             }
         }
+        // Skip slash-command machinery turns (caveat + stdout) — pure noise on the
+        // map; the command echo itself still shows (cleaned to `/cmd`). The webui
+        // hides these too. (Command echoes start with `<command-`, not
+        // `<local-command-`, so they are NOT skipped here.)
+        if preview.trim_start().starts_with("<local-command-") {
+            continue;
+        }
         out.push_str(&format!("#{} {} {}\n", idx, role, uuid));
         let cleaned =
             super::display::one_line(&preview).unwrap_or_else(|| preview.replace('\n', " "));
@@ -653,6 +660,8 @@ mod tests {
         let body = concat!(
             r#"{"type":"user","uuid":"00000000-0000-0000-0000-0000000000a1","parentUuid":null,"message":{"role":"user","content":"<command-name>/compact</command-name>\n<command-args></command-args>"}}"#, "\n",
             r#"{"type":"user","uuid":"00000000-0000-0000-0000-0000000000b2","parentUuid":"00000000-0000-0000-0000-0000000000a1","message":{"role":"user","content":"<task-notification>\n<status>completed</status>\n<summary>did the thing</summary>\n<result>body</result>\n</task-notification>"}}"#, "\n",
+            r#"{"type":"user","uuid":"00000000-0000-0000-0000-0000000000c3","parentUuid":"00000000-0000-0000-0000-0000000000b2","message":{"role":"user","content":"<local-command-caveat>Caveat: machinery boilerplate</local-command-caveat>"}}"#, "\n",
+            r#"{"type":"user","uuid":"00000000-0000-0000-0000-0000000000d4","parentUuid":"00000000-0000-0000-0000-0000000000c3","message":{"role":"user","content":"<local-command-stdout>some command output</local-command-stdout>"}}"#, "\n",
         );
         let mut p = std::env::temp_dir();
         p.push(format!("cm-surg-noisy-{}.jsonl", std::process::id()));
@@ -668,6 +677,10 @@ mod tests {
         assert!(text.contains("task · completed · did the thing"), "task-notif → one line");
         assert!(!text.contains("<command-name>"), "no raw command tags");
         assert!(!text.contains("<task-notification>"), "no raw task tags");
+        // local-command machinery (caveat + stdout) is skipped entirely.
+        assert!(!text.contains("<local-command-"), "no raw local-command tags");
+        assert!(!text.contains("Caveat:"), "caveat turn skipped");
+        assert!(!text.contains("some command output"), "stdout turn skipped");
         std::fs::remove_file(&p).ok();
     }
 
