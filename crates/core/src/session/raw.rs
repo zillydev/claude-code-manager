@@ -92,6 +92,77 @@ pub fn active_path(lines: &[RawLine]) -> Vec<&RawLine> {
     }
 }
 
+/// Every conversation tree in the file, oldest first; each is the path of one
+/// tree root. The LAST element is the active tree (the one containing the global
+/// leaf) and equals `active_path`. Mirrors `tree::segments`, but on `RawLine`:
+/// a compaction writes a fresh null-parent root, orphaning the prior tree in the
+/// same file, so each root yields its own segment.
+pub fn segments(lines: &[RawLine]) -> Vec<Vec<&RawLine>> {
+    let mut by_uuid: HashMap<Uuid, &RawLine> = HashMap::with_capacity(lines.len());
+    for l in lines {
+        if let Some(u) = l.uuid {
+            by_uuid.insert(u, l);
+        }
+    }
+    if by_uuid.is_empty() {
+        return Vec::new();
+    }
+
+    fn root_of(
+        start: Uuid,
+        by_uuid: &HashMap<Uuid, &RawLine>,
+        cache: &mut HashMap<Uuid, Uuid>,
+    ) -> Uuid {
+        if let Some(r) = cache.get(&start) {
+            return *r;
+        }
+        let mut chain: Vec<Uuid> = Vec::new();
+        let mut seen: std::collections::HashSet<Uuid> = std::collections::HashSet::new();
+        let mut cur = start;
+        let root = loop {
+            if !seen.insert(cur) {
+                break cur; // cycle: treat current node as the root
+            }
+            chain.push(cur);
+            match by_uuid.get(&cur).and_then(|l| l.parent) {
+                Some(p) if by_uuid.contains_key(&p) => cur = p,
+                _ => break cur,
+            }
+        };
+        for c in chain {
+            cache.insert(c, root);
+        }
+        root
+    }
+
+    let mut cache: HashMap<Uuid, Uuid> = HashMap::with_capacity(by_uuid.len());
+    let mut groups: HashMap<Uuid, Vec<&RawLine>> = HashMap::new();
+    let mut root_order: Vec<Uuid> = Vec::new();
+    for l in lines {
+        let Some(u) = l.uuid else { continue };
+        let r = root_of(u, &by_uuid, &mut cache);
+        if !groups.contains_key(&r) {
+            root_order.push(r);
+        }
+        groups.entry(r).or_default().push(l);
+    }
+
+    let active_root = resolve_leaf(lines).map(|leaf| root_of(leaf, &by_uuid, &mut cache));
+    let mut ordered: Vec<Uuid> =
+        root_order.iter().copied().filter(|r| Some(*r) != active_root).collect();
+    if let Some(ar) = active_root {
+        ordered.push(ar);
+    }
+
+    let mut out: Vec<Vec<&RawLine>> = Vec::with_capacity(ordered.len());
+    for r in ordered {
+        if let Some(tree_leaf) = groups[&r].last().and_then(|l| l.uuid) {
+            out.push(path_to(lines, tree_leaf));
+        }
+    }
+    out
+}
+
 /// The session's launch cwd: the first `cwd` field in FILE ORDER. This is the
 /// directory the session was started in (and thus the project dir it lives in),
 /// even if the agent later `cd`'d elsewhere or the active path begins
@@ -209,5 +280,67 @@ mod tests {
         assert_eq!(ids(path_to(&lines, b.parse().unwrap())), vec![a.to_string(), b.to_string()]);
         assert_eq!(ids(active_path(&lines)), vec![c.to_string(), d.to_string()]);
         std::fs::remove_file(&path).ok();
+    }
+
+    #[test]
+    fn segments_single_tree_equals_active_path() {
+        let a = "00000000-0000-0000-0000-0000000000a1";
+        let b = "00000000-0000-0000-0000-0000000000b2";
+        let c = "00000000-0000-0000-0000-0000000000c3";
+        let body = format!(
+            "{}\n{}\n{}\n",
+            line(a, None, "user"),
+            line(b, Some(a), "assistant"),
+            line(c, Some(b), "user"),
+        );
+        let p = write_tmp("seg-one", &body);
+        let lines = read_raw(&p).unwrap();
+        let segs = segments(&lines);
+        assert_eq!(segs.len(), 1);
+        let seg_ids: Vec<_> = segs[0].iter().map(|l| l.uuid).collect();
+        let ap_ids: Vec<_> = active_path(&lines).iter().map(|l| l.uuid).collect();
+        assert_eq!(seg_ids, ap_ids);
+        std::fs::remove_file(&p).ok();
+    }
+
+    #[test]
+    fn segments_two_roots_active_last() {
+        // Pre-compaction tree (a->b), then a fresh null-parent root (c->d) appended.
+        let a = "00000000-0000-0000-0000-0000000000a1";
+        let b = "00000000-0000-0000-0000-0000000000b2";
+        let c = "00000000-0000-0000-0000-0000000000c3";
+        let d = "00000000-0000-0000-0000-0000000000d4";
+        let body = format!(
+            "{}\n{}\n{}\n{}\n",
+            line(a, None, "user"),
+            line(b, Some(a), "assistant"),
+            line(c, None, "user"),
+            line(d, Some(c), "assistant"),
+        );
+        let p = write_tmp("seg-two", &body);
+        let lines = read_raw(&p).unwrap();
+        let segs = segments(&lines);
+        assert_eq!(segs.len(), 2);
+        assert_eq!(segs[1].last().unwrap().uuid.unwrap().to_string(), d);
+        assert_eq!(segs[0].first().unwrap().uuid.unwrap().to_string(), a);
+        std::fs::remove_file(&p).ok();
+    }
+
+    #[test]
+    fn segments_dangling_parent_starts_new_tree() {
+        let a = "00000000-0000-0000-0000-0000000000a1";
+        let b = "00000000-0000-0000-0000-0000000000b2";
+        let x = "00000000-0000-0000-0000-0000000000e5";
+        let missing = "00000000-0000-0000-0000-0000000000ff";
+        let body = format!(
+            "{}\n{}\n{}\n",
+            line(a, None, "user"),
+            line(b, Some(a), "assistant"),
+            line(x, Some(missing), "user"),
+        );
+        let p = write_tmp("seg-dangle", &body);
+        let lines = read_raw(&p).unwrap();
+        assert_eq!(segments(&lines).len(), 2);
+        std::fs::remove_file(&p).ok();
     }
 }
