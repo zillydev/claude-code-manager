@@ -169,10 +169,58 @@ fn render_range_text(active: &[&RawLine], a_start: usize, b_end: usize) -> Strin
     out
 }
 
-/// Render a compact one-line-per-turn MAP of the inclusive range, for navigating
-/// a whole session cheaply: turn index, role, the turn's first message uuid, a
-/// short text preview, and tool-call one-liners. Tool RESULTS and full prose are
-/// omitted — this is the "table of contents", not the content.
+/// Truncate to `max` chars, appending a bare `…` if cut (no char-count noise).
+fn ellipsis(s: &str, max: usize) -> String {
+    let chars: Vec<char> = s.chars().collect();
+    if chars.len() <= max {
+        s.to_string()
+    } else {
+        let head: String = chars[..max].iter().collect();
+        format!("{}…", head)
+    }
+}
+
+/// A tool_use block rendered as its NAME + salient argument (not raw JSON):
+/// the file for Read/Edit/Write, the command for Bash, the pattern for Grep, the
+/// description for Task/Agent, etc. Falls back to the bare name.
+fn tool_salient(block: &Value) -> String {
+    let name = block.get("name").and_then(|v| v.as_str()).unwrap_or("tool");
+    let input = block.get("input");
+    let arg = |key: &str| input.and_then(|i| i.get(key)).and_then(|v| v.as_str());
+    let base = |p: &str| p.rsplit('/').next().unwrap_or(p).to_string();
+    match name {
+        "Read" | "Edit" | "Write" | "MultiEdit" | "NotebookEdit" => arg("file_path")
+            .or_else(|| arg("notebook_path"))
+            .map(|p| format!("{} {}", name, base(p)))
+            .unwrap_or_else(|| name.to_string()),
+        "Bash" => arg("command")
+            .map(|c| format!("{} `{}`", name, ellipsis(&c.replace('\n', " "), 50)))
+            .unwrap_or_else(|| name.to_string()),
+        "Grep" | "Glob" => arg("pattern")
+            .map(|p| format!("{} {}", name, ellipsis(p, 40)))
+            .unwrap_or_else(|| name.to_string()),
+        "Task" | "Agent" => arg("description")
+            .map(|d| format!("{} {}", name, ellipsis(d, 40)))
+            .unwrap_or_else(|| name.to_string()),
+        "Skill" => arg("skill")
+            .or_else(|| arg("command"))
+            .map(|s| format!("{} {}", name, ellipsis(s, 40)))
+            .unwrap_or_else(|| name.to_string()),
+        "ToolSearch" => arg("query")
+            .map(|q| format!("{} {}", name, ellipsis(q, 40)))
+            .unwrap_or_else(|| name.to_string()),
+        _ => name.to_string(),
+    }
+}
+
+const OUTLINE_PREVIEW_CAP: usize = 100;
+const OUTLINE_TOOL_CAP: usize = 6;
+
+/// Render a compact MAP of the inclusive range for navigating a whole session:
+/// per turn, a header (turn index, role, message uuid), an indented text
+/// preview, and — for assistant turns — an indented line of tool-call salient
+/// args (`▸Read foo.rs · Bash `cargo build` · +N more`). Tool RESULTS and full
+/// prose are omitted; this is the "table of contents", not the content.
 fn render_outline(active: &[&RawLine], a_start: usize, b_end: usize) -> String {
     let mut out = String::new();
     for (idx, (s, e)) in turn_spans(active).iter().enumerate() {
@@ -205,13 +253,7 @@ fn render_outline(active: &[&RawLine], a_start: usize, b_end: usize) -> String {
                                     }
                                 }
                             }
-                            Some("tool_use") => {
-                                let name =
-                                    b.get("name").and_then(|v| v.as_str()).unwrap_or("tool");
-                                let input =
-                                    b.get("input").map(|v| v.to_string()).unwrap_or_default();
-                                tools.push(format!("▸{}({})", name, cap(&input, 60)));
-                            }
+                            Some("tool_use") => tools.push(tool_salient(b)),
                             _ => {}
                         }
                     }
@@ -219,11 +261,20 @@ fn render_outline(active: &[&RawLine], a_start: usize, b_end: usize) -> String {
                 _ => {}
             }
         }
-        let preview = cap(&preview.replace('\n', " "), 80);
-        out.push_str(&format!("#{} [{} {}] \"{}\"", idx, role, uuid, preview));
+        out.push_str(&format!("#{} {} {}\n", idx, role, uuid));
+        let prev = preview.replace('\n', " ");
+        let prev = ellipsis(prev.trim(), OUTLINE_PREVIEW_CAP);
+        if !prev.is_empty() {
+            out.push_str(&format!("     {}\n", prev));
+        }
         if !tools.is_empty() {
-            out.push(' ');
-            out.push_str(&tools.join(" "));
+            let line = if tools.len() > OUTLINE_TOOL_CAP {
+                let rest = tools.len() - OUTLINE_TOOL_CAP;
+                format!("{} · +{} more", tools[..OUTLINE_TOOL_CAP].join(" · "), rest)
+            } else {
+                tools.join(" · ")
+            };
+            out.push_str(&format!("     ▸{}\n", line));
         }
         out.push('\n');
     }
@@ -540,12 +591,13 @@ mod tests {
     fn extract_outline_is_compact() {
         let p = fixture();
         let text = extract(&p, None, None, true, false).unwrap();
-        // One line per turn, tool-call one-liner present, NO results / no full body.
-        assert!(text.contains("#0 [user 00000000-0000-0000-0000-0000000000a1]"));
+        // Per-turn header (role + uuid), salient tool line, NO results / no full body.
+        assert!(text.contains("#0 user 00000000-0000-0000-0000-0000000000a1"));
         assert!(text.contains("▸Bash"));
         assert!(!text.contains("→ result"), "outline omits tool results");
-        // The last turn (user "D") shows as its own header line.
-        assert!(text.contains("\"D\""));
+        assert!(!text.contains("[59 more chars]"), "outline shows salient args, not raw JSON");
+        // The last turn (user "D") shows its preview on an indented line.
+        assert!(text.contains("\n     D\n"));
         std::fs::remove_file(&p).ok();
     }
 
