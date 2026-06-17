@@ -62,6 +62,11 @@ pub fn discover(root: &Path) -> Result<Discovery> {
             }
         };
 
+        // Accumulate this directory's sessions so we can resolve copy-lineage
+        // (which needs every session's uuids) before pushing them.
+        let mut dir_summaries: Vec<SessionSummary> = Vec::new();
+        let mut dir_uuids: Vec<lineage::SessionUuids> = Vec::new();
+
         for child in inner {
             let child = match child {
                 Ok(c) => c,
@@ -97,13 +102,30 @@ pub fn discover(root: &Path) -> Result<Discovery> {
                         project_label,
                         mtime,
                     );
-                    sessions.push(summary);
+                    let su = lineage::SessionUuids {
+                        id,
+                        head: events.iter().find_map(|e| e.uuid()),
+                        uuids: events.iter().filter_map(|e| e.uuid()).collect(),
+                        forked: summary.forked_from.is_some(),
+                    };
+                    dir_summaries.push(summary);
+                    dir_uuids.push(su);
                 }
                 Err(e) => {
                     warnings.push(format!("parse {}: {}", child_path.display(), e));
                 }
             }
         }
+
+        // Resolve copy-lineage within this directory and stamp the summaries.
+        let links = lineage::copy_lineage(&dir_uuids);
+        for summary in dir_summaries.iter_mut() {
+            if let Some((ancestor_id, overlap)) = links.get(&summary.id) {
+                summary.copied_from = Some(ancestor_id.to_string());
+                summary.copied_overlap = Some(*overlap);
+            }
+        }
+        sessions.extend(dir_summaries);
     }
 
     // most-recent first
@@ -262,5 +284,56 @@ mod tests {
         );
 
         fs::remove_dir_all(&root).ok();
+    }
+
+    fn write_session(dir: &std::path::Path, session_id: &str, lines: &[String]) {
+        use std::io::Write;
+        let p = dir.join(format!("{session_id}.jsonl"));
+        let mut f = fs::File::create(p).unwrap();
+        for l in lines {
+            writeln!(f, "{l}").unwrap();
+        }
+    }
+
+    #[test]
+    fn discover_sets_copied_from_via_shared_uuid() {
+        let tmp = std::env::temp_dir().join(format!("cm-lineage-test-{}", std::process::id()));
+        let proj = tmp.join("projects").join("-tmp-proj");
+        fs::create_dir_all(&proj).unwrap();
+
+        // SHARED message uuid present in BOTH sessions.
+        let shared = "55555555-0000-0000-0000-000000000005";
+        // A (origin): own head A1, then the shared message.
+        let a_id = "11111111-1111-1111-1111-111111111111";
+        let a1 = "aaaaaaaa-0000-0000-0000-000000000001";
+        write_session(
+            &proj,
+            a_id,
+            &[
+                format!(r#"{{"type":"user","uuid":"{a1}","parentUuid":null,"isSidechain":false,"message":{{"role":"user","content":"a-first"}},"timestamp":"2026-06-17T00:00:00Z"}}"#),
+                format!(r#"{{"type":"user","uuid":"{shared}","parentUuid":"{a1}","isSidechain":false,"message":{{"role":"user","content":"shared"}},"timestamp":"2026-06-17T00:01:00Z"}}"#),
+            ],
+        );
+        // B (copy): head = the shared message (its fork point), then a new message.
+        let b_id = "22222222-2222-2222-2222-222222222222";
+        let b2 = "bbbbbbbb-0000-0000-0000-000000000002";
+        write_session(
+            &proj,
+            b_id,
+            &[
+                format!(r#"{{"type":"user","uuid":"{shared}","parentUuid":null,"isSidechain":false,"message":{{"role":"user","content":"shared"}},"timestamp":"2026-06-17T00:02:00Z"}}"#),
+                format!(r#"{{"type":"user","uuid":"{b2}","parentUuid":"{shared}","isSidechain":false,"message":{{"role":"user","content":"b-new"}},"timestamp":"2026-06-17T00:03:00Z"}}"#),
+            ],
+        );
+
+        let disc = discover(&tmp).unwrap();
+        let a = disc.sessions.iter().find(|s| s.id.to_string() == a_id).unwrap();
+        let b = disc.sessions.iter().find(|s| s.id.to_string() == b_id).unwrap();
+
+        assert_eq!(b.copied_from.as_deref(), Some(a_id), "B should be copied from A");
+        assert_eq!(b.copied_overlap, Some(1), "one shared message");
+        assert_eq!(a.copied_from, None, "A is the origin");
+
+        fs::remove_dir_all(&tmp).ok();
     }
 }
