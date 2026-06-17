@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { useSessions, useTranscript } from "./hooks/useSessions";
 import Sidebar from "./components/Sidebar";
 import Transcript from "./components/Transcript";
+import LineageBanner from "./components/LineageBanner";
 
 const MIN_WIDTH = 200;
 const MAX_WIDTH = 600;
@@ -98,13 +99,32 @@ export default function App() {
           />
         </>
       )}
-      <main className="flex-1 overflow-hidden">
+      <main className="flex-1 overflow-hidden flex flex-col">
         {txLoading ? (
           <div className="flex items-center justify-center h-full text-[var(--color-text-dim)]">
             Loading session…
           </div>
         ) : transcript ? (
-          <Transcript session={transcript} onBack={close} />
+          (() => {
+            const openSummary = sessions.find((s) => s.id === transcript.id) ?? null;
+            const copiedFrom = openSummary?.copied_from
+              ? sessions.find((s) => s.id === openSummary.copied_from) ?? null
+              : null;
+            const copies = sessions.filter((s) => s.copied_from === transcript.id);
+            return (
+              <>
+                <LineageBanner
+                  copiedFrom={copiedFrom}
+                  copies={copies}
+                  overlap={openSummary?.copied_overlap ?? null}
+                  onOpen={(s) => open(s.file_path, s.project_label)}
+                />
+                <div className="flex-1 overflow-hidden">
+                  <Transcript session={transcript} onBack={close} />
+                </div>
+              </>
+            );
+          })()
         ) : (
           <div className="flex items-center justify-center h-full text-[var(--color-text-dim)]">
             Select a session to view

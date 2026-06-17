@@ -22,6 +22,13 @@ pub struct SessionSummary {
     /// The source session this one was forked from (Claude Code's `forkedFrom`,
     /// also written by claude-manager forks/edits). `None` if not derived.
     pub forked_from: Option<String>,
+    /// Ancestor session this one's history was copied from, inferred from shared
+    /// message uuids (fork / resume / background-restart copies that Claude Code
+    /// does not record with an explicit `forkedFrom`). `None` when not a copy or
+    /// when `forked_from` already links it. Resolved by `store::discover`.
+    pub copied_from: Option<String>,
+    /// Number of messages shared with `copied_from` (display: "N shared").
+    pub copied_overlap: Option<usize>,
 }
 
 const TITLE_MAX_CHARS: usize = 60;
@@ -134,6 +141,8 @@ pub fn summarize(
         mtime,
         total_tokens,
         forked_from,
+        copied_from: None,
+        copied_overlap: None,
     }
 }
 
