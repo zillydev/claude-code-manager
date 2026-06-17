@@ -58,10 +58,16 @@ pub fn summarize(
     let mut forked_from_message: Option<String> = None;
 
     for ev in events {
-        if forked_from.is_none() {
-            if let Some(src) = ev.forked_from_session() {
+        if let Some(src) = ev.forked_from_session() {
+            if forked_from.is_none() {
                 forked_from = Some(src.to_string());
-                forked_from_message = ev.forked_from_message().map(|s| s.to_string());
+            }
+            // `forkedFrom.messageUuid` is per-line provenance — every copied line
+            // records its OWN original uuid. The fork POINT is the deepest copied
+            // message, so the LAST one wins (forked_from_session is only set on
+            // user/assistant events).
+            if let Some(m) = ev.forked_from_message() {
+                forked_from_message = Some(m.to_string());
             }
         }
         if cwd.is_none() {
@@ -424,6 +430,35 @@ mod tests {
             UNIX_EPOCH,
         );
         assert_eq!(plain.forked_from_message, None);
+    }
+
+    #[test]
+    fn forked_from_message_is_the_deepest_copied_turn() {
+        // Every copied line carries forkedFrom with its OWN original uuid, so the
+        // fork POINT is the deepest (last) copied message, not the first.
+        let mk = |msg: &str| {
+            let mut u = match user("x", false) {
+                Event::User(u) => u,
+                _ => unreachable!(),
+            };
+            u.forked_from =
+                Some(ForkedFrom { session_id: "src".into(), message_uuid: Some(msg.into()) });
+            Event::User(u)
+        };
+        let events = vec![mk("first-copied"), mk("deepest-copied")];
+        let s = summarize(
+            &events,
+            uuid::Uuid::new_v4(),
+            PathBuf::from("/x.jsonl"),
+            "p".into(),
+            UNIX_EPOCH,
+        );
+        assert_eq!(s.forked_from.as_deref(), Some("src"), "session id is first-wins");
+        assert_eq!(
+            s.forked_from_message.as_deref(),
+            Some("deepest-copied"),
+            "fork point is the deepest copied message"
+        );
     }
 
     #[test]
