@@ -3,6 +3,7 @@ use std::time::SystemTime;
 
 use uuid::Uuid;
 
+use super::display::extract_tag;
 use super::event::{Event, MessageContent};
 
 /// One row of the sessions list.
@@ -178,14 +179,6 @@ fn strip_command_markup(s: String) -> String {
         (Some(n), _) => n.to_string(),
         _ => s,
     }
-}
-
-fn extract_tag<'a>(s: &'a str, tag: &str) -> Option<&'a str> {
-    let open = format!("<{}>", tag);
-    let close = format!("</{}>", tag);
-    let i = s.find(&open)? + open.len();
-    let j = s[i..].find(&close)? + i;
-    Some(&s[i..j])
 }
 
 fn truncate_title(s: String) -> String {

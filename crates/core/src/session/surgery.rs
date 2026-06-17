@@ -223,7 +223,10 @@ const OUTLINE_TOOL_CAP: usize = 6;
 /// prose are omitted; this is the "table of contents", not the content.
 fn render_outline(active: &[&RawLine], a_start: usize, b_end: usize) -> String {
     let mut out = String::new();
-    for (idx, (s, e)) in turn_spans(active).iter().enumerate() {
+    // `#N` is a display ordinal over the turns actually shown (skipped machinery
+    // turns don't leave gaps); targeting is by uuid, not this number.
+    let mut shown = 0usize;
+    for (s, e) in turn_spans(active).iter() {
         if *s < a_start || *e > b_end {
             continue; // only turns fully within the range
         }
@@ -261,9 +264,24 @@ fn render_outline(active: &[&RawLine], a_start: usize, b_end: usize) -> String {
                 _ => {}
             }
         }
-        out.push_str(&format!("#{} {} {}\n", idx, role, uuid));
-        let prev = preview.replace('\n', " ");
-        let prev = ellipsis(prev.trim(), OUTLINE_PREVIEW_CAP);
+        // Skip slash-command machinery turns (caveat + stdout) — pure noise on the
+        // map; the command echo itself still shows (cleaned to `/cmd`). The webui
+        // hides these too. (Command echoes start with `<command-`, not
+        // `<local-command-`, so they are NOT skipped here.)
+        if preview.trim_start().starts_with("<local-command-") {
+            continue;
+        }
+        // Skip empty machinery turns — compact_boundary system markers (the
+        // segment divider already marks them), attachments, and other lines with
+        // no message text and no tool calls. Bare headers add only noise.
+        if tools.is_empty() && preview.trim().is_empty() {
+            continue;
+        }
+        out.push_str(&format!("#{} {} {}\n", shown, role, uuid));
+        shown += 1;
+        let cleaned =
+            super::display::one_line(&preview).unwrap_or_else(|| preview.replace('\n', " "));
+        let prev = ellipsis(cleaned.trim(), OUTLINE_PREVIEW_CAP);
         if !prev.is_empty() {
             out.push_str(&format!("     {}\n", prev));
         }
@@ -609,10 +627,7 @@ mod tests {
             r#"{"type":"user","uuid":"00000000-0000-0000-0000-0000000000c3","parentUuid":null,"message":{"role":"user","content":"ACT1"}}"#, "\n",
             r#"{"type":"assistant","uuid":"00000000-0000-0000-0000-0000000000d4","parentUuid":"00000000-0000-0000-0000-0000000000c3","message":{"role":"assistant","content":[{"type":"text","text":"ACT2"}]}}"#, "\n",
         );
-        let mut p = std::env::temp_dir();
-        p.push(format!("cm-surg-twotree-{}.jsonl", std::process::id()));
-        std::fs::write(&p, body).unwrap();
-        p
+        write_tmp("twotree", body)
     }
 
     #[test]
@@ -645,6 +660,48 @@ mod tests {
         let d = "00000000-0000-0000-0000-0000000000d4".parse().unwrap();
         let err = extract(&p, Some(a), Some(d), false, true).unwrap_err().to_string();
         assert!(err.contains("different conversation trees"), "got: {err}");
+        std::fs::remove_file(&p).ok();
+    }
+
+    fn noisy_fixture() -> PathBuf {
+        let body = concat!(
+            r#"{"type":"user","uuid":"00000000-0000-0000-0000-0000000000a1","parentUuid":null,"message":{"role":"user","content":"<command-name>/compact</command-name>\n<command-args></command-args>"}}"#, "\n",
+            r#"{"type":"user","uuid":"00000000-0000-0000-0000-0000000000b2","parentUuid":"00000000-0000-0000-0000-0000000000a1","message":{"role":"user","content":"<task-notification>\n<status>completed</status>\n<summary>did the thing</summary>\n<result>body</result>\n</task-notification>"}}"#, "\n",
+            r#"{"type":"user","uuid":"00000000-0000-0000-0000-0000000000c3","parentUuid":"00000000-0000-0000-0000-0000000000b2","message":{"role":"user","content":"<local-command-caveat>Caveat: machinery boilerplate</local-command-caveat>"}}"#, "\n",
+            r#"{"type":"user","uuid":"00000000-0000-0000-0000-0000000000d4","parentUuid":"00000000-0000-0000-0000-0000000000c3","message":{"role":"user","content":"<local-command-stdout>some command output</local-command-stdout>"}}"#, "\n",
+        );
+        write_tmp("noisy", body)
+    }
+
+    #[test]
+    fn outline_compacts_command_echo_and_task_notification() {
+        let p = noisy_fixture();
+        let text = extract(&p, None, None, true, false).unwrap();
+        assert!(text.contains("/compact"), "command echo → /compact");
+        assert!(text.contains("task · completed · did the thing"), "task-notif → one line");
+        assert!(!text.contains("<command-name>"), "no raw command tags");
+        assert!(!text.contains("<task-notification>"), "no raw task tags");
+        // local-command machinery (caveat + stdout) is skipped entirely.
+        assert!(!text.contains("<local-command-"), "no raw local-command tags");
+        assert!(!text.contains("Caveat:"), "caveat turn skipped");
+        assert!(!text.contains("some command output"), "stdout turn skipped");
+        std::fs::remove_file(&p).ok();
+    }
+
+    #[test]
+    fn outline_skips_empty_system_and_attachment_turns() {
+        // A real user turn, then an empty compact_boundary system marker and an
+        // empty attachment — both should be skipped (bare headers are noise).
+        let body = concat!(
+            r#"{"type":"user","uuid":"00000000-0000-0000-0000-0000000000a1","parentUuid":null,"message":{"role":"user","content":"real message"}}"#, "\n",
+            r#"{"type":"system","uuid":"00000000-0000-0000-0000-0000000000b2","parentUuid":"00000000-0000-0000-0000-0000000000a1","subtype":"compact_boundary","content":"Conversation compacted"}"#, "\n",
+            r#"{"type":"attachment","uuid":"00000000-0000-0000-0000-0000000000c3","parentUuid":"00000000-0000-0000-0000-0000000000b2"}"#, "\n",
+        );
+        let p = write_tmp("empty", body);
+        let text = extract(&p, None, None, true, false).unwrap();
+        assert!(text.contains("real message"), "the real user turn shows");
+        assert!(!text.contains("system"), "empty compact_boundary turn skipped");
+        assert!(!text.contains("attachment"), "empty attachment turn skipped");
         std::fs::remove_file(&p).ok();
     }
 

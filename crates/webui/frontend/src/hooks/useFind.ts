@@ -80,6 +80,9 @@ export function useFind(containerRef: React.RefObject<HTMLElement | null>, turns
     if (active.field === "tool-input" || active.field === "tool-result") {
       const key = `${active.turnIndex}:${active.blockIndex}`;
       setRevealedToolKeys((prev) => (prev.has(key) ? prev : new Set(prev).add(key)));
+    } else if (active.field === "task-result") {
+      const key = `${active.turnIndex}:task`;
+      setRevealedToolKeys((prev) => (prev.has(key) ? prev : new Set(prev).add(key)));
     }
   }, [matches, activeIndex]);
 

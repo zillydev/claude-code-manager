@@ -86,6 +86,14 @@ export type RenderedTurn =
     }
   | { type: "system"; timestamp: string | null; content: string }
   | { type: "summary"; timestamp: string | null; content: string }
+  | {
+      type: "task_notification";
+      timestamp: string | null;
+      uuid: string;
+      status: string;
+      summary: string;
+      result: string;
+    }
   | { type: "compaction"; messages_before: number };
 
 export type RenderedBlock =

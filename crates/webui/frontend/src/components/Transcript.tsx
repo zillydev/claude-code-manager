@@ -465,6 +465,17 @@ const Turn = memo(function Turn({
         </div>
       );
 
+    case "task_notification":
+      return (
+        <TaskNotificationBlock
+          turnIndex={turnIndex}
+          status={turn.status}
+          summary={turn.summary}
+          result={turn.result}
+          forceExpand={revealedToolKeys.has(`${turnIndex}:task`)}
+        />
+      );
+
     case "compaction":
       return (
         <div className="flex items-center gap-3 my-5">
@@ -598,6 +609,46 @@ const MD_COMPONENTS = { a: ExternalLink };
 
 const MarkdownBlock = memo(function MarkdownBlock({ text }: { text: string }) {
   return <Markdown components={MD_COMPONENTS}>{text}</Markdown>;
+});
+
+const TaskNotificationBlock = memo(function TaskNotificationBlock({
+  turnIndex,
+  status,
+  summary,
+  result,
+  forceExpand,
+}: {
+  turnIndex: number;
+  status: string;
+  summary: string;
+  result: string;
+  forceExpand: boolean;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const open = expanded || forceExpand;
+  return (
+    <div className="my-1 text-sm">
+      <button
+        onClick={() => setExpanded(!expanded)}
+        className="flex items-baseline text-left w-full hover:bg-[var(--color-surface-hover)] rounded px-2 py-1 transition-colors text-[var(--color-text-dim)]"
+      >
+        <span className="w-4 shrink-0 text-center">{open ? "▾" : "▸"}</span>
+        <span className="shrink-0 mr-1.5">task · {status} ·</span>
+        <span data-seg-id={makeSegId(turnIndex, null, "task-summary")} className="truncate min-w-0">
+          {summary}
+        </span>
+      </button>
+      {open && result && (
+        <pre
+          data-seg-id={makeSegId(turnIndex, null, "task-result")}
+          className="ml-4 px-3 py-2 rounded text-xs whitespace-pre-wrap break-words overflow-hidden border-l-2 border-l-[var(--color-border)] bg-[var(--color-tool-result-bg)] text-[var(--color-text-dim)]"
+          style={{ maxHeight: "400px", overflowY: "auto" }}
+        >
+          {result}
+        </pre>
+      )}
+    </div>
+  );
 });
 
 const BlockRenderer = memo(function BlockRenderer({
