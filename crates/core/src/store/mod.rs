@@ -1,3 +1,4 @@
+pub mod lineage;
 pub mod paths;
 pub mod watcher;
 
