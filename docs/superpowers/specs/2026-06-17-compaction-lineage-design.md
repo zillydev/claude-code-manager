@@ -1,147 +1,163 @@
-# Cross-session compaction lineage — design
+# Session copy/fork lineage (shared-uuid overlap) — design
 
 **Date:** 2026-06-17
-**Status:** Approved (scope: banner + sidebar linkage, mirroring forkedFrom)
+**Status:** Draft (rewritten — supersedes the earlier `logicalParentUuid`
+"clean compaction split" model, which was wrong; see Background)
+
+## Background — why the first model was wrong
+
+The first version of this spec assumed a session that begins with a
+`compact_boundary` is a clean *successor* whose pre-compaction history lives in a
+single *predecessor*, linkable via `compact_boundary.logicalParentUuid`.
+
+Investigating the reported pair disproved that:
+
+- `81375432` (A, foreground — no `sessionKind`) and `91052458`
+  (B, `sessionKind: "bg"`, background) **share 383 byte-identical messages**
+  (same `uuid`s), including the identical manual `/compact` boundary
+  (`0495b1bc`, ts `17:56:16.750`). B = those 383 shared messages + 292 unique
+  newer ones; A = the 383 + 1354 unique (its full pre-compaction history and its
+  own later continuation).
+- B's own text explains it: a **process restart** *"spun up a fresh session"*,
+  which **fork-copied the live conversation into a new file** (reusing uuids).
+- `logicalParentUuid` is **not** a reliable cross-session key — that uuid
+  (`8b65a417`) was copied into *both* files. `forkedFrom` was **not** written on
+  B. Per the Claude Code guide, the JSONL has **no documented back-pointer** for
+  resume/background/restart copies.
+
+So the reliable lineage signal is the **shared message-uuid overlap** itself:
+when Claude Code forks/resumes/background-copies a session, the new file reuses
+the **same message uuids** for the copied portion. This generalizes beyond
+compaction to any copy (`/branch`, `--fork-session`, background/restart forks).
 
 ## Problem
 
-When a session is `/compact`-ed (or otherwise compacted such that Claude Code
-continues in a **new** session file), the conversation is split across two files:
+Claude Code can persist one logical conversation into multiple session files
+that share a block of identical-uuid messages. Today claude-manager shows these
+as unrelated sessions, so the overlap reads as "duplicated" / "missing latest" /
+"missing earlier" history depending on which file you open. We want to detect
+the lineage and surface it, including how much overlaps.
 
-- the **predecessor** holds the history up to the compaction point;
-- the **successor** is a fresh file whose first message is the
-  `isCompactSummary` "This session is being continued from a previous
-  conversation…" text, followed by the continuation.
+## Detection signal & direction
 
-Concretely (the reported case): predecessor
-`81375432-9de4-41b1-9cee-c94721b5a9f2` ran to the manual `/compact` point
-(~"Task 4 spec review", 19:56); successor
-`91052458-9e2f-4cb9-80dc-afe3b9ce904d` carries the continuation (Tasks 4-cq/5/6…
-to 21:39). Opening either file shows only its half, so each looks like it is
-"missing" history. Today claude-manager renders each file correctly and
-completely — there is no link between the two halves.
+**Link:** two sessions in the same project directory are linked if they share
+message uuids. (Lineage always keeps the same cwd → same encoded project dir, so
+detection is scoped per directory — bounding cost and matching the data.)
 
-This is distinct from in-file auto-compaction (where the pre-compaction tree is
-orphaned in the *same* file and is already rendered with a divider via
-`tree::segments`). This feature handles the **cross-file** case.
+**Direction (ancestor vs descendant):** a copy's earliest content is the fork
+point, so:
 
-## The reliable signal
+- Let `head(S)` = the root uuid of S's **first** conversation tree (the root of
+  the first uuid-bearing event in file order).
+- `S` is a **descendant (copy)** if `head(S)` is also present in another session
+  `A` in the same dir. Then `A` is `S`'s **ancestor**, and
+  `S.copied_from = A.id`.
 
-Claude Code writes a `system` event with `subtype: "compact_boundary"` at the
-root of the continuation, carrying:
+In the reported case `head(B) = 0495b1bc`, which is present in A (as A's third
+tree's root) but `head(A) = 2b7cf774` is **not** present in B — so B is the
+descendant, A the ancestor. Correct.
 
-- `compactMetadata: { trigger: "manual" | "auto", … }`
-- `logicalParentUuid`: the uuid of the message in the *source* session where
-  compaction occurred.
-
-For the successor (`91052458`), the root `compact_boundary`'s
-`logicalParentUuid` (`8b65a417…`) is **not** present in its own file but **is**
-a message in the predecessor (`81375432`). That gives a precise, data-driven
-cross-file link — no content-matching heuristics (which we already proved
-unreliable).
-
-In-file compactions (the predecessor's own two `compact_boundary` records) have
-`logicalParentUuid`s that *are* present in their own file, so they are correctly
-ignored by the cross-file rule.
+Tie-breakers: if several sessions contain `head(S)`, pick the one with the
+largest uuid-overlap with S. If two sessions each contain the other's head
+(mutual), treat the one with more total messages as the ancestor.
 
 ## Design
 
-### 1. Parse: retain `logicalParentUuid` on system events
+### 1. Backend — detect per project directory in `discover`
 
-`SystemEvent` (`crates/core/src/session/event.rs`) gains:
+`store::discover` already reads + parses every session file per directory. Today
+it summarizes each file and discards the events; this feature retains the
+directory's parsed events long enough to compute lineage, then drops them
+(memory bounded to one directory at a time).
+
+Per directory:
+
+1. For each session, record `id`, the set of its message uuids, and `head(id)`
+   (root uuid of its first tree, via the existing `tree`/parent-walk helpers).
+2. Build `owners: HashMap<Uuid, Vec<session_id>>` over the directory's uuids.
+3. For each session `S` with `forked_from == None` (an explicit
+   Claude-Code-recorded fork already links it — don't double-link): look up
+   `owners[head(S)]`; among other sessions there, choose the one `A` with the
+   largest `|uuids(S) ∩ uuids(A)|`. If found, set
+   `S.copied_from = Some(A.id)` and `S.copied_overlap = Some(that count)`.
+
+This is O(directory events) to index plus one intersection per linked session.
+
+### 2. Backend — `SessionSummary` fields
+
+Add (parallel to the existing `forked_from`):
 
 ```rust
-#[serde(default, rename = "logicalParentUuid")]
-pub logical_parent_uuid: Option<Uuid>,
+/// Ancestor session this one's history was copied from, inferred from shared
+/// message uuids — fork / resume / background-restart copies that Claude Code
+/// does not record with an explicit `forkedFrom`). None when not a copy or when
+/// an explicit `forked_from` already links it.
+pub copied_from: Option<String>,
+/// Number of messages shared with `copied_from` (for display: "N shared").
+pub copied_overlap: Option<usize>,
 ```
 
-Add a helper on the event/tree layer:
+`summarize` initializes both to `None`; `discover` fills them per the algorithm
+above. (`copied_from` is intentionally distinct from `forked_from`: the latter
+is Claude Code's explicit field, the former is inferred. The frontend shows a
+single lineage edge, preferring `forked_from` when present.)
 
-```rust
-/// The cross-file compaction parent: the `logicalParentUuid` of a
-/// `compact_boundary` system event whose logicalParentUuid is NOT one of this
-/// session's own event uuids (i.e. it points into a different session file).
-/// None for in-file compactions and non-compacted sessions.
-pub fn compaction_logical_parent(events: &[Event]) -> Option<Uuid>
-```
+### 3. Frontend — sidebar linkage + transcript banner
 
-It scans for `Event::System` with `subtype == "compact_boundary"` and a
-`logical_parent_uuid` not contained in the set of this session's uuids; returns
-the first such uuid (there is normally exactly one, at the file root).
-
-### 2. Resolve to a session id during discovery (per project dir)
-
-`SessionSummary` gains `pub compacted_from: Option<String>` — the **predecessor
-session id** (parallel to the existing `forked_from`). `summarize` initializes
-it to `None`.
-
-`store::discover` resolves it **within each project directory** (a compaction
-continuation keeps the same cwd, so the predecessor is always in the same
-encoded dir — this also bounds memory and keeps resolution O(dir)):
-
-- While iterating a project dir, retain each session's `(id, events)`.
-- Build a `HashMap<Uuid, String /*session id*/>` from that dir's event uuids.
-- For each session, compute `compaction_logical_parent(events)`; if it resolves
-  to another session id in the dir map, set that summary's `compacted_from`.
-
-No global index, no second file read. The predecessor → successor (reverse)
-direction is derived in the frontend (a session B is a successor of A iff
-`B.compacted_from === A.id`), exactly like fork children.
-
-### 3. Frontend: sidebar linkage + transcript banner
-
-`types.ts`: `SessionSummary.compacted_from: string | null`.
+`types.ts`: add `copied_from: string | null` and `copied_overlap: number | null`
+to `SessionSummary`.
 
 **Sidebar** (`Sidebar.tsx`) — extend the existing forkedFrom linkage maps
 (`byId`, `childrenBySource`, `relatedIds`, `hoveredId`) with a parallel
-`compactedChildrenBySource` (group by `compacted_from`). Render, mirroring the
-fork badges:
+`copiedChildrenBySource` (group by `copied_from`), and include `copied_from`
+edges in `relatedIds` so hover highlights both ends:
 
-- on a successor row: `⮌ compacted from <predecessor title>` (click → select
-  predecessor);
-- on a predecessor row: `⟳ N` continuation badge (click/hover → successors);
-- include both relations in the hover-highlight set.
+- descendant row badge: `⮌ copied from <ancestor title> · <N> shared`
+  (click → select ancestor);
+- ancestor row badge: `⧉ <k>` (k = number of sessions copied from it; click /
+  hover → descendants);
+- both directions participate in the hover-highlight ring.
 
-**Transcript banner** — the open session's predecessor/successor are derived in
-the component that has both the open session id and the summaries list (App /
-Transcript header), from the `sessions` list:
+**Transcript banner** — derived in the component that has the open session id
+and the `sessions` list (App / Transcript header), from the summaries:
 
-- predecessor = `byId.get(open.compacted_from)`;
-- successors = `sessions.filter(s => s.compacted_from === open.id)`.
+- if the open session has `copied_from`: a slim banner
+  **"⮌ Copied from `<ancestor title>` — `<N>` earlier messages live there"**
+  → opens the ancestor;
+- if other sessions list it as their `copied_from`: **"Also continued as
+  `<descendant title>` →"** (one per descendant) → opens that descendant.
 
-Show a slim banner above the transcript:
+Clicking calls the existing select/open handler with the target's `file_path` +
+`project_label`. No change to `RenderedSession`.
 
-- if predecessor: **"⮌ Continued (compacted) from `<title>` — view earlier
-  history"** → opens the predecessor;
-- if successor(s): **"Continues in `<title>` →"** → opens the successor.
+Showing `<N> shared` directly surfaces the overlap that prompted this work, so
+the user knows the relationship is a copy (not divergent history) and which file
+holds the unique parts.
 
-Clicking a banner calls the existing select/open handler with the target's
-`file_path` + `project_label`. No change to `RenderedSession`.
+## Non-goals (possible follow-ups)
 
-## Non-goals
-
-- Rendering the predecessor's turns *inline* in the successor (the "one
-  continuous transcript" option). Out of scope for this pass; the banner
-  jump-through covers the need. Revisit if desired.
-- Linking across more than one hop automatically (A→B→C). Each hop is its own
-  `compacted_from`; the chain is naturally walkable by following banners.
-- Any change to in-file (`tree::segments`) compaction rendering, which already
-  works.
+- **De-duplicating / collapsing the shared prefix** when viewing a descendant
+  (e.g., folding the N copied messages with a "shared with `<ancestor>`"
+  marker), or **stitching** ancestor-unique + descendant into one deduped
+  transcript. Valuable but heavier; deferred until the link itself is in place.
+- Cross-directory lineage (lineage keeps the same cwd, so out of scope).
+- Multi-hop auto-flattening (each hop is its own `copied_from`; chains are
+  walkable via the banners).
 
 ## Testing
 
-- **Core unit tests:**
-  - `compaction_logical_parent`: returns the cross-file uuid for a
-    `compact_boundary` whose `logicalParentUuid` is absent from the file;
-    returns `None` when the `logicalParentUuid` is present in-file, and when
-    there is no `compact_boundary`.
-  - `discover` resolution: a temp `projects/<dir>/` with two session files where
-    B's `compact_boundary.logicalParentUuid` is a message uuid in A ⇒
-    `B.compacted_from == Some(A.id)` and `A.compacted_from == None`; a control
-    where the uuid is only in-file ⇒ both `None`.
-- **Frontend:** `tsc` clean; existing 14 tests stay green (linkage is pure
-  derivation; add a small test for the successor-derivation helper if extracted).
-- **Manual:** open `91052458` → banner "Continued (compacted) from 81375432",
-  click → lands on `81375432`; open `81375432` → "Continues in 91052458",
-  click → lands on `91052458`; sidebar shows the badge + hover-highlight on both
-  rows.
+- **Core unit tests** (synthetic `projects/<dir>/` with two `.jsonl` files):
+  - B's first-tree root uuid is also a message in A, and B shares K uuids with A
+    ⇒ `B.copied_from == Some(A.id)`, `B.copied_overlap == Some(K)`,
+    `A.copied_from == None`.
+  - Control: two sessions with **no** shared uuids ⇒ both `copied_from == None`.
+  - Explicit-fork precedence: B already has `forked_from == Some(A.id)` ⇒
+    `copied_from` stays `None` (no double-link).
+  - Direction: ancestor (whose first-tree root is unique) is never marked as the
+    descendant of its own copy.
+- **Frontend:** `tsc` clean; existing 14 tests stay green; add a small test for
+  the descendant-derivation helper if extracted.
+- **Manual:** open `91052458` → banner "Copied from 81375432 — 383 earlier
+  messages live there", click → lands on `81375432`; open `81375432` → "Also
+  continued as 91052458 (background) →"; sidebar shows the badge + shared count +
+  hover-highlight on both rows.
