@@ -54,15 +54,29 @@ export default function Sidebar({
     return m;
   }, [sessions]);
 
-  // Rows to accent while hovering a session: its source + its forks.
+  const copiedChildrenBySource = useMemo(() => {
+    const m = new Map<string, SessionSummary[]>();
+    for (const s of sessions) {
+      if (s.copied_from) {
+        const arr = m.get(s.copied_from);
+        if (arr) arr.push(s);
+        else m.set(s.copied_from, [s]);
+      }
+    }
+    return m;
+  }, [sessions]);
+
+  // Rows to accent while hovering a session: its source + its forks/copies.
   const relatedIds = useMemo(() => {
     if (!hoveredId) return null;
     const ids = new Set<string>();
     const h = byId.get(hoveredId);
     if (h?.forked_from) ids.add(h.forked_from);
+    if (h?.copied_from) ids.add(h.copied_from);
     for (const c of childrenBySource.get(hoveredId) ?? []) ids.add(c.id);
+    for (const c of copiedChildrenBySource.get(hoveredId) ?? []) ids.add(c.id);
     return ids.size ? ids : null;
-  }, [hoveredId, byId, childrenBySource]);
+  }, [hoveredId, byId, childrenBySource, copiedChildrenBySource]);
 
   // Unique project labels and cwds for dropdown options.
   const projects = useMemo(
@@ -347,6 +361,14 @@ export default function Sidebar({
                         ⑂ {childrenBySource.get(s.id)!.length}
                       </span>
                     )}
+                    {copiedChildrenBySource.has(s.id) && (
+                      <span
+                        className="text-[var(--color-accent)] opacity-80"
+                        title={`${copiedChildrenBySource.get(s.id)!.length} session(s) copied from this`}
+                      >
+                        ⧉ {copiedChildrenBySource.get(s.id)!.length}
+                      </span>
+                    )}
                   </div>
                   {s.forked_from && (
                     <div className="mt-1">
@@ -368,6 +390,30 @@ export default function Sidebar({
                         }`}
                       >
                         ⮌ from {byId.get(s.forked_from)?.title ?? s.forked_from.slice(0, 8)}
+                      </span>
+                    </div>
+                  )}
+                  {s.copied_from && (
+                    <div className="mt-1">
+                      <span
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          const src = byId.get(s.copied_from!);
+                          if (src) onSelect(src);
+                        }}
+                        title={
+                          byId.has(s.copied_from)
+                            ? "History copied from this session — click to open"
+                            : `Copied from ${s.copied_from} (not in list)`
+                        }
+                        className={`inline-flex max-w-full items-center gap-1 truncate text-[10px] px-1.5 py-0.5 rounded border border-[var(--color-border)] text-[var(--color-text-dim)] ${
+                          byId.has(s.copied_from)
+                            ? "hover:border-[var(--color-accent)] hover:text-[var(--color-accent)] cursor-pointer"
+                            : "opacity-60"
+                        }`}
+                      >
+                        ⮌ copied from {byId.get(s.copied_from)?.title ?? s.copied_from.slice(0, 8)}
+                        {s.copied_overlap != null && ` · ${s.copied_overlap} shared`}
                       </span>
                     </div>
                   )}

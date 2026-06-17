@@ -9,6 +9,10 @@ export interface SessionSummary {
   total_tokens: number;
   /// The source session this one was forked from (null if not derived).
   forked_from: string | null;
+  /// Ancestor session this one's history was copied from (shared-uuid lineage).
+  copied_from: string | null;
+  /// Number of messages shared with `copied_from`.
+  copied_overlap: number | null;
 }
 
 export type SortField = "updated" | "project" | "title" | "tokens";
