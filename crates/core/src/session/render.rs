@@ -96,6 +96,14 @@ pub enum RenderedTurn {
         timestamp: Option<DateTime<Utc>>,
         content: String,
     },
+    #[serde(rename = "task_notification")]
+    TaskNotification {
+        timestamp: Option<DateTime<Utc>>,
+        uuid: String,
+        status: String,
+        summary: String,
+        result: String,
+    },
     /// A boundary between two conversation trees in the same file (an
     /// auto-compaction point). `messages_before` counts the user/assistant turns
     /// in the segment immediately above this divider.
@@ -221,6 +229,18 @@ fn render_path_turns(path: &[&Event], editable: bool) -> Vec<RenderedTurn> {
                         .join("\n"),
                 };
                 if text.starts_with("<command-") || text.starts_with("<local-command-") {
+                    i += 1;
+                    continue;
+                }
+                if let Some(tn) = crate::session::display::parse_task_notification(&text) {
+                    let uuid = ev.uuid().map(|u| u.to_string()).unwrap_or_default();
+                    turns.push(RenderedTurn::TaskNotification {
+                        timestamp: ev.timestamp(),
+                        uuid,
+                        status: tn.status,
+                        summary: tn.summary,
+                        result: tn.result,
+                    });
                     i += 1;
                     continue;
                 }
@@ -733,5 +753,21 @@ mod render_tests {
         ];
         let r = render_session(&sess(events));
         assert_eq!(r.title, "stripe-branch");
+    }
+
+    #[test]
+    fn task_notification_user_event_becomes_task_turn() {
+        let a = "00000000-0000-0000-0000-0000000000a1";
+        let tn = "<task-notification>\n<status>completed</status>\n<summary>did X</summary>\n<result>body</result>\n</task-notification>";
+        let turns = render_path_turns(&[&uev(a, None, tn)], true);
+        assert_eq!(turns.len(), 1);
+        match &turns[0] {
+            RenderedTurn::TaskNotification { status, summary, result, .. } => {
+                assert_eq!(status, "completed");
+                assert_eq!(summary, "did X");
+                assert_eq!(result, "body");
+            }
+            other => panic!("expected TaskNotification, got {other:?}"),
+        }
     }
 }
