@@ -262,8 +262,9 @@ fn render_outline(active: &[&RawLine], a_start: usize, b_end: usize) -> String {
             }
         }
         out.push_str(&format!("#{} {} {}\n", idx, role, uuid));
-        let prev = preview.replace('\n', " ");
-        let prev = ellipsis(prev.trim(), OUTLINE_PREVIEW_CAP);
+        let cleaned =
+            super::display::one_line(&preview).unwrap_or_else(|| preview.replace('\n', " "));
+        let prev = ellipsis(cleaned.trim(), OUTLINE_PREVIEW_CAP);
         if !prev.is_empty() {
             out.push_str(&format!("     {}\n", prev));
         }
@@ -645,6 +646,28 @@ mod tests {
         let d = "00000000-0000-0000-0000-0000000000d4".parse().unwrap();
         let err = extract(&p, Some(a), Some(d), false, true).unwrap_err().to_string();
         assert!(err.contains("different conversation trees"), "got: {err}");
+        std::fs::remove_file(&p).ok();
+    }
+
+    fn noisy_fixture() -> PathBuf {
+        let body = concat!(
+            r#"{"type":"user","uuid":"00000000-0000-0000-0000-0000000000a1","parentUuid":null,"message":{"role":"user","content":"<command-name>/compact</command-name>\n<command-args></command-args>"}}"#, "\n",
+            r#"{"type":"user","uuid":"00000000-0000-0000-0000-0000000000b2","parentUuid":"00000000-0000-0000-0000-0000000000a1","message":{"role":"user","content":"<task-notification>\n<status>completed</status>\n<summary>did the thing</summary>\n<result>body</result>\n</task-notification>"}}"#, "\n",
+        );
+        let mut p = std::env::temp_dir();
+        p.push(format!("cm-surg-noisy-{}.jsonl", std::process::id()));
+        std::fs::write(&p, body).unwrap();
+        p
+    }
+
+    #[test]
+    fn outline_compacts_command_echo_and_task_notification() {
+        let p = noisy_fixture();
+        let text = extract(&p, None, None, true, false).unwrap();
+        assert!(text.contains("/compact"), "command echo → /compact");
+        assert!(text.contains("task · completed · did the thing"), "task-notif → one line");
+        assert!(!text.contains("<command-name>"), "no raw command tags");
+        assert!(!text.contains("<task-notification>"), "no raw task tags");
         std::fs::remove_file(&p).ok();
     }
 
