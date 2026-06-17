@@ -134,7 +134,8 @@ fn render_range_text(active: &[&RawLine], a_start: usize, b_end: usize) -> Strin
             .pointer("/message/role")
             .and_then(|v| v.as_str())
             .unwrap_or(l.kind.as_str());
-        out.push_str(&format!("[{}]\n", role));
+        let uuid = l.uuid.map(|u| u.to_string()).unwrap_or_default();
+        out.push_str(&format!("[{} {}]\n", role, uuid));
         match l.value.pointer("/message/content") {
             Some(Value::String(s)) => {
                 out.push_str(s);
@@ -168,12 +169,93 @@ fn render_range_text(active: &[&RawLine], a_start: usize, b_end: usize) -> Strin
     out
 }
 
-/// Read a session, resolve the range, and render it as text.
-pub fn extract(path: &Path, from: Uuid, to: Uuid) -> Result<String> {
+/// Render a compact one-line-per-turn MAP of the inclusive range, for navigating
+/// a whole session cheaply: turn index, role, the turn's first message uuid, a
+/// short text preview, and tool-call one-liners. Tool RESULTS and full prose are
+/// omitted — this is the "table of contents", not the content.
+fn render_outline(active: &[&RawLine], a_start: usize, b_end: usize) -> String {
+    let mut out = String::new();
+    for (idx, (s, e)) in turn_spans(active).iter().enumerate() {
+        if *s < a_start || *e > b_end {
+            continue; // only turns fully within the range
+        }
+        let head = active[*s];
+        let role = head
+            .value
+            .pointer("/message/role")
+            .and_then(|v| v.as_str())
+            .unwrap_or(head.kind.as_str());
+        let uuid = head.uuid.map(|u| u.to_string()).unwrap_or_default();
+        let mut preview = String::new();
+        let mut tools: Vec<String> = Vec::new();
+        for l in &active[*s..=*e] {
+            match l.value.pointer("/message/content") {
+                Some(Value::String(t)) => {
+                    if preview.is_empty() {
+                        preview = t.clone();
+                    }
+                }
+                Some(Value::Array(blocks)) => {
+                    for b in blocks {
+                        match b.get("type").and_then(|v| v.as_str()) {
+                            Some("text") => {
+                                if preview.is_empty() {
+                                    if let Some(t) = b.get("text").and_then(|v| v.as_str()) {
+                                        preview = t.to_string();
+                                    }
+                                }
+                            }
+                            Some("tool_use") => {
+                                let name =
+                                    b.get("name").and_then(|v| v.as_str()).unwrap_or("tool");
+                                let input =
+                                    b.get("input").map(|v| v.to_string()).unwrap_or_default();
+                                tools.push(format!("▸{}({})", name, cap(&input, 60)));
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+        let preview = cap(&preview.replace('\n', " "), 80);
+        out.push_str(&format!("#{} [{} {}] \"{}\"", idx, role, uuid, preview));
+        if !tools.is_empty() {
+            out.push(' ');
+            out.push_str(&tools.join(" "));
+        }
+        out.push('\n');
+    }
+    out
+}
+
+/// Read a session and render either the full text of a range or a compact
+/// outline. With no `from`/`to`, renders the whole active path; with both, the
+/// turn-snapped range. Passing only one of `from`/`to` is an error.
+pub fn extract(
+    path: &Path,
+    from: Option<Uuid>,
+    to: Option<Uuid>,
+    outline: bool,
+) -> Result<String> {
     let lines = read_raw(path)?;
     let active = active_path(&lines);
-    let (a, b) = snap_range(&active, from, to)?;
-    Ok(render_range_text(&active, a, b))
+    let (a, b) = match (from, to) {
+        (Some(f), Some(t)) => snap_range(&active, f, t)?,
+        (None, None) => {
+            if active.is_empty() {
+                return Err(anyhow!("session has no messages on the active path"));
+            }
+            (0, active.len() - 1)
+        }
+        _ => return Err(anyhow!("provide both --from and --to, or neither")),
+    };
+    Ok(if outline {
+        render_outline(&active, a, b)
+    } else {
+        render_range_text(&active, a, b)
+    })
 }
 
 /// Resolve a session reference (a full file path, or a bare session id) to its
@@ -380,12 +462,43 @@ mod tests {
         let p = fixture();
         let a = "00000000-0000-0000-0000-0000000000a1".parse().unwrap();
         let c = "00000000-0000-0000-0000-0000000000c4".parse().unwrap();
-        let text = extract(&p, a, c).unwrap();
-        assert!(text.contains("[user]"));
+        let text = extract(&p, Some(a), Some(c), false).unwrap();
+        assert!(text.contains("[user 00000000-0000-0000-0000-0000000000a1]"));
         assert!(text.contains("A"));
         assert!(text.contains("▸ Bash"));
         assert!(text.contains("→ result: out"));
         assert!(text.contains("C"));
+        std::fs::remove_file(&p).ok();
+    }
+
+    #[test]
+    fn extract_whole_path_when_no_range() {
+        let p = fixture();
+        let text = extract(&p, None, None, false).unwrap();
+        // First and last turns of the fixture are present.
+        assert!(text.contains("A"));
+        assert!(text.contains("D"));
+        std::fs::remove_file(&p).ok();
+    }
+
+    #[test]
+    fn extract_rejects_one_sided_range() {
+        let p = fixture();
+        let a = "00000000-0000-0000-0000-0000000000a1".parse().unwrap();
+        assert!(extract(&p, Some(a), None, false).is_err());
+        std::fs::remove_file(&p).ok();
+    }
+
+    #[test]
+    fn extract_outline_is_compact() {
+        let p = fixture();
+        let text = extract(&p, None, None, true).unwrap();
+        // One line per turn, tool-call one-liner present, NO results / no full body.
+        assert!(text.contains("#0 [user 00000000-0000-0000-0000-0000000000a1]"));
+        assert!(text.contains("▸Bash"));
+        assert!(!text.contains("→ result"), "outline omits tool results");
+        // The last turn (user "D") shows as its own header line.
+        assert!(text.contains("\"D\""));
         std::fs::remove_file(&p).ok();
     }
 
