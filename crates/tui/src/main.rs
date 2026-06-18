@@ -97,17 +97,10 @@ fn main() -> Result<()> {
         match op {
             SurgeryOp::Extract { session, from, to, outline, all_segments } => {
                 let path = surgery::resolve_session_path(&root, session)?;
-                let a = from
-                    .as_deref()
-                    .map(Uuid::parse_str)
-                    .transpose()
-                    .context("invalid --from uuid")?;
-                let b = to
-                    .as_deref()
-                    .map(Uuid::parse_str)
-                    .transpose()
-                    .context("invalid --to uuid")?;
-                print!("{}", surgery::extract(&path, a, b, *outline, *all_segments)?);
+                print!(
+                    "{}",
+                    surgery::extract(&path, from.as_deref(), to.as_deref(), *outline, *all_segments)?
+                );
             }
             SurgeryOp::Rewrite { session, from, to, mode, summary_file } => {
                 let path = surgery::resolve_session_path(&root, session)?;

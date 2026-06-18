@@ -322,23 +322,68 @@ fn resolve_range(path: &[&RawLine], from: Option<Uuid>, to: Option<Uuid>) -> Res
     }
 }
 
-/// Read a session and render the full text or a compact outline. With
-/// `all_segments`, covers every conversation tree (pre-compaction + active),
-/// dividing whole-session output by segment; otherwise the active path only.
-/// With both `from`/`to`, renders that turn-snapped range; with neither, the
-/// whole path/session; with one, errors.
+/// The 8-char short id (first hex group) of a uuid — what the outline shows and
+/// what `--from/--to` prefixes are typically copied from.
+fn short8(u: Uuid) -> String {
+    u.to_string()[..8].to_string()
+}
+
+/// Resolve a uuid prefix (case-insensitive) to the single matching message uuid
+/// in `lines`. A full 36-char uuid is a prefix of itself. Errors if the prefix
+/// matches none or more than one message.
+fn resolve_id(lines: &[RawLine], prefix: &str) -> Result<Uuid> {
+    let p = prefix.to_ascii_lowercase();
+    let mut hits: std::collections::HashSet<Uuid> = std::collections::HashSet::new();
+    for l in lines {
+        if let Some(u) = l.uuid {
+            if u.to_string().starts_with(&p) {
+                hits.insert(u);
+            }
+        }
+    }
+    match hits.len() {
+        1 => Ok(*hits.iter().next().unwrap()),
+        0 => Err(anyhow!("no message id matches '{}'", prefix)),
+        n => Err(anyhow!(
+            "ambiguous id prefix '{}' matches {} messages — use more characters",
+            prefix,
+            n
+        )),
+    }
+}
+
+/// Read a session and render the full text or a compact outline. `from`/`to` are
+/// uuid PREFIXES (resolved to a unique message; a full uuid works too). With
+/// `all_segments`, covers every conversation tree, dividing whole-session output
+/// by segment; otherwise the active path only. Both `from`/`to` = turn-snapped
+/// range; neither = whole path/session; one = error.
 pub fn extract(
     path: &Path,
-    from: Option<Uuid>,
-    to: Option<Uuid>,
+    from: Option<&str>,
+    to: Option<&str>,
     outline: bool,
     all_segments: bool,
 ) -> Result<String> {
     let lines = read_raw(path)?;
+    let from_id = from.map(|p| resolve_id(&lines, p)).transpose()?;
+    let to_id = to.map(|p| resolve_id(&lines, p)).transpose()?;
 
     if !all_segments {
         let active = active_path(&lines);
-        let (a, b) = resolve_range(&active, from, to)?;
+        // A resolved id that exists in the file but not on the active path is in
+        // an earlier (pre-compaction) tree — point the caller at --all-segments.
+        for (label, id) in [("from", from_id), ("to", to_id)] {
+            if let Some(u) = id {
+                if !active.iter().any(|l| l.uuid == Some(u)) {
+                    return Err(anyhow!(
+                        "{} id {} is not on the active path — it's in an earlier (pre-compaction) tree; pass --all-segments to reach it",
+                        label,
+                        u
+                    ));
+                }
+            }
+        }
+        let (a, b) = resolve_range(&active, from_id, to_id)?;
         return Ok(render_seg(&active, a, b, outline));
     }
 
@@ -346,18 +391,20 @@ pub fn extract(
     if segs.is_empty() {
         return Err(anyhow!("session has no messages"));
     }
-    match (from, to) {
+    match (from_id, to_id) {
         (Some(f), Some(t)) => {
-            // The range must live within a single tree.
-            let seg = segs
-                .iter()
-                .find(|s| s.iter().any(|l| l.uuid == Some(f)))
-                .ok_or_else(|| anyhow!("from id {} is not in any conversation tree", f))?;
-            if !seg.iter().any(|l| l.uuid == Some(t)) {
-                return Err(anyhow!("from and to are in different conversation trees"));
+            let seg_of = |u: Uuid| segs.iter().position(|s| s.iter().any(|l| l.uuid == Some(u)));
+            let fi = seg_of(f).ok_or_else(|| anyhow!("from id {} is not in any conversation tree", f))?;
+            let ti = seg_of(t).ok_or_else(|| anyhow!("to id {} is not in any conversation tree", t))?;
+            if fi != ti {
+                let n = segs.len();
+                return Err(anyhow!(
+                    "from {} is in segment {}/{}, to {} is in segment {}/{} — a range can't cross a compaction boundary",
+                    short8(f), fi + 1, n, short8(t), ti + 1, n
+                ));
             }
-            let (a, b) = snap_range(seg, f, t)?;
-            Ok(render_seg(seg, a, b, outline))
+            let (a, b) = snap_range(&segs[fi], f, t)?;
+            Ok(render_seg(&segs[fi], a, b, outline))
         }
         (None, None) => {
             let n = segs.len();
@@ -576,8 +623,8 @@ mod tests {
     #[test]
     fn extract_renders_range_with_roles() {
         let p = fixture();
-        let a = "00000000-0000-0000-0000-0000000000a1".parse().unwrap();
-        let c = "00000000-0000-0000-0000-0000000000c4".parse().unwrap();
+        let a = "00000000-0000-0000-0000-0000000000a1";
+        let c = "00000000-0000-0000-0000-0000000000c4";
         let text = extract(&p, Some(a), Some(c), false, false).unwrap();
         assert!(text.contains("[user 00000000-0000-0000-0000-0000000000a1]"));
         assert!(text.contains("A"));
@@ -600,7 +647,7 @@ mod tests {
     #[test]
     fn extract_rejects_one_sided_range() {
         let p = fixture();
-        let a = "00000000-0000-0000-0000-0000000000a1".parse().unwrap();
+        let a = "00000000-0000-0000-0000-0000000000a1";
         assert!(extract(&p, Some(a), None, false, false).is_err());
         std::fs::remove_file(&p).ok();
     }
@@ -644,8 +691,8 @@ mod tests {
     #[test]
     fn all_segments_range_within_precompaction_tree() {
         let p = two_tree_fixture();
-        let a = "00000000-0000-0000-0000-0000000000a1".parse().unwrap();
-        let b = "00000000-0000-0000-0000-0000000000b2".parse().unwrap();
+        let a = "00000000-0000-0000-0000-0000000000a1";
+        let b = "00000000-0000-0000-0000-0000000000b2";
         let text = extract(&p, Some(a), Some(b), false, true).unwrap();
         assert!(text.contains("PRE1"));
         assert!(text.contains("PRE2"));
@@ -656,10 +703,60 @@ mod tests {
     #[test]
     fn all_segments_range_across_trees_errors() {
         let p = two_tree_fixture();
-        let a = "00000000-0000-0000-0000-0000000000a1".parse().unwrap();
-        let d = "00000000-0000-0000-0000-0000000000d4".parse().unwrap();
+        let a = "00000000-0000-0000-0000-0000000000a1";
+        let d = "00000000-0000-0000-0000-0000000000d4";
         let err = extract(&p, Some(a), Some(d), false, true).unwrap_err().to_string();
-        assert!(err.contains("different conversation trees"), "got: {err}");
+        assert!(err.contains("segment 1/2") && err.contains("compaction boundary"), "got: {err}");
+        std::fs::remove_file(&p).ok();
+    }
+
+    fn idfix() -> PathBuf {
+        // Three uuids with DISTINCT leading hex so prefixes are meaningful:
+        // aaaaaaaa…1, bbbbbbbb…2, aaaaaaab…3 (shares "aaaaaaa" with the first).
+        let body = concat!(
+            r#"{"type":"user","uuid":"aaaaaaaa-0000-0000-0000-000000000001","parentUuid":null,"message":{"role":"user","content":"x"}}"#, "\n",
+            r#"{"type":"user","uuid":"bbbbbbbb-0000-0000-0000-000000000002","parentUuid":"aaaaaaaa-0000-0000-0000-000000000001","message":{"role":"user","content":"y"}}"#, "\n",
+            r#"{"type":"user","uuid":"aaaaaaab-0000-0000-0000-000000000003","parentUuid":"bbbbbbbb-0000-0000-0000-000000000002","message":{"role":"user","content":"z"}}"#, "\n",
+        );
+        write_tmp("idfix", body)
+    }
+
+    #[test]
+    fn resolve_id_prefix_unique_ambiguous_none() {
+        let p = idfix();
+        let lines = read_raw(&p).unwrap();
+        assert_eq!(
+            resolve_id(&lines, "bbbbbbbb").unwrap().to_string(),
+            "bbbbbbbb-0000-0000-0000-000000000002"
+        );
+        assert_eq!(
+            resolve_id(&lines, "aaaaaaaa").unwrap().to_string(),
+            "aaaaaaaa-0000-0000-0000-000000000001"
+        );
+        assert!(resolve_id(&lines, "aaaaaaa").is_err(), "ambiguous (aaaaaaaa + aaaaaaab)");
+        assert!(resolve_id(&lines, "zzzz").is_err(), "no match");
+        assert_eq!(
+            resolve_id(&lines, "aaaaaaab-0000-0000-0000-000000000003").unwrap().to_string(),
+            "aaaaaaab-0000-0000-0000-000000000003"
+        );
+        std::fs::remove_file(&p).ok();
+    }
+
+    #[test]
+    fn extract_accepts_uuid_prefix_range() {
+        let p = idfix();
+        let text = extract(&p, Some("aaaaaaaa"), Some("bbbbbbbb"), false, false).unwrap();
+        assert!(text.contains("x") && text.contains("y"));
+        assert!(!text.contains("z"), "range stops at the 'to' turn");
+        std::fs::remove_file(&p).ok();
+    }
+
+    #[test]
+    fn extract_hints_all_segments_for_precompaction_id() {
+        let p = two_tree_fixture();
+        let a = "00000000-0000-0000-0000-0000000000a1"; // in the pre-compaction tree
+        let err = extract(&p, Some(a), Some(a), false, false).unwrap_err().to_string();
+        assert!(err.contains("pass --all-segments"), "got: {err}");
         std::fs::remove_file(&p).ok();
     }
 
