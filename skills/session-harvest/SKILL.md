@@ -34,6 +34,8 @@ A session can be huge. Never read it all raw. Navigate in passes:
 
    The outline covers **every conversation tree** in the file — a compacted session shows `── segment k/N · pre-compaction|active ──` dividers between its trees, so pre-compaction work is harvestable too. A `--from/--to` range must stay within one tree (the binary errors if it spans a compaction boundary).
 
+   Each outline turn header is `#<n> <role> <short-id>` where `<short-id>` is the first 8 chars of the message uuid — copy that into `--from/--to`, which accept any uuid prefix (a full uuid works too). A turn tagged ` · compaction summary` is the "continued from a previous conversation" recap — the densest, most useful turn to read first in a compacted session.
+
 2. **Identify & classify spans.** From the outline, mark contiguous turn ranges that carry reusable value and classify each (rubric below). Record each candidate's `from`..`to` message uuids from the outline.
 
 3. **Drill down** only into the span(s) you will turn into an artifact:
