@@ -236,7 +236,9 @@ fn render_outline(active: &[&RawLine], a_start: usize, b_end: usize) -> String {
             .pointer("/message/role")
             .and_then(|v| v.as_str())
             .unwrap_or(head.kind.as_str());
-        let uuid = head.uuid.map(|u| u.to_string()).unwrap_or_default();
+        let short = head.uuid.map(short8).unwrap_or_default();
+        let is_summary =
+            head.value.get("isCompactSummary").and_then(|v| v.as_bool()).unwrap_or(false);
         let mut preview = String::new();
         let mut tools: Vec<String> = Vec::new();
         for l in &active[*s..=*e] {
@@ -277,7 +279,8 @@ fn render_outline(active: &[&RawLine], a_start: usize, b_end: usize) -> String {
         if tools.is_empty() && preview.trim().is_empty() {
             continue;
         }
-        out.push_str(&format!("#{} {} {}\n", shown, role, uuid));
+        let tag = if is_summary { " · compaction summary" } else { "" };
+        out.push_str(&format!("#{} {} {}{}\n", shown, role, short, tag));
         shown += 1;
         let cleaned =
             super::display::one_line(&preview).unwrap_or_else(|| preview.replace('\n', " "));
@@ -656,8 +659,8 @@ mod tests {
     fn extract_outline_is_compact() {
         let p = fixture();
         let text = extract(&p, None, None, true, false).unwrap();
-        // Per-turn header (role + uuid), salient tool line, NO results / no full body.
-        assert!(text.contains("#0 user 00000000-0000-0000-0000-0000000000a1"));
+        // Per-turn header (role + short id), salient tool line, NO results / no full body.
+        assert!(text.contains("#0 user 00000000\n"));
         assert!(text.contains("▸Bash"));
         assert!(!text.contains("→ result"), "outline omits tool results");
         assert!(!text.contains("[59 more chars]"), "outline shows salient args, not raw JSON");
@@ -707,6 +710,18 @@ mod tests {
         let d = "00000000-0000-0000-0000-0000000000d4";
         let err = extract(&p, Some(a), Some(d), false, true).unwrap_err().to_string();
         assert!(err.contains("segment 1/2") && err.contains("compaction boundary"), "got: {err}");
+        std::fs::remove_file(&p).ok();
+    }
+
+    #[test]
+    fn outline_tags_compaction_summary() {
+        let body = concat!(
+            r#"{"type":"user","uuid":"00000000-0000-0000-0000-0000000000a1","parentUuid":null,"isCompactSummary":true,"message":{"role":"user","content":"This session is being continued from a previous conversation…"}}"#, "\n",
+            r#"{"type":"user","uuid":"00000000-0000-0000-0000-0000000000b2","parentUuid":"00000000-0000-0000-0000-0000000000a1","message":{"role":"user","content":"hello"}}"#, "\n",
+        );
+        let p = write_tmp("summarytag", body);
+        let text = extract(&p, None, None, true, false).unwrap();
+        assert!(text.contains("· compaction summary"), "isCompactSummary turn is tagged");
         std::fs::remove_file(&p).ok();
     }
 
