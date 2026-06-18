@@ -13,8 +13,6 @@ use crossterm::terminal::{
 use ratatui::backend::CrosstermBackend;
 use ratatui::Terminal;
 
-use uuid::Uuid;
-
 use claude_manager_core::session::summary;
 use claude_manager_core::store;
 use claude_manager_core::store::paths;
@@ -104,8 +102,6 @@ fn main() -> Result<()> {
             }
             SurgeryOp::Rewrite { session, from, to, mode, summary_file } => {
                 let path = surgery::resolve_session_path(&root, session)?;
-                let a = Uuid::parse_str(from).context("invalid --from uuid")?;
-                let b = Uuid::parse_str(to).context("invalid --to uuid")?;
                 let m = match mode.as_str() {
                     "prune" => RewriteMode::Prune,
                     "summary" => RewriteMode::Summary,
@@ -115,7 +111,7 @@ fn main() -> Result<()> {
                     Some(f) => Some(std::fs::read_to_string(f).context("could not read --summary-file")?),
                     None => None,
                 };
-                let out = surgery::rewrite(&root, &path, a, b, m, summary_text.as_deref())?;
+                let out = surgery::rewrite(&root, &path, from, to, m, summary_text.as_deref())?;
                 println!("new session: {}", out.commit.new_session_id);
                 println!("path: {}", out.commit.new_path);
                 println!("resume with: claude --resume {}", out.commit.new_session_id);

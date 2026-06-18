@@ -485,14 +485,25 @@ pub struct RewriteOutcome {
 pub fn rewrite(
     root: &Path,
     path: &Path,
-    from: Uuid,
-    to: Uuid,
+    from: &str,
+    to: &str,
     mode: RewriteMode,
     summary: Option<&str>,
 ) -> Result<RewriteOutcome> {
     let lines = read_raw(path)?;
+    let from_id = resolve_id(&lines, from)?;
+    let to_id = resolve_id(&lines, to)?;
     let active = active_path(&lines);
-    let (a, b) = snap_range(&active, from, to)?;
+    for (label, id) in [("from", from_id), ("to", to_id)] {
+        if !active.iter().any(|l| l.uuid == Some(id)) {
+            return Err(anyhow!(
+                "{} id {} is not on the active path — surgery rewrites the active conversation only",
+                label,
+                id
+            ));
+        }
+    }
+    let (a, b) = snap_range(&active, from_id, to_id)?;
 
     let messages_before = active.iter().filter(|l| is_message(l)).count();
     let removed_bytes: usize = active[a..=b].iter().map(|l| l.value.to_string().len()).sum();
@@ -869,7 +880,7 @@ mod tests {
     fn prune_drops_the_range_and_revalidates_clean() {
         let p = fixture();
         let root = std::env::temp_dir().join(format!("cm-surg-root-p-{}", std::process::id()));
-        let b = "00000000-0000-0000-0000-0000000000b2".parse().unwrap();
+        let b = "00000000-0000-0000-0000-0000000000b2";
         // Active path message lines: A(user), B(assistant), tool_result(user),
         // C(assistant), D(user) = 5. Pruning B's turn (B + tool_result + C, since
         // turns merge consecutive assistants across the tool_result) leaves A, D.
@@ -892,7 +903,7 @@ mod tests {
         // backfill one, or Claude Code's discovery rejects the resumed file.
         let p = fixture();
         let root = std::env::temp_dir().join(format!("cm-surg-root-ts-{}", std::process::id()));
-        let b = "00000000-0000-0000-0000-0000000000b2".parse().unwrap();
+        let b = "00000000-0000-0000-0000-0000000000b2";
         let out = rewrite(&root, &p, b, b, RewriteMode::Summary, Some("the summary")).unwrap();
         let written = read_raw(std::path::Path::new(&out.commit.new_path)).unwrap();
         // Every emitted message line — including the inserted summary — has a ts.
@@ -912,7 +923,7 @@ mod tests {
     fn summary_inserts_one_message() {
         let p = fixture();
         let root = std::env::temp_dir().join(format!("cm-surg-root-s-{}", std::process::id()));
-        let b = "00000000-0000-0000-0000-0000000000b2".parse().unwrap();
+        let b = "00000000-0000-0000-0000-0000000000b2";
         // summarize B's turn (B + tool_result + C) -> one summary line; A and D remain.
         let out = rewrite(&root, &p, b, b, RewriteMode::Summary, Some("did the thing")).unwrap();
         let written = read_raw(std::path::Path::new(&out.commit.new_path)).unwrap();
@@ -935,7 +946,7 @@ mod tests {
     fn summary_requires_text() {
         let p = fixture();
         let root = std::env::temp_dir().join(format!("cm-surg-root-e-{}", std::process::id()));
-        let a = "00000000-0000-0000-0000-0000000000a1".parse().unwrap();
+        let a = "00000000-0000-0000-0000-0000000000a1";
         assert!(rewrite(&root, &p, a, a, RewriteMode::Summary, None).is_err());
         std::fs::remove_file(&p).ok();
         std::fs::remove_dir_all(&root).ok();
@@ -948,7 +959,7 @@ mod tests {
         // the commit pipeline performs no tool-pairing repairs.
         let p = fixture();
         let root = std::env::temp_dir().join(format!("cm-surg-root-np-{}", std::process::id()));
-        let b = "00000000-0000-0000-0000-0000000000b2".parse().unwrap();
+        let b = "00000000-0000-0000-0000-0000000000b2";
         let out = rewrite(&root, &p, b, b, RewriteMode::Prune, None).unwrap();
         assert!(out.commit.repairs.is_empty(), "clean turn-aligned cut should need no repairs");
         std::fs::remove_file(&p).ok();
@@ -959,7 +970,7 @@ mod tests {
     fn prune_from_head_leaving_leading_assistant_is_refused() {
         let p = fixture();
         let root = std::env::temp_dir().join(format!("cm-surg-root-h-{}", std::process::id()));
-        let a = "00000000-0000-0000-0000-0000000000a1".parse().unwrap();
+        let a = "00000000-0000-0000-0000-0000000000a1";
         // Prune just user A (turn 0). The first surviving message becomes
         // assistant B → must be refused.
         let err = rewrite(&root, &p, a, a, RewriteMode::Prune, None);
@@ -985,7 +996,7 @@ mod tests {
         );
         let src = write_tmp("compact-cwd", body);
         let root = std::env::temp_dir().join(format!("cm-surg-root-cwd-{}", std::process::id()));
-        let d4 = "00000000-0000-0000-0000-0000000000d4".parse().unwrap();
+        let d4 = "00000000-0000-0000-0000-0000000000d4";
         let out = rewrite(&root, &src, d4, d4, RewriteMode::Prune, None).unwrap();
         let parent = std::path::Path::new(&out.commit.new_path)
             .parent()
@@ -998,6 +1009,35 @@ mod tests {
             "new session must be filed under the launch cwd's project dir, got {parent}"
         );
         std::fs::remove_file(&src).ok();
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn rewrite_accepts_uuid_prefix() {
+        // Distinct leading hex so an 8-char prefix is unambiguous.
+        let body = concat!(
+            r#"{"type":"user","uuid":"aaaaaaaa-0000-0000-0000-000000000001","parentUuid":null,"message":{"role":"user","content":"A"}}"#, "\n",
+            r#"{"type":"assistant","uuid":"bbbbbbbb-0000-0000-0000-000000000002","parentUuid":"aaaaaaaa-0000-0000-0000-000000000001","message":{"role":"assistant","content":[{"type":"text","text":"B"}]}}"#, "\n",
+            r#"{"type":"user","uuid":"cccccccc-0000-0000-0000-000000000003","parentUuid":"bbbbbbbb-0000-0000-0000-000000000002","message":{"role":"user","content":"C"}}"#, "\n",
+        );
+        let p = write_tmp("rwprefix", body);
+        let root = std::env::temp_dir().join(format!("cm-surg-root-rwpfx-{}", std::process::id()));
+        // Prune the assistant turn by an 8-char prefix; a full uuid would also work.
+        let out = rewrite(&root, &p, "bbbbbbbb", "bbbbbbbb", RewriteMode::Prune, None).unwrap();
+        assert_eq!(out.messages_after, 2, "assistant turn pruned; A + C remain");
+        std::fs::remove_file(&p).ok();
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn rewrite_rejects_off_active_path_id() {
+        let p = two_tree_fixture();
+        let root = std::env::temp_dir().join(format!("cm-surg-root-offpath-{}", std::process::id()));
+        let a = "00000000-0000-0000-0000-0000000000a1"; // in the pre-compaction tree
+        let err = rewrite(&root, &p, a, a, RewriteMode::Prune, None).unwrap_err().to_string();
+        assert!(err.contains("not on the active path"), "got: {err}");
+        assert!(err.contains("active conversation only"), "got: {err}");
+        std::fs::remove_file(&p).ok();
         std::fs::remove_dir_all(&root).ok();
     }
 }

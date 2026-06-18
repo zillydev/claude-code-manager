@@ -316,8 +316,7 @@ pub fn delete_message(file_path: String, message_uuid: String) -> Result<CommitR
     use claude_manager_core::session::surgery::{rewrite, RewriteMode};
     let root = paths::default_claude_root().ok_or("could not locate ~/.claude")?;
     let path = PathBuf::from(&file_path);
-    let id = uuid::Uuid::parse_str(&message_uuid)
-        .map_err(|e| format!("invalid message uuid: {e}"))?;
-    let out = rewrite(&root, &path, id, id, RewriteMode::Prune, None).map_err(|e| e.to_string())?;
+    let out = rewrite(&root, &path, &message_uuid, &message_uuid, RewriteMode::Prune, None)
+        .map_err(|e| e.to_string())?;
     Ok(out.commit)
 }
