@@ -38,6 +38,8 @@ A session can be huge. Never read it all raw. Navigate in passes:
 
 2. **Identify & classify spans.** From the outline, mark contiguous turn ranges that carry reusable value and classify each (rubric below). Record each candidate's `from`..`to` message uuids from the outline.
 
+   **Check whether the distillation already exists first.** Claude Code often auto-writes a project `memory/` file *during* the session, and the user may already keep a kb entry on the topic. Before proposing a **kb** or **summary**, scan the session's project memory dir — `~/.claude/projects/<encoded-cwd>/memory/` — and the Obsidian kb for an entry whose topic overlaps. If one exists, the candidate becomes **"promote/update that"** (sync it into the durable kb), NOT create-new — surface the existing path so you don't silently fork or duplicate the user's own notes.
+
 3. **Drill down** only into the span(s) you will turn into an artifact:
    ```bash
    "$BIN" surgery extract --session "$SESSION" --from "$FROM" --to "$TO" --all-segments
@@ -48,14 +50,21 @@ A session can be huge. Never read it all raw. Navigate in passes:
 
 ## Classification rubric
 
-For each candidate span, pick the type:
+**First, rank by reuse — not by drama.** The best candidate is the one the user will reach for *again*, which is usually the **mundane recurring operational mechanics** (how to connect to / tail logs from / deploy / inspect a service) — NOT the impressive one-off diagnostic that happened to crack this particular incident. Before listing a span, ask: *will the user do this again next month?* A clever technique used once is a story, not a skill. Weigh `reuse frequency × time saved` and lead the candidate list with the highest-reuse item.
+
+For each surviving span, pick the type:
 
 - **deterministic, no judgment** (a fixed command sequence that worked) → **script**
-- **durable reference knowledge** — gotchas, why-it-works, a flow's shape, a triage playbook, a runbook → **kb**
+- **durable reference knowledge** — gotchas, why-it-works, a flow's shape, how to access/operate a system → **kb**
 - **reusable process WITH judgment** — a repeatable way of working that needs decisions → **skill**
 - **one-time recap** of this session's outcome → **summary**
 
-A span that is none of these yields no candidate. Don't manufacture artifacts.
+Tie-breakers:
+
+- **kb vs skill** — if the value is in *knowing the thing exists* (a fact, a gotcha, an access recipe) → **kb**; if it's in *deciding how to apply it* (judgment, trade-offs, when-to-use) → **skill**.
+- **runbook vs case study** — a *recurring* operational procedure → a **kb runbook** ("do this when X"); a *rare / one-off* incident worth remembering but unlikely to recur → at most a **case-study kb** (what happened + why), **never** a triage runbook. Don't write a "when this breaks" playbook for something that breaks once.
+
+A span that is none of these yields no candidate. Don't manufacture artifacts — and don't promote a clever-but-rare technique just because it was hard-won.
 
 ## Discovery output
 
