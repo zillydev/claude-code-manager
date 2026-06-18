@@ -126,6 +126,16 @@ fn tool_result_text(block: &Value) -> String {
 /// Render the inclusive line range `[a_start, b_end]` of the active path as
 /// readable text for summarization. Tool inputs/results are capped to keep the
 /// orchestrating session's context bounded.
+/// Render a message's plain text, eliding an injected skill prompt (the full
+/// SKILL.md dumped after `Base directory for this skill:`) to a one-liner so a
+/// drilled span isn't drowned by static plumbing.
+fn render_message_text(t: &str) -> String {
+    match super::display::skill_prompt_name(t) {
+        Some(name) => format!("[skill prompt elided: {}, {} chars]", name, t.chars().count()),
+        None => t.to_string(),
+    }
+}
+
 fn render_range_text(active: &[&RawLine], a_start: usize, b_end: usize) -> String {
     let mut out = String::new();
     for l in &active[a_start..=b_end] {
@@ -138,7 +148,7 @@ fn render_range_text(active: &[&RawLine], a_start: usize, b_end: usize) -> Strin
         out.push_str(&format!("[{} {}]\n", role, uuid));
         match l.value.pointer("/message/content") {
             Some(Value::String(s)) => {
-                out.push_str(s);
+                out.push_str(&render_message_text(s));
                 out.push('\n');
             }
             Some(Value::Array(blocks)) => {
@@ -146,7 +156,7 @@ fn render_range_text(active: &[&RawLine], a_start: usize, b_end: usize) -> Strin
                     match b.get("type").and_then(|v| v.as_str()) {
                         Some("text") => {
                             if let Some(t) = b.get("text").and_then(|v| v.as_str()) {
-                                out.push_str(t);
+                                out.push_str(&render_message_text(t));
                                 out.push('\n');
                             }
                         }
@@ -722,6 +732,28 @@ mod tests {
         let p = write_tmp("summarytag", body);
         let text = extract(&p, None, None, true, false).unwrap();
         assert!(text.contains("· compaction summary"), "isCompactSummary turn is tagged");
+        std::fs::remove_file(&p).ok();
+    }
+
+    #[test]
+    fn extract_elides_skill_prompt() {
+        let body = concat!(
+            r#"{"type":"user","uuid":"00000000-0000-0000-0000-0000000000a1","parentUuid":null,"isMeta":true,"message":{"role":"user","content":[{"type":"text","text":"Base directory for this skill: /x/y/skills/brainstorming\n# Brainstorming\nlong body body body"}]}}"#, "\n",
+            r#"{"type":"user","uuid":"00000000-0000-0000-0000-0000000000b2","parentUuid":"00000000-0000-0000-0000-0000000000a1","message":{"role":"user","content":"normal message"}}"#, "\n",
+        );
+        let p = write_tmp("skillprompt", body);
+
+        // Drill-down: the skill prompt collapses; its body is gone; normal text stays.
+        let full = extract(&p, None, None, false, false).unwrap();
+        assert!(full.contains("[skill prompt elided: brainstorming,"), "got: {full}");
+        assert!(!full.contains("# Brainstorming"), "skill body must not appear");
+        assert!(full.contains("normal message"), "normal text stays verbatim");
+
+        // Outline: the skill-prompt turn shows `skill: brainstorming`.
+        let outline = extract(&p, None, None, true, false).unwrap();
+        assert!(outline.contains("skill: brainstorming"), "got: {outline}");
+        assert!(!outline.contains("Base directory for this skill"), "no raw path");
+
         std::fs::remove_file(&p).ok();
     }
 

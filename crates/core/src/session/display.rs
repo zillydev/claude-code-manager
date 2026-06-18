@@ -24,6 +24,18 @@ pub fn command_label(text: &str) -> Option<String> {
     })
 }
 
+const SKILL_PROMPT_PREFIX: &str = "Base directory for this skill:";
+
+/// If `text` is an injected skill prompt (an `isMeta` user message whose first
+/// line is `Base directory for this skill: <path>`), return the skill's folder
+/// name (the last path component of that line). `None` otherwise.
+pub fn skill_prompt_name(text: &str) -> Option<String> {
+    let first = text.lines().next()?;
+    let path = first.strip_prefix(SKILL_PROMPT_PREFIX)?.trim();
+    let name = path.trim_end_matches('/').rsplit('/').next().unwrap_or(path);
+    Some(if name.is_empty() { "skill".to_string() } else { name.to_string() })
+}
+
 /// Parsed background task-notification (signal only).
 pub struct TaskNote {
     pub status: String,
@@ -45,6 +57,9 @@ pub fn parse_task_notification(text: &str) -> Option<TaskNote> {
 pub fn one_line(text: &str) -> Option<String> {
     if let Some(cmd) = command_label(text) {
         return Some(cmd);
+    }
+    if let Some(name) = skill_prompt_name(text) {
+        return Some(format!("skill: {}", name));
     }
     parse_task_notification(text).map(|tn| format!("task · {} · {}", tn.status, tn.summary))
 }
@@ -70,6 +85,19 @@ mod tests {
         assert_eq!(n.summary, "Agent did a thing");
         assert_eq!(n.result, "the full result body");
         assert!(parse_task_notification("hello").is_none());
+    }
+
+    #[test]
+    fn skill_prompt_name_extracts_folder() {
+        let t = "Base directory for this skill: /Users/x/.claude/plugins/superpowers/6.0.2/skills/brainstorming\n\n# Brainstorming\nbody";
+        assert_eq!(skill_prompt_name(t).as_deref(), Some("brainstorming"));
+        assert_eq!(skill_prompt_name("a normal user message"), None);
+    }
+
+    #[test]
+    fn one_line_compacts_skill_prompt() {
+        let t = "Base directory for this skill: /a/b/skills/writing-plans\n# Writing Plans";
+        assert_eq!(one_line(t).as_deref(), Some("skill: writing-plans"));
     }
 
     #[test]
