@@ -2,6 +2,8 @@ use std::collections::HashMap;
 use std::sync::mpsc::channel;
 use std::sync::Mutex;
 
+use crate::terminal::{self, TerminalState};
+
 use claude_manager_core::session::edit::{commit, CommitOpts, CommitResult};
 use claude_manager_core::session::parse::parse_tail;
 use claude_manager_core::session::raw::{active_path, first_cwd, read_raw, RawLine};
@@ -369,4 +371,78 @@ pub async fn delete_message(file_path: String, message_uuid: String) -> Result<C
     })
     .await
     .map_err(|e| e.to_string())?
+}
+
+/// Start (or no-op if already running) the terminal for a session in this window.
+#[tauri::command]
+pub fn terminal_open(
+    session_id: String,
+    file_path: String,
+    rows: u16,
+    cols: u16,
+    window: tauri::WebviewWindow,
+    app: AppHandle,
+) -> Result<(), String> {
+    let label = window.label().to_string();
+    {
+        let state = app.state::<Mutex<TerminalState>>();
+        if state.lock().map_err(|e| e.to_string())?.has(&label, &session_id) {
+            return Ok(());
+        }
+    }
+    let lines = read_raw(std::path::Path::new(&file_path)).map_err(|e| e.to_string())?;
+    let cwd = first_cwd(&lines).ok_or("could not determine the session's working directory")?;
+    let handle =
+        terminal::spawn_terminal(app.clone(), label.clone(), session_id.clone(), cwd, rows, cols)
+            .map_err(|e| format!("failed to start terminal: {e}"))?;
+    app.state::<Mutex<TerminalState>>()
+        .lock()
+        .map_err(|e| e.to_string())?
+        .insert(&label, &session_id, handle);
+    Ok(())
+}
+
+#[tauri::command]
+pub fn terminal_input(
+    session_id: String,
+    data: String,
+    window: tauri::WebviewWindow,
+    app: AppHandle,
+) -> Result<(), String> {
+    let label = window.label().to_string();
+    app.state::<Mutex<TerminalState>>()
+        .lock()
+        .map_err(|e| e.to_string())?
+        .write(&label, &session_id, data.as_bytes())
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn terminal_resize(
+    session_id: String,
+    rows: u16,
+    cols: u16,
+    window: tauri::WebviewWindow,
+    app: AppHandle,
+) -> Result<(), String> {
+    let label = window.label().to_string();
+    app.state::<Mutex<TerminalState>>()
+        .lock()
+        .map_err(|e| e.to_string())?
+        .resize(&label, &session_id, rows, cols);
+    Ok(())
+}
+
+#[tauri::command]
+pub fn terminal_close(
+    session_id: String,
+    window: tauri::WebviewWindow,
+    app: AppHandle,
+) -> Result<(), String> {
+    let label = window.label().to_string();
+    app.state::<Mutex<TerminalState>>()
+        .lock()
+        .map_err(|e| e.to_string())?
+        .close(&label, &session_id);
+    Ok(())
 }
