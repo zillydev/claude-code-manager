@@ -29,10 +29,18 @@ impl Default for WatcherState {
 }
 
 #[tauri::command]
-pub fn list_sessions() -> Result<Vec<SessionSummary>, String> {
-    let root = paths::default_claude_root().ok_or("could not locate ~/.claude")?;
-    let disc = store::discover(&root).map_err(|e| e.to_string())?;
-    Ok(disc.sessions)
+pub async fn list_sessions() -> Result<Vec<SessionSummary>, String> {
+    // discover() fully parses every session file (hundreds of MB across all
+    // projects — ~6s in a debug build). Run it on the blocking pool so it never
+    // ties up the Tauri main thread: a synchronous command would block the UI,
+    // freezing the window (macOS beachball) on initial load and on every refresh.
+    tauri::async_runtime::spawn_blocking(|| -> Result<Vec<SessionSummary>, String> {
+        let root = paths::default_claude_root().ok_or("could not locate ~/.claude")?;
+        let disc = store::discover(&root).map_err(|e| e.to_string())?;
+        Ok(disc.sessions)
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
