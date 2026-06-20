@@ -110,9 +110,10 @@ export default function TerminalView({
         invoke("terminal_open", { sessionId, filePath, rows: t.rows, cols: t.cols }).catch((err) =>
           t.write(`\r\n\x1b[31m[failed to start: ${err}]\x1b[0m\r\n`),
         );
-      } else {
-        invoke("terminal_resize", { sessionId, rows: t.rows, cols: t.cols }).catch(() => {});
       }
+      // Always sync the PTY to the current fit — covers reconnecting to an
+      // already-running PTY (e.g. after a frontend reload) that may be mis-sized.
+      invoke("terminal_resize", { sessionId, rows: t.rows, cols: t.cols }).catch(() => {});
       t.focus();
     });
     return () => cancelAnimationFrame(raf);
