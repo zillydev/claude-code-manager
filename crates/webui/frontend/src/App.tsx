@@ -177,6 +177,7 @@ export default function App() {
             <TerminalPane
               sessionId={transcript?.id ?? null}
               filePath={transcript?.source_path ?? null}
+              tabActive={activeTab === "terminal"}
             />
           </div>
         </div>

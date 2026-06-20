@@ -6,9 +6,11 @@ import TerminalView from "./TerminalView";
 export default function TerminalPane({
   sessionId,
   filePath,
+  tabActive,
 }: {
   sessionId: string | null;
   filePath: string | null;
+  tabActive: boolean;
 }) {
   // sessionId -> filePath for every session a terminal has been opened for.
   const [opened, setOpened] = useState<Record<string, string>>({});
@@ -30,7 +32,12 @@ export default function TerminalPane({
   return (
     <div className="h-full w-full bg-[#0a0a0a]">
       {Object.entries(opened).map(([sid, fp]) => (
-        <TerminalView key={sid} sessionId={sid} filePath={fp} active={sid === sessionId} />
+        <TerminalView
+          key={sid}
+          sessionId={sid}
+          filePath={fp}
+          active={tabActive && sid === sessionId}
+        />
       ))}
     </div>
   );

@@ -68,15 +68,21 @@ export default function TerminalView({
       invoke("terminal_input", { sessionId, data: d }).catch(() => {});
     });
 
+    let resizeTimer: ReturnType<typeof setTimeout> | undefined;
     const ro = new ResizeObserver(() => {
       // Skip while hidden (display:none → 0-size) so we never fit to a tiny size.
       if (host.clientWidth === 0 || host.clientHeight === 0) return;
-      try {
-        fit.fit();
-        invoke("terminal_resize", { sessionId, rows: term.rows, cols: term.cols }).catch(() => {});
-      } catch {
-        /* ignore */
-      }
+      // Debounce: a window drag fires this dozens of times — resize once it
+      // settles so claude gets a single clean SIGWINCH to repaint at the final size.
+      clearTimeout(resizeTimer);
+      resizeTimer = setTimeout(() => {
+        try {
+          fit.fit();
+          invoke("terminal_resize", { sessionId, rows: term.rows, cols: term.cols }).catch(() => {});
+        } catch {
+          /* ignore */
+        }
+      }, 120);
     });
     ro.observe(host);
 
@@ -85,6 +91,7 @@ export default function TerminalView({
       unsubs.forEach((u) => u());
       onData.dispose();
       ro.disconnect();
+      clearTimeout(resizeTimer);
       term.dispose();
     };
   }, [sessionId, filePath]);
