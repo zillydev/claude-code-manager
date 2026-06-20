@@ -28,15 +28,19 @@ the transcript updates live as the user works in the terminal.
 ## v1 scope
 
 - Tabs: Manager | Terminal. Manager unchanged.
-- Terminal runs `claude --resume <open session id>` in the session's launch cwd
-  (`raw::first_cwd`), launched **directly** (not shell-wrapped). On exit, show a
+- Terminal runs `claude --allow-dangerously-skip-permissions --resume <open
+  session id>` in the session's launch cwd (`raw::first_cwd`). The bypass flag
+  matches the user's shell alias; the entrypoint is the user's `claude-tracked`
+  wrapper (`~/.local/bin/claude-tracked`) when present (it exports yabai window
+  env for hooks, then `exec claude`), else `claude` on PATH. On exit, show a
   "restart" affordance.
 - **One persistent terminal per session** (a pool). Each session you open a
   terminal for keeps its own PTY + xterm instance (xterm kept mounted, hidden
   when inactive) so scrollback and the live `claude` survive tab/session
   switches. Never auto-kills a running `claude` on switch.
 - Input / output / resize wired. Cleanup on window close + app exit.
-- Binary is `claude` on PATH.
+- Entrypoint: `claude-tracked` wrapper if present, else `claude` on PATH; always
+  with `--allow-dangerously-skip-permissions` (matches the user's alias).
 
 ## Architecture
 

@@ -6,9 +6,30 @@ use portable_pty::{native_pty_system, Child, CommandBuilder, MasterPty, PtySize}
 use serde_json::json;
 use tauri::{AppHandle, Emitter, Manager};
 
-/// The program + args for a session's terminal. Pure — unit-testable.
+/// Resolve the claude entrypoint. Prefer the user's `claude-tracked` wrapper
+/// (matches their shell alias — it exports yabai window env for hooks then
+/// `exec claude`), falling back to `claude` on PATH if the wrapper is absent.
+fn claude_program() -> String {
+    if let Some(home) = std::env::var_os("HOME") {
+        let wrapper = std::path::Path::new(&home).join(".local/bin/claude-tracked");
+        if wrapper.is_file() {
+            return wrapper.to_string_lossy().into_owned();
+        }
+    }
+    "claude".to_string()
+}
+
+/// The args after the claude entrypoint: bypass permissions (matching the user's
+/// `--allow-dangerously-skip-permissions` alias) + resume the session. Pure.
+fn claude_args(session_id: &str) -> Vec<String> {
+    vec!["--allow-dangerously-skip-permissions".into(), "--resume".into(), session_id.into()]
+}
+
+/// The full argv for a session's terminal: resolved entrypoint + `claude_args`.
 pub fn terminal_argv(session_id: &str) -> Vec<String> {
-    vec!["claude".into(), "--resume".into(), session_id.into()]
+    let mut v = vec![claude_program()];
+    v.extend(claude_args(session_id));
+    v
 }
 
 fn key(label: &str, session_id: &str) -> String {
@@ -132,7 +153,17 @@ mod tests {
     use super::*;
 
     #[test]
-    fn terminal_argv_resumes_the_session() {
-        assert_eq!(terminal_argv("abc-123"), vec!["claude", "--resume", "abc-123"]);
+    fn claude_args_bypass_and_resume() {
+        assert_eq!(
+            claude_args("abc-123"),
+            vec!["--allow-dangerously-skip-permissions", "--resume", "abc-123"]
+        );
+    }
+
+    #[test]
+    fn terminal_argv_is_program_then_args() {
+        let v = terminal_argv("xyz");
+        assert!(!v[0].is_empty(), "resolved a claude entrypoint");
+        assert_eq!(&v[1..], &["--allow-dangerously-skip-permissions", "--resume", "xyz"]);
     }
 }
