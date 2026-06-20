@@ -17,6 +17,7 @@ import ForkMarker from "./ForkMarker";
 import { useFind } from "../hooks/useFind";
 import { usePersistentState } from "../hooks/usePersistentState";
 import { makeSegId } from "../lib/segments";
+import { isNearBottom } from "../lib/scroll";
 
 interface Props {
   session: RenderedSession;
@@ -30,6 +31,12 @@ export default function Transcript({ session, onBack, branchPoints, onOpenSessio
   const [compact, setCompact] = usePersistentState("cm.compact", false);
   const bottomRef = useRef<HTMLDivElement>(null);
   const turnsRef = useRef<HTMLDivElement>(null);
+  // Tail-follow state: whether the user is currently pinned to the bottom.
+  // Read from scroll events (the user's last position) rather than measured
+  // after a turn is appended — appended content grows scrollHeight without
+  // firing a scroll, so a post-append measurement would misreport "at bottom".
+  const atBottomRef = useRef(true);
+  const prevSessionId = useRef<string | null>(null);
 
   const editor = useEditor();
   const [editingUuid, setEditingUuid] = useState<string | null>(null);
@@ -68,9 +75,32 @@ export default function Transcript({ session, onBack, branchPoints, onOpenSessio
     [editor.deleteMessage, sourcePath],
   );
 
+  // Track whether the user is pinned to the bottom, so live-tail appends only
+  // follow when they already are. Programmatic scrolls fire this too, keeping
+  // the flag accurate.
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [session.turns.length]);
+    const container = turnsRef.current;
+    if (!container) return;
+    const onScroll = () => {
+      atBottomRef.current = isNearBottom(container);
+    };
+    container.addEventListener("scroll", onScroll, { passive: true });
+    return () => container.removeEventListener("scroll", onScroll);
+  }, []);
+
+  // On opening/switching a session, jump to the latest. On a new turn within
+  // the same session (live tail), only follow if the user is at the bottom —
+  // otherwise leave their scroll position alone.
+  useEffect(() => {
+    const isNewSession = prevSessionId.current !== session.id;
+    prevSessionId.current = session.id;
+    if (isNewSession) {
+      atBottomRef.current = true;
+      bottomRef.current?.scrollIntoView();
+    } else if (atBottomRef.current) {
+      bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+    }
+  }, [session.id, session.turns.length]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
