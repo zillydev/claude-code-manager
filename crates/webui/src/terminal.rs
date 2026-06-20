@@ -19,10 +19,10 @@ fn claude_program() -> String {
     "claude".to_string()
 }
 
-/// The args after the claude entrypoint: bypass permissions (matching the user's
-/// `--allow-dangerously-skip-permissions` alias) + resume the session. Pure.
+/// The args after the claude entrypoint: start directly in bypass-permissions
+/// mode (matching the user's alias) + resume the session. Pure.
 fn claude_args(session_id: &str) -> Vec<String> {
-    vec!["--allow-dangerously-skip-permissions".into(), "--resume".into(), session_id.into()]
+    vec!["--dangerously-skip-permissions".into(), "--resume".into(), session_id.into()]
 }
 
 /// The full argv for a session's terminal: resolved entrypoint + `claude_args`.
@@ -156,7 +156,7 @@ mod tests {
     fn claude_args_bypass_and_resume() {
         assert_eq!(
             claude_args("abc-123"),
-            vec!["--allow-dangerously-skip-permissions", "--resume", "abc-123"]
+            vec!["--dangerously-skip-permissions", "--resume", "abc-123"]
         );
     }
 
@@ -164,6 +164,6 @@ mod tests {
     fn terminal_argv_is_program_then_args() {
         let v = terminal_argv("xyz");
         assert!(!v[0].is_empty(), "resolved a claude entrypoint");
-        assert_eq!(&v[1..], &["--allow-dangerously-skip-permissions", "--resume", "xyz"]);
+        assert_eq!(&v[1..], &["--dangerously-skip-permissions", "--resume", "xyz"]);
     }
 }
