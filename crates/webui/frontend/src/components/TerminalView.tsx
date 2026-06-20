@@ -60,16 +60,9 @@ export default function TerminalView({
           }
         }),
       );
-      if (disposed) {
-        unsubs.forEach((u) => u());
-        return;
-      }
-      await invoke("terminal_open", {
-        sessionId,
-        filePath,
-        rows: term.rows,
-        cols: term.cols,
-      }).catch((err) => term.write(`\r\n\x1b[31m[failed to start: ${err}]\x1b[0m\r\n`));
+      if (disposed) unsubs.forEach((u) => u());
+      // NB: terminal_open is deferred to the activation effect below, so the PTY
+      // is spawned only once the host is visible and correctly sized.
     })();
 
     const onData = term.onData((d) => {
@@ -77,11 +70,13 @@ export default function TerminalView({
     });
 
     const ro = new ResizeObserver(() => {
+      // Skip while hidden (display:none → 0-size) so we never fit to a tiny size.
+      if (host.clientWidth === 0 || host.clientHeight === 0) return;
       try {
         fit.fit();
         invoke("terminal_resize", { sessionId, rows: term.rows, cols: term.cols }).catch(() => {});
       } catch {
-        /* hidden */
+        /* ignore */
       }
     });
     ro.observe(host);
@@ -95,22 +90,33 @@ export default function TerminalView({
     };
   }, [sessionId, filePath]);
 
-  // When this terminal becomes active it was likely hidden (0-size) — refit.
+  const openedRef = useRef(false);
+  // Spawn the PTY only once the terminal is visible and fitted — a PTY spawned
+  // while hidden gets a ~0-col size and claude renders badly wrapped. On later
+  // activations just refit + resize.
   useEffect(() => {
-    if (active && fitRef.current && termRef.current) {
+    if (!active) return;
+    const t = termRef.current;
+    const f = fitRef.current;
+    if (!t || !f) return;
+    const raf = requestAnimationFrame(() => {
       try {
-        fitRef.current.fit();
-        invoke("terminal_resize", {
-          sessionId,
-          rows: termRef.current.rows,
-          cols: termRef.current.cols,
-        }).catch(() => {});
-        termRef.current.focus();
+        f.fit();
       } catch {
         /* ignore */
       }
-    }
-  }, [active, sessionId]);
+      if (!openedRef.current) {
+        openedRef.current = true;
+        invoke("terminal_open", { sessionId, filePath, rows: t.rows, cols: t.cols }).catch((err) =>
+          t.write(`\r\n\x1b[31m[failed to start: ${err}]\x1b[0m\r\n`),
+        );
+      } else {
+        invoke("terminal_resize", { sessionId, rows: t.rows, cols: t.cols }).catch(() => {});
+      }
+      t.focus();
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [active, sessionId, filePath]);
 
   const restart = () => {
     const t = termRef.current;
