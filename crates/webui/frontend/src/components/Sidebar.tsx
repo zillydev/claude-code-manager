@@ -199,8 +199,13 @@ export default function Sidebar({
           />
           <button
             onClick={onRefresh}
-            className="text-[var(--color-text-dim)] hover:text-[var(--color-text)] text-xs px-1"
-            title="Refresh"
+            disabled={loading}
+            className={`text-xs px-1 ${
+              loading
+                ? "animate-spin text-[var(--color-accent)]"
+                : "text-[var(--color-text-dim)] hover:text-[var(--color-text)]"
+            }`}
+            title={loading ? "Refreshing…" : "Refresh"}
           >
             ↻
           </button>
