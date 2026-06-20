@@ -44,22 +44,37 @@ pub async fn list_sessions() -> Result<Vec<SessionSummary>, String> {
 }
 
 #[tauri::command]
-pub fn search_transcripts(query: String) -> Result<Vec<String>, String> {
-    let root = paths::default_claude_root().ok_or("could not locate ~/.claude")?;
-    let ids = store::search_sessions(&root, &query).map_err(|e| e.to_string())?;
-    Ok(ids.into_iter().map(|u| u.to_string()).collect())
+pub async fn search_transcripts(query: String) -> Result<Vec<String>, String> {
+    // Searches every transcript on disk — keep it off the main thread.
+    tauri::async_runtime::spawn_blocking(move || -> Result<Vec<String>, String> {
+        let root = paths::default_claude_root().ok_or("could not locate ~/.claude")?;
+        let ids = store::search_sessions(&root, &query).map_err(|e| e.to_string())?;
+        Ok(ids.into_iter().map(|u| u.to_string()).collect())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
-pub fn open_session(
+pub async fn open_session(
     file_path: String,
     project_label: String,
     window: tauri::WebviewWindow,
     app: AppHandle,
 ) -> Result<RenderedSession, String> {
-    let session =
-        store::open_session(file_path.clone().into(), project_label).map_err(|e| e.to_string())?;
-    let rendered = render_session(&session);
+    // Parsing+rendering the file can be large (tens of MB) — do it off the main
+    // thread so opening a big session doesn't freeze the window. The watcher
+    // setup below stays on the command thread (it touches Tauri state).
+    let fp_parse = file_path.clone();
+    let (rendered, bytes_read) =
+        tauri::async_runtime::spawn_blocking(move || -> Result<(RenderedSession, u64), String> {
+            let session = store::open_session(fp_parse.into(), project_label)
+                .map_err(|e| e.to_string())?;
+            let rendered = render_session(&session);
+            Ok((rendered, session.bytes_read))
+        })
+        .await
+        .map_err(|e| e.to_string())??;
 
     let label = window.label().to_string();
 
@@ -71,7 +86,6 @@ pub fn open_session(
     guard.watchers.remove(&label);
 
     let (tx, rx) = channel::<()>();
-    let bytes_read = session.bytes_read;
     let fp = file_path.clone();
 
     match watcher::watch_file(std::path::Path::new(&file_path), tx) {
@@ -191,29 +205,34 @@ fn line_text(l: &RawLine) -> String {
 }
 
 #[tauri::command]
-pub fn open_for_edit(file_path: String) -> Result<EditableSession, String> {
-    let path = PathBuf::from(&file_path);
-    let lines = read_raw(&path).map_err(|e| e.to_string())?;
-    let active = active_path(&lines);
-    let cwd = active
-        .iter()
-        .find_map(|l| l.value.get("cwd").and_then(|v| v.as_str()).map(|s| s.to_string()))
-        .unwrap_or_default();
-    let git_branch = active
-        .iter()
-        .find_map(|l| l.value.get("gitBranch").and_then(|v| v.as_str()).map(|s| s.to_string()));
-    let turns = active
-        .iter()
-        .filter(|l| l.kind == "user" || l.kind == "assistant")
-        .enumerate()
-        .map(|(index, l)| EditableTurn {
-            index,
-            uuid: l.uuid.map(|u| u.to_string()).unwrap_or_default(),
-            role: l.kind.clone(),
-            text: line_text(l),
-        })
-        .collect();
-    Ok(EditableSession { source_path: file_path, cwd, git_branch, turns })
+pub async fn open_for_edit(file_path: String) -> Result<EditableSession, String> {
+    // read_raw parses the whole file — off the main thread.
+    tauri::async_runtime::spawn_blocking(move || -> Result<EditableSession, String> {
+        let path = PathBuf::from(&file_path);
+        let lines = read_raw(&path).map_err(|e| e.to_string())?;
+        let active = active_path(&lines);
+        let cwd = active
+            .iter()
+            .find_map(|l| l.value.get("cwd").and_then(|v| v.as_str()).map(|s| s.to_string()))
+            .unwrap_or_default();
+        let git_branch = active
+            .iter()
+            .find_map(|l| l.value.get("gitBranch").and_then(|v| v.as_str()).map(|s| s.to_string()));
+        let turns = active
+            .iter()
+            .filter(|l| l.kind == "user" || l.kind == "assistant")
+            .enumerate()
+            .map(|(index, l)| EditableTurn {
+                index,
+                uuid: l.uuid.map(|u| u.to_string()).unwrap_or_default(),
+                role: l.kind.clone(),
+                text: line_text(l),
+            })
+            .collect();
+        Ok(EditableSession { source_path: file_path, cwd, git_branch, turns })
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// Commit an edit: optionally set the text of the message-turn identified by
@@ -222,12 +241,14 @@ pub fn open_for_edit(file_path: String) -> Result<EditableSession, String> {
 /// live-tail renders streamed turns with batch-local indices, so an index can
 /// point at the wrong message; the uuid is stable.
 #[tauri::command]
-pub fn commit_session(
+pub async fn commit_session(
     file_path: String,
     edit_uuid: Option<String>,
     new_text: Option<String>,
     custom_title: Option<String>,
 ) -> Result<CommitResult, String> {
+    // read_raw + commit (write) on a potentially-large file — off the main thread.
+    tauri::async_runtime::spawn_blocking(move || -> Result<CommitResult, String> {
     let root = paths::default_claude_root().ok_or("could not locate ~/.claude")?;
     let path = PathBuf::from(&file_path);
     let mut lines = read_raw(&path).map_err(|e| e.to_string())?;
@@ -259,24 +280,35 @@ pub fn commit_session(
         .find_map(|l| l.value.get("gitBranch").and_then(|v| v.as_str()).map(|s| s.to_string()));
     let opts = CommitOpts { target_cwd: cwd, git_branch, custom_title };
     commit(&root, &path_refs, &opts).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// Rename a session in place by appending a `custom-title` event (the most-recent
 /// custom-title wins). This is the one place we mutate the original file — a
 /// custom-title is metadata and a rename must keep the same session id.
 #[tauri::command]
-pub fn rename_session(file_path: String, new_title: String) -> Result<(), String> {
-    let path = PathBuf::from(&file_path);
-    claude_manager_core::session::edit::append_custom_title(&path, &new_title)
-        .map_err(|e| e.to_string())
+pub async fn rename_session(file_path: String, new_title: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || -> Result<(), String> {
+        let path = PathBuf::from(&file_path);
+        claude_manager_core::session::edit::append_custom_title(&path, &new_title)
+            .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// Move a session file to the app trash (recoverable). Returns Ok(()) on success.
 #[tauri::command]
-pub fn delete_session(file_path: String) -> Result<(), String> {
-    let root = paths::default_claude_root().ok_or("could not locate ~/.claude")?;
-    store::trash_session(&root, std::path::Path::new(&file_path)).map_err(|e| e.to_string())?;
-    Ok(())
+pub async fn delete_session(file_path: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || -> Result<(), String> {
+        let root = paths::default_claude_root().ok_or("could not locate ~/.claude")?;
+        store::trash_session(&root, std::path::Path::new(&file_path)).map_err(|e| e.to_string())?;
+        Ok(())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// Fork: write the prefix up to and including the event identified by `fork_uuid`
@@ -285,11 +317,13 @@ pub fn delete_session(file_path: String) -> Result<(), String> {
 /// turns with batch-local indices, so an index can truncate the fork; the uuid
 /// is stable and found at its true position here.
 #[tauri::command]
-pub fn fork_session(
+pub async fn fork_session(
     file_path: String,
     fork_uuid: String,
     custom_title: Option<String>,
 ) -> Result<CommitResult, String> {
+    // read_raw + commit (write) on a potentially-large file — off the main thread.
+    tauri::async_runtime::spawn_blocking(move || -> Result<CommitResult, String> {
     let root = paths::default_claude_root().ok_or("could not locate ~/.claude")?;
     let path = PathBuf::from(&file_path);
     let lines = read_raw(&path).map_err(|e| e.to_string())?;
@@ -312,6 +346,9 @@ pub fn fork_session(
         .find_map(|l| l.value.get("gitBranch").and_then(|v| v.as_str()).map(|s| s.to_string()));
     let opts = CommitOpts { target_cwd: cwd, git_branch, custom_title };
     commit(&root, &prefix, &opts).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// Delete a single message (turn) by its uuid, writing a new flattened session
@@ -320,11 +357,16 @@ pub fn fork_session(
 /// in its tool calls + results), repairs tool-pairing across the cut, and
 /// refuses a delete that would leave a leading assistant message.
 #[tauri::command]
-pub fn delete_message(file_path: String, message_uuid: String) -> Result<CommitResult, String> {
+pub async fn delete_message(file_path: String, message_uuid: String) -> Result<CommitResult, String> {
     use claude_manager_core::session::surgery::{rewrite, RewriteMode};
-    let root = paths::default_claude_root().ok_or("could not locate ~/.claude")?;
-    let path = PathBuf::from(&file_path);
-    let out = rewrite(&root, &path, &message_uuid, &message_uuid, RewriteMode::Prune, None)
-        .map_err(|e| e.to_string())?;
-    Ok(out.commit)
+    // rewrite reads + rewrites a potentially-large file — off the main thread.
+    tauri::async_runtime::spawn_blocking(move || -> Result<CommitResult, String> {
+        let root = paths::default_claude_root().ok_or("could not locate ~/.claude")?;
+        let path = PathBuf::from(&file_path);
+        let out = rewrite(&root, &path, &message_uuid, &message_uuid, RewriteMode::Prune, None)
+            .map_err(|e| e.to_string())?;
+        Ok(out.commit)
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
