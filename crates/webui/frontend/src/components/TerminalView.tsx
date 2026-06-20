@@ -35,12 +35,11 @@ export default function TerminalView({
     });
     const fit = new FitAddon();
     term.loadAddon(fit);
-    term.open(host);
-    try {
-      fit.fit();
-    } catch {
-      /* host may be hidden (0-size) on first mount; refit on activate */
-    }
+    // NB: term.open() is deferred to the activation effect. Opening while the
+    // host is hidden (display:none → 0-size) makes xterm measure the character
+    // cell at 0, so fit() can never compute correct columns afterward — the
+    // cause of the "narrow terminal" for a session first opened on the Manager
+    // tab. We open only once the pane is actually visible.
     termRef.current = term;
     fitRef.current = fit;
 
@@ -91,28 +90,35 @@ export default function TerminalView({
   }, [sessionId, filePath]);
 
   const openedRef = useRef(false);
-  // Spawn the PTY only once the terminal is visible and fitted — a PTY spawned
-  // while hidden gets a ~0-col size and claude renders badly wrapped. On later
-  // activations just refit + resize.
+  // On first activation (pane visible): open the xterm into the now-laid-out
+  // host, fit, and spawn the PTY at the correct size. On later activations just
+  // refit. Always resize afterward to sync an existing PTY (e.g. after reload).
   useEffect(() => {
     if (!active) return;
     const t = termRef.current;
     const f = fitRef.current;
-    if (!t || !f) return;
+    const host = hostRef.current;
+    if (!t || !f || !host) return;
     const raf = requestAnimationFrame(() => {
-      try {
-        f.fit();
-      } catch {
-        /* ignore */
-      }
       if (!openedRef.current) {
         openedRef.current = true;
+        t.open(host);
+        try {
+          f.fit();
+        } catch {
+          /* ignore */
+        }
         invoke("terminal_open", { sessionId, filePath, rows: t.rows, cols: t.cols }).catch((err) =>
           t.write(`\r\n\x1b[31m[failed to start: ${err}]\x1b[0m\r\n`),
         );
+      } else {
+        try {
+          f.fit();
+        } catch {
+          /* ignore */
+        }
       }
-      // Always sync the PTY to the current fit — covers reconnecting to an
-      // already-running PTY (e.g. after a frontend reload) that may be mis-sized.
+      // Sync the PTY to the current fit (covers reconnecting to an existing PTY).
       invoke("terminal_resize", { sessionId, rows: t.rows, cols: t.cols }).catch(() => {});
       t.focus();
     });
