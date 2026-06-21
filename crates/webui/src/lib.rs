@@ -105,6 +105,7 @@ pub fn run() {
             commands::rename_session,
             commands::delete_message,
             commands::new_session,
+            commands::path_exists,
             commands::terminal_open,
             commands::terminal_input,
             commands::terminal_resize,

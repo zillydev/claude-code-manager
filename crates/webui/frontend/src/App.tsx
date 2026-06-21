@@ -11,38 +11,72 @@ const MIN_WIDTH = 200;
 const MAX_WIDTH = 600;
 const DEFAULT_WIDTH = 320;
 
+const basename = (p: string) => p.replace(/\/+$/, "").split("/").pop() || p;
+
 export default function App() {
   const { sessions, loading, refresh } = useSessions();
   const { transcript, loading: txLoading, open, close, updateTitle } = useTranscript();
   const [sidebarWidth, setSidebarWidth] = useState(DEFAULT_WIDTH);
   const [collapsed, setCollapsed] = useState(false);
   const [activeTab, setActiveTab] = useState<"manager" | "terminal">("manager");
-  // The session the Terminal tab targets (open existing → resume; new → fresh w/ cwd).
-  const [terminalTarget, setTerminalTarget] = useState<{
+  // The single open session, shared by BOTH tabs: Manager renders its transcript,
+  // Terminal runs its `claude` process. `cwd` set ⇒ a freshly-created session whose
+  // file doesn't exist until the first turn — the effect below polls for it.
+  const [target, setTarget] = useState<{
     sessionId: string;
     filePath: string;
+    projectLabel: string;
     cwd?: string;
   } | null>(null);
 
-  // Open an existing session in Manager and point the terminal at it.
+  // Open an existing session (Manager + Terminal both follow `target`).
   const openSession = useCallback(
     (s: { id: string; file_path: string; project_label: string }) => {
-      open(s.file_path, s.project_label);
-      setTerminalTarget({ sessionId: s.id, filePath: s.file_path });
+      setTarget({ sessionId: s.id, filePath: s.file_path, projectLabel: s.project_label });
     },
-    [open],
+    [],
   );
 
   // Create a new session in `cwd`: a fresh `claude --session-id` in the terminal.
-  const newSession = useCallback(
-    async (cwd: string) => {
-      const res = await invoke<{ session_id: string; file_path: string }>("new_session", { cwd });
-      setTerminalTarget({ sessionId: res.session_id, filePath: res.file_path, cwd });
-      setActiveTab("terminal");
-      refresh();
-    },
-    [refresh],
-  );
+  const newSession = useCallback(async (cwd: string) => {
+    const res = await invoke<{ session_id: string; file_path: string }>("new_session", { cwd });
+    setTarget({
+      sessionId: res.session_id,
+      filePath: res.file_path,
+      projectLabel: basename(cwd),
+      cwd,
+    });
+    setActiveTab("terminal");
+  }, []);
+
+  // Load `target` into the Manager. An existing session's file is there immediately;
+  // a new session's appears only after claude writes the first turn — so poll for it,
+  // clearing any stale transcript meanwhile, and refresh the sidebar once it lands.
+  // Keyed on `target`: switching sessions cancels the previous (possibly polling) run.
+  useEffect(() => {
+    if (!target) {
+      close();
+      return;
+    }
+    let cancelled = false;
+    let polled = false;
+    const load = async () => {
+      const exists = await invoke<boolean>("path_exists", { path: target.filePath });
+      if (cancelled) return;
+      if (exists) {
+        open(target.filePath, target.projectLabel);
+        if (polled) refresh(); // new session just appeared in its project dir
+      } else {
+        if (!polled) close(); // clear the previously-open session so Manager isn't stale
+        polled = true;
+        setTimeout(load, 700);
+      }
+    };
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, [target, open, close, refresh]);
 
   const dragging = useRef(false);
   const startX = useRef(0);
@@ -109,14 +143,14 @@ export default function App() {
             <Sidebar
               sessions={sessions}
               loading={loading}
-              activeId={transcript?.id ?? null}
+              activeId={target?.sessionId ?? null}
               onSelect={(s) => openSession(s)}
               onRefresh={refresh}
               onCollapse={() => setCollapsed(true)}
               onDelete={async (s) => {
                 try {
                   await invoke("delete_session", { filePath: s.file_path });
-                  if (transcript?.id === s.id) close();
+                  if (target?.sessionId === s.id) setTarget(null);
                   refresh();
                 } catch (e) {
                   console.error("delete failed:", e);
@@ -169,7 +203,7 @@ export default function App() {
           <div className="flex items-center justify-center h-full text-[var(--color-text-dim)]">
             Loading session…
           </div>
-        ) : transcript ? (
+        ) : transcript && transcript.id === target?.sessionId ? (
           (() => {
             const openSummary = sessions.find((s) => s.id === transcript.id) ?? null;
             const copiedFrom = openSummary?.copied_from
@@ -210,6 +244,17 @@ export default function App() {
               </>
             );
           })()
+        ) : target ? (
+          <div className="flex flex-col items-center justify-center h-full gap-2 text-[var(--color-text-dim)]">
+            <div>New session in {target.cwd ? basename(target.cwd) : target.projectLabel}.</div>
+            <button
+              onClick={() => setActiveTab("terminal")}
+              className="px-3 py-1 rounded bg-[var(--color-accent)] text-white text-sm"
+            >
+              Open Terminal to begin
+            </button>
+            <div className="text-xs">It appears here once you send the first message.</div>
+          </div>
         ) : (
           <div className="flex items-center justify-center h-full text-[var(--color-text-dim)]">
             Select a session to view
@@ -219,9 +264,9 @@ export default function App() {
           </div>
           <div className="h-full" style={{ display: activeTab === "terminal" ? "block" : "none" }}>
             <TerminalPane
-              sessionId={terminalTarget?.sessionId ?? null}
-              filePath={terminalTarget?.filePath ?? null}
-              cwd={terminalTarget?.cwd}
+              sessionId={target?.sessionId ?? null}
+              filePath={target?.filePath ?? null}
+              cwd={target?.cwd}
               tabActive={activeTab === "terminal"}
             />
           </div>

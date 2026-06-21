@@ -419,6 +419,13 @@ pub fn terminal_open(
     Ok(())
 }
 
+/// Cheap existence check — used to poll for a new session's file appearing
+/// (claude writes it on the first turn).
+#[tauri::command]
+pub fn path_exists(path: String) -> bool {
+    std::path::Path::new(&path).is_file()
+}
+
 #[derive(Serialize)]
 pub struct NewSessionResult {
     pub session_id: String,
