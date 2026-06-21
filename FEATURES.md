@@ -13,7 +13,7 @@ A tool to browse, search, edit, compact, harvest, and resume Claude Code session
 
 ## Browsing & viewing (webui + TUI)
 
-- Sessions list — project, title, tokens, updated; project/directory/time filters; sort; sidebar resize/collapse. → `2026-05-23-claude-manager-tui-design`, `2026-05-24-webui-design`
+- Sessions list — project, title, tokens, updated; project + time filters (one project selector, grouped by name, expands to directories only on name collisions); sort; sidebar resize/collapse. → `2026-05-23-claude-manager-tui-design`, `2026-05-24-webui-design`, `2026-06-21-unified-project-selector-design`
 - Transcript rendering — consecutive assistant turns merged, markdown via `@tailwindcss/typography`, tool calls with full input on expand, synthetic turns skipped.
 - Session info panel — token cost, per-turn model, git branch, cwd.
 - **Compact** toggle (user turns + adjacent assistant) and **Details** toggle — both persisted across restarts.
