@@ -380,6 +380,7 @@ pub fn terminal_open(
     file_path: String,
     rows: u16,
     cols: u16,
+    new_cwd: Option<String>,
     window: tauri::WebviewWindow,
     app: AppHandle,
 ) -> Result<(), String> {
@@ -390,16 +391,52 @@ pub fn terminal_open(
             return Ok(());
         }
     }
-    let lines = read_raw(std::path::Path::new(&file_path)).map_err(|e| e.to_string())?;
-    let cwd = first_cwd(&lines).ok_or("could not determine the session's working directory")?;
-    let handle =
-        terminal::spawn_terminal(app.clone(), label.clone(), session_id.clone(), cwd, rows, cols)
-            .map_err(|e| format!("failed to start terminal: {e}"))?;
+    // `new_cwd` Some → a brand-new session: spawn fresh (`--session-id`) in that
+    // dir. None → resume an existing session, cwd from its first cwd event.
+    let (cwd, fresh) = match new_cwd {
+        Some(c) => (c, true),
+        None => {
+            let lines = read_raw(std::path::Path::new(&file_path)).map_err(|e| e.to_string())?;
+            let cwd = first_cwd(&lines)
+                .ok_or("could not determine the session's working directory")?;
+            (cwd, false)
+        }
+    };
+    let handle = terminal::spawn_terminal(
+        app.clone(),
+        label.clone(),
+        session_id.clone(),
+        cwd,
+        rows,
+        cols,
+        fresh,
+    )
+    .map_err(|e| format!("failed to start terminal: {e}"))?;
     app.state::<Mutex<TerminalState>>()
         .lock()
         .map_err(|e| e.to_string())?
         .insert(&label, &session_id, handle);
     Ok(())
+}
+
+#[derive(Serialize)]
+pub struct NewSessionResult {
+    pub session_id: String,
+    pub file_path: String,
+}
+
+/// Allocate a new session id + its file path under a chosen working directory.
+/// Does NOT spawn — the terminal owns the spawn (`terminal_open` with `new_cwd`),
+/// so no output is lost to a reconnect. `claude --session-id` creates the file.
+#[tauri::command]
+pub fn new_session(cwd: String) -> Result<NewSessionResult, String> {
+    if !std::path::Path::new(&cwd).is_dir() {
+        return Err(format!("not a directory: {cwd}"));
+    }
+    let root = paths::default_claude_root().ok_or("could not locate ~/.claude")?;
+    let id = uuid::Uuid::new_v4();
+    let file_path = paths::session_file_path(&root, &cwd, id).to_string_lossy().to_string();
+    Ok(NewSessionResult { session_id: id.to_string(), file_path })
 }
 
 #[tauri::command]
