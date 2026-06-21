@@ -363,8 +363,8 @@ export default function Sidebar({
       {/* Session list */}
       <div className="flex-1 overflow-y-auto">
         {loading && sessions.length === 0 ? (
-          <div className="p-4 text-[var(--color-text-dim)] text-sm">
-            Loading…
+          <div className="p-4 flex items-center gap-2 text-[var(--color-text-dim)] text-sm">
+            <Spinner /> Loading…
           </div>
         ) : sorted.length === 0 ? (
           <div className="p-4 text-[var(--color-text-dim)] text-sm">
@@ -580,7 +580,11 @@ export default function Sidebar({
       {/* Footer */}
       <div className="p-1.5 border-t border-[var(--color-border)] text-[10px] text-[var(--color-text-dim)] text-center">
         {sorted.length}/{sessions.length} sessions
-        {searching && " · searching…"}
+        {searching && (
+          <span className="inline-flex items-center gap-1 ml-1">
+            · <Spinner /> searching…
+          </span>
+        )}
       </div>
     </aside>
   );

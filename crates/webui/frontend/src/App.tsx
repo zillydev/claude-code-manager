@@ -5,6 +5,7 @@ import Sidebar from "./components/Sidebar";
 import Transcript from "./components/Transcript";
 import TerminalPane from "./components/TerminalPane";
 import LineageBanner from "./components/LineageBanner";
+import Spinner from "./components/Spinner";
 import type { ForkRef } from "./types";
 
 const MIN_WIDTH = 200;
@@ -200,8 +201,9 @@ export default function App() {
           <div className="h-full" style={{ display: activeTab === "manager" ? "block" : "none" }}>
             <div className="flex flex-col h-full">
         {txLoading ? (
-          <div className="flex items-center justify-center h-full text-[var(--color-text-dim)]">
-            Loading session…
+          <div className="flex flex-col items-center justify-center h-full gap-2 text-[var(--color-text-dim)]">
+            <Spinner size="md" />
+            <span>Loading session…</span>
           </div>
         ) : transcript && transcript.id === target?.sessionId ? (
           (() => {
