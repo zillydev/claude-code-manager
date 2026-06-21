@@ -33,6 +33,17 @@ export default function App() {
     [open],
   );
 
+  // Create a new session in `cwd`: a fresh `claude --session-id` in the terminal.
+  const newSession = useCallback(
+    async (cwd: string) => {
+      const res = await invoke<{ session_id: string; file_path: string }>("new_session", { cwd });
+      setTerminalTarget({ sessionId: res.session_id, filePath: res.file_path, cwd });
+      setActiveTab("terminal");
+      refresh();
+    },
+    [refresh],
+  );
+
   const dragging = useRef(false);
   const startX = useRef(0);
   const startW = useRef(0);
@@ -124,6 +135,7 @@ export default function App() {
                   console.error("rename failed:", e);
                 }
               }}
+              onNewSession={newSession}
             />
           </div>
           {/* Drag handle */}

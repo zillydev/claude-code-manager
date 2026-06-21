@@ -11,6 +11,7 @@ interface Props {
   onCollapse: () => void;
   onDelete: (s: SessionSummary) => void;
   onRename: (s: SessionSummary, newTitle: string) => void;
+  onNewSession: (cwd: string) => Promise<void>;
 }
 
 export default function Sidebar({
@@ -22,10 +23,14 @@ export default function Sidebar({
   onCollapse,
   onDelete,
   onRename,
+  onNewSession,
 }: Props) {
   const [textFilter, setTextFilter] = useState("");
   // One project/directory filter: "" | "name:<basename>" | "dir:<cwd>".
   const [filter, setFilter] = useState<string>("");
+  const [newOpen, setNewOpen] = useState(false);
+  const [newPath, setNewPath] = useState("");
+  const [newErr, setNewErr] = useState<string | null>(null);
   const [dateRange, setDateRange] = useState<DateRange>("all");
   const [sortField, setSortField] = useState<SortField>("updated");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
@@ -91,6 +96,29 @@ export default function Sidebar({
       .map(([name, cwds]) => ({ name, cwds: [...cwds].sort() }))
       .sort((a, b) => a.name.localeCompare(b.name));
   }, [sessions]);
+
+  // The concrete cwd implied by the current project filter, if any.
+  const selectedCwd = useMemo(() => {
+    if (filter.startsWith("dir:")) return filter.slice(4);
+    if (filter.startsWith("name:")) {
+      const g = projectGroups.find((x) => x.name === filter.slice(5));
+      return g && g.cwds.length === 1 ? g.cwds[0] : null;
+    }
+    return null;
+  }, [filter, projectGroups]);
+
+  const createSession = async (cwd: string) => {
+    const c = cwd.trim();
+    if (!c) return;
+    try {
+      await onNewSession(c);
+      setNewOpen(false);
+      setNewPath("");
+      setNewErr(null);
+    } catch (e) {
+      setNewErr(String(e));
+    }
+  };
 
   // Deep search: debounce 400ms, run backend search, store matching IDs.
   const runSearch = useCallback(
@@ -221,7 +249,47 @@ export default function Sidebar({
         </div>
 
         {/* Filters row */}
-        <div className="flex gap-1.5 flex-wrap">
+        <div className="relative flex gap-1.5 flex-wrap items-center">
+          <button
+            onClick={() => setNewOpen((o) => !o)}
+            className="text-xs px-2 py-1 rounded bg-[var(--color-accent)] text-white"
+            title="New session"
+          >
+            + New
+          </button>
+          {newOpen && (
+            <div className="absolute top-full left-0 mt-1 z-30 w-64 p-2 rounded border border-[var(--color-border)] bg-[var(--color-surface)] shadow-lg space-y-2">
+              {selectedCwd && (
+                <button
+                  onClick={() => createSession(selectedCwd)}
+                  className="w-full text-left text-xs px-2 py-1 rounded bg-[var(--color-bg)] border border-[var(--color-border)] hover:border-[var(--color-accent)] truncate"
+                  title={selectedCwd}
+                >
+                  New in {shortenPath(selectedCwd)}
+                </button>
+              )}
+              <div className="flex gap-1">
+                <input
+                  type="text"
+                  value={newPath}
+                  onChange={(e) => setNewPath(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") createSession(newPath);
+                  }}
+                  placeholder="paste a directory path…"
+                  className="flex-1 bg-[var(--color-bg)] text-[var(--color-text)] text-xs px-2 py-1 rounded border border-[var(--color-border)] outline-none focus:border-[var(--color-accent)]"
+                />
+                <button
+                  onClick={() => createSession(newPath)}
+                  disabled={!newPath.trim()}
+                  className="text-xs px-2 py-1 rounded bg-[var(--color-accent)] text-white disabled:opacity-40"
+                >
+                  Create
+                </button>
+              </div>
+              {newErr && <div className="text-[var(--color-error)] text-[10px]">{newErr}</div>}
+            </div>
+          )}
           <select
             value={filter}
             onChange={(e) => setFilter(e.target.value)}
