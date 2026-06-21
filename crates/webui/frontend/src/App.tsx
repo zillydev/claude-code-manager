@@ -17,6 +17,22 @@ export default function App() {
   const [sidebarWidth, setSidebarWidth] = useState(DEFAULT_WIDTH);
   const [collapsed, setCollapsed] = useState(false);
   const [activeTab, setActiveTab] = useState<"manager" | "terminal">("manager");
+  // The session the Terminal tab targets (open existing → resume; new → fresh w/ cwd).
+  const [terminalTarget, setTerminalTarget] = useState<{
+    sessionId: string;
+    filePath: string;
+    cwd?: string;
+  } | null>(null);
+
+  // Open an existing session in Manager and point the terminal at it.
+  const openSession = useCallback(
+    (s: { id: string; file_path: string; project_label: string }) => {
+      open(s.file_path, s.project_label);
+      setTerminalTarget({ sessionId: s.id, filePath: s.file_path });
+    },
+    [open],
+  );
+
   const dragging = useRef(false);
   const startX = useRef(0);
   const startW = useRef(0);
@@ -83,7 +99,7 @@ export default function App() {
               sessions={sessions}
               loading={loading}
               activeId={transcript?.id ?? null}
-              onSelect={(s) => open(s.file_path, s.project_label)}
+              onSelect={(s) => openSession(s)}
               onRefresh={refresh}
               onCollapse={() => setCollapsed(true)}
               onDelete={async (s) => {
@@ -168,14 +184,14 @@ export default function App() {
                   copiedFrom={copiedFrom}
                   copies={copies}
                   overlap={openSummary?.copied_overlap ?? null}
-                  onOpen={(s) => open(s.file_path, s.project_label)}
+                  onOpen={(s) => openSession(s)}
                 />
                 <div className="flex-1 overflow-hidden">
                   <Transcript
                     session={transcript}
                     onBack={close}
                     branchPoints={branchPoints}
-                    onOpenSession={(s) => open(s.file_path, s.project_label)}
+                    onOpenSession={(s) => openSession(s)}
                     visible={activeTab === "manager"}
                   />
                 </div>
@@ -191,8 +207,9 @@ export default function App() {
           </div>
           <div className="h-full" style={{ display: activeTab === "terminal" ? "block" : "none" }}>
             <TerminalPane
-              sessionId={transcript?.id ?? null}
-              filePath={transcript?.source_path ?? null}
+              sessionId={terminalTarget?.sessionId ?? null}
+              filePath={terminalTarget?.filePath ?? null}
+              cwd={terminalTarget?.cwd}
               tabActive={activeTab === "terminal"}
             />
           </div>

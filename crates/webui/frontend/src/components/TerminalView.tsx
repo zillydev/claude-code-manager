@@ -15,10 +15,12 @@ export default function TerminalView({
   sessionId,
   filePath,
   active,
+  cwd,
 }: {
   sessionId: string;
   filePath: string;
   active: boolean;
+  cwd?: string;
 }) {
   const hostRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<Terminal | null>(null);
@@ -139,9 +141,13 @@ export default function TerminalView({
         } catch {
           /* ignore */
         }
-        invoke("terminal_open", { sessionId, filePath, rows: t.rows, cols: t.cols }).catch((err) =>
-          t.write(`\r\n\x1b[31m[failed to start: ${err}]\x1b[0m\r\n`),
-        );
+        invoke("terminal_open", {
+          sessionId,
+          filePath,
+          rows: t.rows,
+          cols: t.cols,
+          newCwd: cwd ?? null,
+        }).catch((err) => t.write(`\r\n\x1b[31m[failed to start: ${err}]\x1b[0m\r\n`));
       } else {
         try {
           f.fit();
