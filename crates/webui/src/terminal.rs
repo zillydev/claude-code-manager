@@ -82,6 +82,12 @@ impl TerminalState {
             }
         }
     }
+    /// Kill every terminal (used as an app-exit backstop).
+    pub fn close_all(&mut self) {
+        for (_k, mut h) in self.ptys.drain() {
+            let _ = h.child.kill();
+        }
+    }
     fn remove_key(&mut self, k: &str) {
         self.ptys.remove(k);
     }

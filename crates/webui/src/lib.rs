@@ -109,6 +109,19 @@ pub fn run() {
             commands::terminal_resize,
             commands::terminal_close,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|app_handle, event| {
+            // Backstop: when the app exits by any path Tauri runs its loop for
+            // (Cmd-Q, menu Quit, last window closed, bundled .app), kill every
+            // terminal PTY so no claude child is orphaned. (Per-window Destroyed
+            // cleanup still handles closing a single window.)
+            if let tauri::RunEvent::Exit = event {
+                if let Some(state) = app_handle.try_state::<Mutex<terminal::TerminalState>>() {
+                    if let Ok(mut guard) = state.lock() {
+                        guard.close_all();
+                    }
+                }
+            }
+        });
 }
