@@ -35,10 +35,12 @@ pub fn projects_dir(root: &Path) -> PathBuf {
 }
 
 /// Encode a real cwd into Claude Code's project directory name (replace `/` with `-`).
-/// This is the inverse Claude Code applies; it is lossy for paths containing real
-/// `-`, but matches CC's own encoding so the resulting dir is the one CC reads.
+/// Encode a cwd into Claude Code's project-dir name. CC replaces every
+/// non-alphanumeric character with `-` (so `/`, `.`, `_`, space all collapse);
+/// letters/digits and case are kept. Lossy (a real `-` is indistinguishable),
+/// but matches CC's own encoding so the resulting dir is the one CC reads/writes.
 pub fn encode_project_dir(cwd: &str) -> String {
-    cwd.replace('/', "-")
+    cwd.chars().map(|c| if c.is_ascii_alphanumeric() { c } else { '-' }).collect()
 }
 
 /// Full path to a session file for `cwd`/`id` under `<root>/projects/<encoded>/<id>.jsonl`.
@@ -71,6 +73,18 @@ mod tests {
             "claude-manager"
         );
         assert_eq!(label_from_cwd("/tmp/x"), "x");
+    }
+
+    #[test]
+    fn encode_project_dir_matches_cc() {
+        // CC maps every non-alphanumeric char to '-' (verified empirically).
+        assert_eq!(encode_project_dir("/Users/x/my.app"), "-Users-x-my-app");
+        assert_eq!(encode_project_dir("/tmp/a_b c"), "-tmp-a-b-c");
+        assert_eq!(encode_project_dir("/Users/x/v1.2-rc"), "-Users-x-v1-2-rc");
+        assert_eq!(
+            encode_project_dir("/Users/zillydev/my/Dev/Personal/claude-manager"),
+            "-Users-zillydev-my-Dev-Personal-claude-manager"
+        );
     }
 
     #[test]
