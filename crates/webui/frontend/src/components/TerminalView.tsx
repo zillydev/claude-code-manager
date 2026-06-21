@@ -35,6 +35,30 @@ export default function TerminalView({
     });
     const fit = new FitAddon();
     term.loadAddon(fit);
+
+    // macOS line-editing keys: xterm doesn't forward Cmd-modified keys to the
+    // PTY (and the webview may grab ⌘←/⌫ as browser nav), so map them to the
+    // readline control sequences claude/shells understand. Returning false tells
+    // xterm not to process the event (we sent it ourselves).
+    term.attachCustomKeyEventHandler((e) => {
+      if (e.type !== "keydown") return true;
+      if (e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey) {
+        const seq =
+          e.key === "ArrowLeft"
+            ? "\x01" // ⌘← → beginning of line (Ctrl-A)
+            : e.key === "ArrowRight"
+              ? "\x05" // ⌘→ → end of line (Ctrl-E)
+              : e.key === "Backspace"
+                ? "\x15" // ⌘⌫ → delete to beginning of line (Ctrl-U)
+                : null;
+        if (seq) {
+          e.preventDefault();
+          invoke("terminal_input", { sessionId, data: seq }).catch(() => {});
+          return false;
+        }
+      }
+      return true;
+    });
     // NB: term.open() is deferred to the activation effect. Opening while the
     // host is hidden (display:none → 0-size) makes xterm measure the character
     // cell at 0, so fit() can never compute correct columns afterward — the
