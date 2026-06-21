@@ -19,16 +19,18 @@ fn claude_program() -> String {
     "claude".to_string()
 }
 
-/// The args after the claude entrypoint: start directly in bypass-permissions
-/// mode (matching the user's alias) + resume the session. Pure.
-fn claude_args(session_id: &str) -> Vec<String> {
-    vec!["--dangerously-skip-permissions".into(), "--resume".into(), session_id.into()]
+/// The args after the claude entrypoint: bypass-permissions (matching the user's
+/// alias) + either start a fresh session (`--session-id`, for a new session) or
+/// resume an existing one (`--resume`). Pure.
+fn claude_args(session_id: &str, fresh: bool) -> Vec<String> {
+    let flag = if fresh { "--session-id" } else { "--resume" };
+    vec!["--dangerously-skip-permissions".into(), flag.into(), session_id.into()]
 }
 
 /// The full argv for a session's terminal: resolved entrypoint + `claude_args`.
-pub fn terminal_argv(session_id: &str) -> Vec<String> {
+pub fn terminal_argv(session_id: &str, fresh: bool) -> Vec<String> {
     let mut v = vec![claude_program()];
-    v.extend(claude_args(session_id));
+    v.extend(claude_args(session_id, fresh));
     v
 }
 
@@ -93,8 +95,9 @@ impl TerminalState {
     }
 }
 
-/// Spawn `claude --resume <id>` under a PTY in `cwd`; stream its output to the
-/// window as base64 `terminal-output` events; emit `terminal-exit` on EOF.
+/// Spawn `claude` under a PTY in `cwd` (`fresh` → `--session-id` a new session,
+/// else `--resume`); stream its output to the window as base64 `terminal-output`
+/// events; emit `terminal-exit` on EOF.
 pub fn spawn_terminal(
     app: AppHandle,
     label: String,
@@ -102,13 +105,14 @@ pub fn spawn_terminal(
     cwd: String,
     rows: u16,
     cols: u16,
+    fresh: bool,
 ) -> std::io::Result<PtyHandle> {
     let pty_system = native_pty_system();
     let pair = pty_system
         .openpty(PtySize { rows, cols, pixel_width: 0, pixel_height: 0 })
         .map_err(|e| std::io::Error::other(e.to_string()))?;
 
-    let argv = terminal_argv(&session_id);
+    let argv = terminal_argv(&session_id, fresh);
     let mut cmd = CommandBuilder::new(&argv[0]);
     for a in &argv[1..] {
         cmd.arg(a);
@@ -159,17 +163,21 @@ mod tests {
     use super::*;
 
     #[test]
-    fn claude_args_bypass_and_resume() {
+    fn claude_args_resume_vs_fresh() {
         assert_eq!(
-            claude_args("abc-123"),
+            claude_args("abc-123", false),
             vec!["--dangerously-skip-permissions", "--resume", "abc-123"]
+        );
+        assert_eq!(
+            claude_args("abc-123", true),
+            vec!["--dangerously-skip-permissions", "--session-id", "abc-123"]
         );
     }
 
     #[test]
     fn terminal_argv_is_program_then_args() {
-        let v = terminal_argv("xyz");
+        let v = terminal_argv("xyz", true);
         assert!(!v[0].is_empty(), "resolved a claude entrypoint");
-        assert_eq!(&v[1..], &["--dangerously-skip-permissions", "--resume", "xyz"]);
+        assert_eq!(&v[1..], &["--dangerously-skip-permissions", "--session-id", "xyz"]);
     }
 }
