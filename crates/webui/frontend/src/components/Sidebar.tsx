@@ -24,8 +24,8 @@ export default function Sidebar({
   onRename,
 }: Props) {
   const [textFilter, setTextFilter] = useState("");
-  const [projectFilter, setProjectFilter] = useState<string | null>(null);
-  const [cwdFilter, setCwdFilter] = useState<string | null>(null);
+  // One project/directory filter: "" | "name:<basename>" | "dir:<cwd>".
+  const [filter, setFilter] = useState<string>("");
   const [dateRange, setDateRange] = useState<DateRange>("all");
   const [sortField, setSortField] = useState<SortField>("updated");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
@@ -78,16 +78,19 @@ export default function Sidebar({
     return ids.size ? ids : null;
   }, [hoveredId, byId, childrenBySource, copiedChildrenBySource]);
 
-  // Unique project labels and cwds for dropdown options.
-  const projects = useMemo(
-    () => [...new Set(sessions.map((s) => s.project_label))].sort(),
-    [sessions]
-  );
-  const cwds = useMemo(
-    () =>
-      [...new Set(sessions.map((s) => s.cwd).filter(Boolean) as string[])].sort(),
-    [sessions]
-  );
+  // Sessions grouped by project name (basename), each with its distinct cwds.
+  // A group with >1 cwd is a "collision" and expands to per-directory options.
+  const projectGroups = useMemo(() => {
+    const byName = new Map<string, Set<string>>();
+    for (const s of sessions) {
+      const set = byName.get(s.project_label) ?? new Set<string>();
+      if (s.cwd) set.add(s.cwd);
+      byName.set(s.project_label, set);
+    }
+    return [...byName.entries()]
+      .map(([name, cwds]) => ({ name, cwds: [...cwds].sort() }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [sessions]);
 
   // Deep search: debounce 400ms, run backend search, store matching IDs.
   const runSearch = useCallback(
@@ -128,10 +131,9 @@ export default function Sidebar({
 
   const filtered = useMemo(() => {
     return sessions.filter((s) => {
-      // Project filter
-      if (projectFilter && s.project_label !== projectFilter) return false;
-      // CWD filter
-      if (cwdFilter && s.cwd !== cwdFilter) return false;
+      // Project / directory filter (one selector).
+      if (filter.startsWith("name:") && s.project_label !== filter.slice(5)) return false;
+      if (filter.startsWith("dir:") && s.cwd !== filter.slice(4)) return false;
       // Date range
       const epoch = s.mtime.secs_since_epoch;
       if (dateRange === "today" && now - epoch > 86400) return false;
@@ -148,7 +150,7 @@ export default function Sidebar({
       }
       return true;
     });
-  }, [sessions, projectFilter, cwdFilter, dateRange, textFilter, searchHits, now]);
+  }, [sessions, filter, dateRange, textFilter, searchHits, now]);
 
   const sorted = useMemo(() => {
     const items = [...filtered];
@@ -221,29 +223,26 @@ export default function Sidebar({
         {/* Filters row */}
         <div className="flex gap-1.5 flex-wrap">
           <select
-            value={projectFilter ?? ""}
-            onChange={(e) => setProjectFilter(e.target.value || null)}
-            className="bg-[var(--color-bg)] text-[var(--color-text)] text-xs px-1.5 py-1 rounded border border-[var(--color-border)] outline-none"
+            value={filter}
+            onChange={(e) => setFilter(e.target.value)}
+            className="bg-[var(--color-bg)] text-[var(--color-text)] text-xs px-1.5 py-1 rounded border border-[var(--color-border)] outline-none max-w-40 truncate"
           >
             <option value="">All projects</option>
-            {projects.map((p) => (
-              <option key={p} value={p}>
-                {p}
-              </option>
-            ))}
-          </select>
-
-          <select
-            value={cwdFilter ?? ""}
-            onChange={(e) => setCwdFilter(e.target.value || null)}
-            className="bg-[var(--color-bg)] text-[var(--color-text)] text-xs px-1.5 py-1 rounded border border-[var(--color-border)] outline-none max-w-32 truncate"
-          >
-            <option value="">All directories</option>
-            {cwds.map((c) => (
-              <option key={c} value={c}>
-                {shortenPath(c)}
-              </option>
-            ))}
+            {projectGroups.map((g) =>
+              g.cwds.length > 1 ? (
+                <optgroup key={g.name} label={g.name}>
+                  {g.cwds.map((c) => (
+                    <option key={c} value={`dir:${c}`}>
+                      {shortenPath(c)}
+                    </option>
+                  ))}
+                </optgroup>
+              ) : (
+                <option key={g.name} value={`name:${g.name}`}>
+                  {g.name}
+                </option>
+              )
+            )}
           </select>
 
           <select
