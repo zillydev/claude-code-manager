@@ -3,6 +3,7 @@ import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
+import Spinner from "./Spinner";
 
 function b64ToBytes(b64: string): Uint8Array {
   const s = atob(b64);
@@ -26,6 +27,7 @@ export default function TerminalView({
   const termRef = useRef<Terminal | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
   const [exited, setExited] = useState(false);
+  const [started, setStarted] = useState(false);
 
   useEffect(() => {
     const host = hostRef.current;
@@ -76,7 +78,10 @@ export default function TerminalView({
     (async () => {
       unsubs.push(
         await w.listen<{ sessionId: string; data: string }>("terminal-output", (e) => {
-          if (e.payload.sessionId === sessionId) term.write(b64ToBytes(e.payload.data));
+          if (e.payload.sessionId === sessionId) {
+            term.write(b64ToBytes(e.payload.data));
+            setStarted(true);
+          }
         }),
         await w.listen<{ sessionId: string }>("terminal-exit", (e) => {
           if (e.payload.sessionId === sessionId) {
@@ -166,6 +171,7 @@ export default function TerminalView({
     const t = termRef.current;
     if (!t) return;
     t.clear();
+    setStarted(false);
     invoke("terminal_open", { sessionId, filePath, rows: t.rows, cols: t.cols })
       .then(() => setExited(false))
       .catch(() => {});
@@ -174,6 +180,12 @@ export default function TerminalView({
   return (
     <div className="relative h-full w-full" style={{ display: active ? "block" : "none" }}>
       <div ref={hostRef} className="h-full w-full" />
+      {!started && !exited && (
+        <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-[var(--color-text-dim)] pointer-events-none">
+          <Spinner size="md" />
+          <span className="text-sm">Starting claude…</span>
+        </div>
+      )}
       {exited && (
         <button
           onClick={restart}
