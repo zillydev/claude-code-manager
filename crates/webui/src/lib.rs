@@ -1,4 +1,5 @@
 mod commands;
+mod terminal;
 mod window;
 
 use std::sync::Mutex;
@@ -68,6 +69,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .manage(Mutex::new(commands::WatcherState::default()))
+        .manage(Mutex::new(terminal::TerminalState::default()))
         .menu(build_menu)
         .on_menu_event(|app, event| {
             if event.id().as_ref() == "new_window" {
@@ -84,6 +86,11 @@ pub fn run() {
                         guard.watchers.remove(win.label());
                     }
                 }
+                if let Some(ts) = win.try_state::<Mutex<terminal::TerminalState>>() {
+                    if let Ok(mut guard) = ts.lock() {
+                        guard.close_window(win.label());
+                    }
+                }
             }
         })
         .invoke_handler(tauri::generate_handler![
@@ -97,7 +104,24 @@ pub fn run() {
             commands::delete_session,
             commands::rename_session,
             commands::delete_message,
+            commands::terminal_open,
+            commands::terminal_input,
+            commands::terminal_resize,
+            commands::terminal_close,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|app_handle, event| {
+            // Backstop: when the app exits by any path Tauri runs its loop for
+            // (Cmd-Q, menu Quit, last window closed, bundled .app), kill every
+            // terminal PTY so no claude child is orphaned. (Per-window Destroyed
+            // cleanup still handles closing a single window.)
+            if let tauri::RunEvent::Exit = event {
+                if let Some(state) = app_handle.try_state::<Mutex<terminal::TerminalState>>() {
+                    if let Ok(mut guard) = state.lock() {
+                        guard.close_all();
+                    }
+                }
+            }
+        });
 }

@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { useSessions, useTranscript } from "./hooks/useSessions";
 import Sidebar from "./components/Sidebar";
 import Transcript from "./components/Transcript";
+import TerminalPane from "./components/TerminalPane";
 import LineageBanner from "./components/LineageBanner";
 import type { ForkRef } from "./types";
 
@@ -15,6 +16,7 @@ export default function App() {
   const { transcript, loading: txLoading, open, close, updateTitle } = useTranscript();
   const [sidebarWidth, setSidebarWidth] = useState(DEFAULT_WIDTH);
   const [collapsed, setCollapsed] = useState(false);
+  const [activeTab, setActiveTab] = useState<"manager" | "terminal">("manager");
   const dragging = useRef(false);
   const startX = useRef(0);
   const startW = useRef(0);
@@ -101,6 +103,25 @@ export default function App() {
         </>
       )}
       <main className="flex-1 overflow-hidden flex flex-col">
+        <div className="flex items-center gap-1 px-2 py-1 border-b border-[var(--color-border)] bg-[var(--color-surface)] shrink-0">
+          {(["manager", "terminal"] as const).map((t) => (
+            <button
+              key={t}
+              onClick={() => setActiveTab(t)}
+              className={
+                "px-3 py-1 text-sm rounded " +
+                (activeTab === t
+                  ? "bg-[var(--color-accent)] text-white"
+                  : "text-[var(--color-text-dim)] hover:text-[var(--color-text)]")
+              }
+            >
+              {t === "manager" ? "Manager" : "Terminal"}
+            </button>
+          ))}
+        </div>
+        <div className="flex-1 overflow-hidden">
+          <div className="h-full" style={{ display: activeTab === "manager" ? "block" : "none" }}>
+            <div className="flex flex-col h-full">
         {txLoading ? (
           <div className="flex items-center justify-center h-full text-[var(--color-text-dim)]">
             Loading session…
@@ -150,6 +171,16 @@ export default function App() {
             Select a session to view
           </div>
         )}
+            </div>
+          </div>
+          <div className="h-full" style={{ display: activeTab === "terminal" ? "block" : "none" }}>
+            <TerminalPane
+              sessionId={transcript?.id ?? null}
+              filePath={transcript?.source_path ?? null}
+              tabActive={activeTab === "terminal"}
+            />
+          </div>
+        </div>
       </main>
     </div>
   );
