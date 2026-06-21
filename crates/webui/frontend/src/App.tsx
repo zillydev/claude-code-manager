@@ -176,6 +176,7 @@ export default function App() {
                     onBack={close}
                     branchPoints={branchPoints}
                     onOpenSession={(s) => open(s.file_path, s.project_label)}
+                    visible={activeTab === "manager"}
                   />
                 </div>
               </>
