@@ -49,6 +49,21 @@ export default function App() {
     };
   }, []);
 
+  // Cmd+E toggles Manager ↔ Terminal. Cmd (not Ctrl) so it never collides with
+  // the terminal — Ctrl+E is "move to end of line" in claude/shells. Capture
+  // phase so it beats xterm when the terminal is focused.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.metaKey && !e.ctrlKey && !e.shiftKey && !e.altKey && e.key.toLowerCase() === "e") {
+        e.preventDefault();
+        e.stopPropagation();
+        setActiveTab((t) => (t === "manager" ? "terminal" : "manager"));
+      }
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, []);
+
   return (
     <div className="flex h-screen overflow-hidden">
       {collapsed ? (
@@ -161,6 +176,7 @@ export default function App() {
                     onBack={close}
                     branchPoints={branchPoints}
                     onOpenSession={(s) => open(s.file_path, s.project_label)}
+                    visible={activeTab === "manager"}
                   />
                 </div>
               </>

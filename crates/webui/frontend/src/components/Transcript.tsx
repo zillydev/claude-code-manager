@@ -24,9 +24,17 @@ interface Props {
   onBack: () => void;
   branchPoints?: Map<string, ForkRef[]>;
   onOpenSession?: (s: SessionSummary) => void;
+  /** Whether the transcript's tab is currently showing (false when on Terminal). */
+  visible?: boolean;
 }
 
-export default function Transcript({ session, onBack, branchPoints, onOpenSession }: Props) {
+export default function Transcript({
+  session,
+  onBack,
+  branchPoints,
+  onOpenSession,
+  visible = true,
+}: Props) {
   const [statsOpen, setStatsOpen] = usePersistentState("cm.detailsOpen", true);
   const [compact, setCompact] = usePersistentState("cm.compact", false);
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -101,6 +109,15 @@ export default function Transcript({ session, onBack, branchPoints, onOpenSessio
       bottomRef.current?.scrollIntoView({ behavior: "smooth" });
     }
   }, [session.id, session.turns.length]);
+
+  // When this tab becomes visible again, restore the bottom if we were pinned
+  // there: display:none can drift the scroll position, and live turns may have
+  // arrived while the pane was hidden (so the old bottom is no longer the bottom).
+  useEffect(() => {
+    if (!visible || !atBottomRef.current) return;
+    const raf = requestAnimationFrame(() => bottomRef.current?.scrollIntoView());
+    return () => cancelAnimationFrame(raf);
+  }, [visible]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
