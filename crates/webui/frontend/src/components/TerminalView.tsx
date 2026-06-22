@@ -46,6 +46,16 @@ export default function TerminalView({
     // xterm not to process the event (we sent it ourselves).
     term.attachCustomKeyEventHandler((e) => {
       if (e.type !== "keydown") return true;
+      // Shift+Enter → insert a newline, not submit. xterm.js encodes a bare CR
+      // for both Enter and Shift+Enter (the Shift is only disambiguated under the
+      // kitty/modifyOtherKeys protocols, which this embed doesn't negotiate), so
+      // claude can't tell them apart and submits. Emit ESC+CR — the Meta/Option+
+      // Enter sequence that is claude's built-in newline binding (no /terminal-setup).
+      if (e.key === "Enter" && e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey) {
+        e.preventDefault();
+        invoke("terminal_input", { sessionId, data: "\x1b\r" }).catch(() => {});
+        return false;
+      }
       if (e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey) {
         const seq =
           e.key === "ArrowLeft"
