@@ -2,14 +2,16 @@ import { useState, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import type { CommitResult } from "../types";
 
+export type EditorPending = { kind: "fork" | "edit" | "delete"; uuid: string } | null;
+
 export function useEditor() {
   const [result, setResult] = useState<CommitResult | null>(null);
-  const [busy, setBusy] = useState(false);
+  const [pending, setPending] = useState<EditorPending>(null);
   const [error, setError] = useState<string | null>(null);
 
   const commitEdit = useCallback(
     async (filePath: string, editUuid: string, newText: string) => {
-      setBusy(true);
+      setPending({ kind: "edit", uuid: editUuid });
       setError(null);
       try {
         const res = await invoke<CommitResult>("commit_session", {
@@ -24,7 +26,7 @@ export function useEditor() {
         setError(String(e));
         return null;
       } finally {
-        setBusy(false);
+        setPending(null);
       }
     },
     []
@@ -32,7 +34,7 @@ export function useEditor() {
 
   const fork = useCallback(
     async (filePath: string, forkUuid: string) => {
-      setBusy(true);
+      setPending({ kind: "fork", uuid: forkUuid });
       setError(null);
       try {
         const res = await invoke<CommitResult>("fork_session", {
@@ -46,7 +48,7 @@ export function useEditor() {
         setError(String(e));
         return null;
       } finally {
-        setBusy(false);
+        setPending(null);
       }
     },
     []
@@ -54,7 +56,7 @@ export function useEditor() {
 
   const deleteMessage = useCallback(
     async (filePath: string, messageUuid: string) => {
-      setBusy(true);
+      setPending({ kind: "delete", uuid: messageUuid });
       setError(null);
       try {
         const res = await invoke<CommitResult>("delete_message", {
@@ -67,7 +69,7 @@ export function useEditor() {
         setError(String(e));
         return null;
       } finally {
-        setBusy(false);
+        setPending(null);
       }
     },
     []
@@ -75,5 +77,5 @@ export function useEditor() {
 
   const dismiss = useCallback(() => setResult(null), []);
 
-  return { result, busy, error, commitEdit, fork, deleteMessage, dismiss };
+  return { result, pending, busy: pending !== null, error, commitEdit, fork, deleteMessage, dismiss };
 }

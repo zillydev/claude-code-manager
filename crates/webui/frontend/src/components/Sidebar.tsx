@@ -1,6 +1,7 @@
 import { useState, useMemo, useCallback, useRef, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import type { SessionSummary, SortField, SortDir, DateRange } from "../types";
+import Spinner from "./Spinner";
 
 interface Props {
   sessions: SessionSummary[];
@@ -9,8 +10,8 @@ interface Props {
   onSelect: (s: SessionSummary) => void;
   onRefresh: () => void;
   onCollapse: () => void;
-  onDelete: (s: SessionSummary) => void;
-  onRename: (s: SessionSummary, newTitle: string) => void;
+  onDelete: (s: SessionSummary) => void | Promise<void>;
+  onRename: (s: SessionSummary, newTitle: string) => void | Promise<void>;
   onNewSession: (cwd: string) => Promise<void>;
 }
 
@@ -37,6 +38,9 @@ export default function Sidebar({
   const [searchHits, setSearchHits] = useState<Set<string> | null>(null);
   const [searching, setSearching] = useState(false);
   const [confirmingId, setConfirmingId] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [renamingId, setRenamingId] = useState<string | null>(null);
+  const [creating, setCreating] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [draftTitle, setDraftTitle] = useState("");
   const [hoveredId, setHoveredId] = useState<string | null>(null);
@@ -110,6 +114,7 @@ export default function Sidebar({
   const createSession = async (cwd: string) => {
     const c = cwd.trim();
     if (!c) return;
+    setCreating(true);
     try {
       await onNewSession(c);
       setNewOpen(false);
@@ -117,6 +122,8 @@ export default function Sidebar({
       setNewErr(null);
     } catch (e) {
       setNewErr(String(e));
+    } finally {
+      setCreating(false);
     }
   };
 
@@ -262,7 +269,8 @@ export default function Sidebar({
               {selectedCwd && (
                 <button
                   onClick={() => createSession(selectedCwd)}
-                  className="w-full text-left text-xs px-2 py-1 rounded bg-[var(--color-bg)] border border-[var(--color-border)] hover:border-[var(--color-accent)] truncate"
+                  disabled={creating}
+                  className="w-full text-left text-xs px-2 py-1 rounded bg-[var(--color-bg)] border border-[var(--color-border)] hover:border-[var(--color-accent)] truncate disabled:opacity-50"
                   title={selectedCwd}
                 >
                   New in {shortenPath(selectedCwd)}
@@ -281,9 +289,10 @@ export default function Sidebar({
                 />
                 <button
                   onClick={() => createSession(newPath)}
-                  disabled={!newPath.trim()}
-                  className="text-xs px-2 py-1 rounded bg-[var(--color-accent)] text-white disabled:opacity-40"
+                  disabled={!newPath.trim() || creating}
+                  className="text-xs px-2 py-1 rounded bg-[var(--color-accent)] text-white disabled:opacity-40 inline-flex items-center gap-1.5"
                 >
+                  {creating && <Spinner />}
                   Create
                 </button>
               </div>
@@ -354,8 +363,8 @@ export default function Sidebar({
       {/* Session list */}
       <div className="flex-1 overflow-y-auto">
         {loading && sessions.length === 0 ? (
-          <div className="p-4 text-[var(--color-text-dim)] text-sm">
-            Loading…
+          <div className="p-4 flex items-center gap-2 text-[var(--color-text-dim)] text-sm">
+            <Spinner /> Loading…
           </div>
         ) : sorted.length === 0 ? (
           <div className="p-4 text-[var(--color-text-dim)] text-sm">
@@ -381,16 +390,24 @@ export default function Sidebar({
             >
               {editing ? (
                 /* Inline rename input (an input can't live inside the row button) */
-                <div className="flex-1 px-3 py-2 min-w-0">
+                <div className="flex-1 px-3 py-2 min-w-0 flex items-center gap-2">
                   <input
                     autoFocus
                     value={draftTitle}
+                    disabled={renamingId === s.id}
                     onChange={(e) => setDraftTitle(e.target.value)}
-                    onKeyDown={(e) => {
+                    onKeyDown={async (e) => {
                       if (e.key === "Enter") {
                         e.preventDefault();
                         const t = draftTitle.trim();
-                        if (t && t !== s.title) onRename(s, t);
+                        if (t && t !== s.title) {
+                          setRenamingId(s.id);
+                          try {
+                            await onRename(s, t);
+                          } finally {
+                            setRenamingId(null);
+                          }
+                        }
                         setEditingId(null);
                       } else if (e.key === "Escape") {
                         e.preventDefault();
@@ -398,8 +415,9 @@ export default function Sidebar({
                       }
                     }}
                     onBlur={() => setEditingId(null)}
-                    className="w-full bg-[var(--color-bg)] text-[var(--color-text)] text-sm px-1.5 py-1 rounded border border-[var(--color-accent)] outline-none"
+                    className="w-full bg-[var(--color-bg)] text-[var(--color-text)] text-sm px-1.5 py-1 rounded border border-[var(--color-accent)] outline-none disabled:opacity-60"
                   />
+                  {renamingId === s.id && <Spinner />}
                 </div>
               ) : (
                 /* Main clickable area */
@@ -494,14 +512,19 @@ export default function Sidebar({
 
               {/* Rename + delete affordances (hidden while editing this row) */}
               {!editing && (
-                <div className="flex items-center shrink-0 pr-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                <div className={`flex items-center shrink-0 pr-1.5 transition-opacity ${deletingId === s.id ? "opacity-100" : "opacity-0 group-hover:opacity-100"}`}>
                   {confirmingId === s.id ? (
                     <span className="flex items-center gap-0.5">
                       <button
-                        onClick={(e) => {
+                        onClick={async (e) => {
                           e.stopPropagation();
                           setConfirmingId(null);
-                          onDelete(s);
+                          setDeletingId(s.id);
+                          try {
+                            await onDelete(s);
+                          } finally {
+                            setDeletingId(null);
+                          }
                         }}
                         className="text-[10px] px-1.5 py-0.5 rounded text-[var(--color-error)] border border-[var(--color-error)] hover:bg-[var(--color-error)] hover:text-[var(--color-bg)] transition-colors"
                         title="Confirm delete"
@@ -538,10 +561,11 @@ export default function Sidebar({
                           e.stopPropagation();
                           setConfirmingId(s.id);
                         }}
-                        className="text-[10px] px-1 py-0.5 rounded text-[var(--color-text-dim)] hover:text-[var(--color-error)] transition-colors"
+                        disabled={deletingId === s.id}
+                        className="text-[10px] px-1 py-0.5 rounded text-[var(--color-text-dim)] hover:text-[var(--color-error)] transition-colors disabled:opacity-100"
                         title="Delete session"
                       >
-                        ×
+                        {deletingId === s.id ? <Spinner /> : "×"}
                       </button>
                     </>
                   )}
@@ -556,7 +580,11 @@ export default function Sidebar({
       {/* Footer */}
       <div className="p-1.5 border-t border-[var(--color-border)] text-[10px] text-[var(--color-text-dim)] text-center">
         {sorted.length}/{sessions.length} sessions
-        {searching && " · searching…"}
+        {searching && (
+          <span className="inline-flex items-center gap-1 ml-1">
+            · <Spinner /> searching…
+          </span>
+        )}
       </div>
     </aside>
   );

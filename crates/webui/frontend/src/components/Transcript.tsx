@@ -14,6 +14,7 @@ import { useEditor } from "../hooks/useEditor";
 import CommitResultBanner from "./CommitResultBanner";
 import FindBar from "./FindBar";
 import ForkMarker from "./ForkMarker";
+import Spinner from "./Spinner";
 import { useFind } from "../hooks/useFind";
 import { usePersistentState } from "../hooks/usePersistentState";
 import { makeSegId } from "../lib/segments";
@@ -227,6 +228,12 @@ export default function Transcript({
             turn.type === "user" || turn.type === "assistant" ? turn.fork_uuid : null;
           const ownUuid =
             turn.type === "user" || turn.type === "assistant" ? turn.uuid : null;
+          const forkPending =
+            editor.pending?.kind === "fork" && editor.pending.uuid === forkUuid;
+          const editPending =
+            editor.pending?.kind === "edit" && editor.pending.uuid === editUuid;
+          const deletePending =
+            editor.pending?.kind === "delete" && editor.pending.uuid === ownUuid;
           let marks: ForkRef[] | undefined;
           if (branchPoints) {
             if (forkUuid) marks = branchPoints.get(forkUuid);
@@ -247,6 +254,9 @@ export default function Transcript({
                 onSaveEdit={handleSaveEdit}
                 onFork={handleFork}
                 onDelete={handleDelete}
+                forkPending={!!forkPending}
+                editPending={!!editPending}
+                deletePending={!!deletePending}
               />
               {marks && onOpenSession && (
                 <ForkMarker refs={marks} onOpen={onOpenSession} />
@@ -395,6 +405,9 @@ const Turn = memo(function Turn({
   onSaveEdit,
   onFork,
   onDelete,
+  forkPending,
+  editPending,
+  deletePending,
 }: {
   turn: RenderedTurn;
   turnIndex: number;
@@ -408,6 +421,9 @@ const Turn = memo(function Turn({
   onSaveEdit: (uuid: string) => void;
   onFork: (forkUuid: string) => void;
   onDelete: (uuid: string) => void;
+  forkPending: boolean;
+  editPending: boolean;
+  deletePending: boolean;
 }) {
   const ts = "timestamp" in turn && turn.timestamp ? formatTime(turn.timestamp) : "--:--";
 
@@ -424,6 +440,8 @@ const Turn = memo(function Turn({
               onDelete={() => onDelete(turn.uuid)}
               messageId={turn.uuid}
               canMutate={turn.editable}
+              forkPending={forkPending}
+              deletePending={deletePending}
             />
           </div>
           {editing ? (
@@ -432,6 +450,7 @@ const Turn = memo(function Turn({
               onChange={onChangeDraft}
               onSave={() => editUuid && onSaveEdit(editUuid)}
               onCancel={onCancelEdit}
+              saving={editPending}
             />
           ) : (
             <div
@@ -467,6 +486,8 @@ const Turn = memo(function Turn({
               onDelete={() => onDelete(turn.uuid)}
               messageId={turn.uuid}
               canMutate={turn.editable}
+              forkPending={forkPending}
+              deletePending={deletePending}
             />
           </div>
           {editing && (
@@ -475,6 +496,7 @@ const Turn = memo(function Turn({
               onChange={onChangeDraft}
               onSave={() => editUuid && onSaveEdit(editUuid)}
               onCancel={onCancelEdit}
+              saving={editPending}
             />
           )}
           <div className="pl-4">
@@ -542,6 +564,8 @@ function TurnActions({
   onDelete,
   messageId,
   canMutate,
+  forkPending,
+  deletePending,
 }: {
   onEdit: () => void;
   onFork: () => void;
@@ -551,11 +575,13 @@ function TurnActions({
   /// active segment. Fork (resolves by uuid against the message's own tree) and
   /// copy-id (read-only) are always available — including pre-compaction turns.
   canMutate: boolean;
+  forkPending: boolean;
+  deletePending: boolean;
 }) {
   const [copied, setCopied] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const btn =
-    "text-[10px] px-1.5 py-0.5 rounded border border-[var(--color-border)] text-[var(--color-text-dim)] hover:border-[var(--color-accent)] hover:text-[var(--color-accent)]";
+    "text-[10px] px-1.5 py-0.5 rounded border border-[var(--color-border)] text-[var(--color-text-dim)] hover:border-[var(--color-accent)] hover:text-[var(--color-accent)] disabled:opacity-50";
   return (
     <span className="opacity-0 group-hover:opacity-100 transition-opacity flex gap-2 ml-2">
       {canMutate && (
@@ -565,10 +591,11 @@ function TurnActions({
       )}
       <button
         onClick={onFork}
+        disabled={forkPending || deletePending}
         className={btn}
         title="Create a new session ending at this message"
       >
-        fork from here
+        {forkPending ? <Spinner /> : "fork from here"}
       </button>
       {canMutate &&
         (confirming ? (
@@ -590,10 +617,11 @@ function TurnActions({
         ) : (
           <button
             onClick={() => setConfirming(true)}
+            disabled={deletePending}
             className={btn}
             title="Delete this message (writes a new session without it)"
           >
-            delete
+            {deletePending ? <Spinner /> : "delete"}
           </button>
         ))}
       {messageId && (
@@ -622,11 +650,13 @@ function EditBox({
   onChange,
   onSave,
   onCancel,
+  saving,
 }: {
   draft: string;
   onChange: (s: string) => void;
   onSave: () => void;
   onCancel: () => void;
+  saving: boolean;
 }) {
   return (
     <div className="pl-4">
@@ -637,7 +667,12 @@ function EditBox({
         rows={Math.min(20, Math.max(3, draft.split("\n").length + 1))}
       />
       <div className="flex gap-2 mt-1">
-        <button onClick={onSave} className="text-xs px-2 py-1 rounded border border-[var(--color-accent)] text-[var(--color-accent)]">
+        <button
+          onClick={onSave}
+          disabled={saving}
+          className="text-xs px-2 py-1 rounded border border-[var(--color-accent)] text-[var(--color-accent)] disabled:opacity-50 inline-flex items-center gap-1.5"
+        >
+          {saving && <Spinner />}
           Save as new session
         </button>
         <button onClick={onCancel} className="text-xs px-2 py-1 rounded border border-[var(--color-border)] text-[var(--color-text-dim)]">
