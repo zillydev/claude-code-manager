@@ -322,6 +322,18 @@ impl Event {
         }
     }
 
+    /// True if this event is a real conversation turn — the signal for session
+    /// "activity" (sidebar running/unread). A non-meta user turn, or a
+    /// non-synthetic assistant turn. Excludes summaries, system lines, titles,
+    /// meta turns. Sidechain (sub-agent) turns DO count — that's claude working.
+    pub fn is_activity_turn(&self) -> bool {
+        match self {
+            Event::User(e) => !e.is_meta.unwrap_or(false),
+            Event::Assistant(e) => e.message.model.as_deref() != Some("<synthetic>"),
+            _ => false,
+        }
+    }
+
     pub fn cwd(&self) -> Option<&str> {
         match self {
             Event::User(e) => e.cwd.as_deref(),

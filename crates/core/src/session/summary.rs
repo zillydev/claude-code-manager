@@ -16,6 +16,10 @@ pub struct SessionSummary {
     pub git_branch: Option<String>,
     pub title: String,
     pub mtime: SystemTime,
+    /// Timestamp of the last real conversation turn (see `Event::is_activity_turn`).
+    /// Drives the sidebar running/unread indicators; `None` for a session with no
+    /// turns yet. Never reflects mtime, so a rename never looks like activity.
+    pub last_event_at: Option<SystemTime>,
     /// Current context-window size — the last real assistant turn's full
     /// request input (input + cache_creation + cache_read). Matches the token
     /// count Claude Code's TUI shows, not a cumulative lifetime sum.
@@ -57,8 +61,14 @@ pub fn summarize(
     let mut git_branch: Option<String> = None;
     let mut forked_from: Option<String> = None;
     let mut forked_from_message: Option<String> = None;
+    let mut last_event_at: Option<SystemTime> = None;
 
     for ev in events {
+        if ev.is_activity_turn() {
+            if let Some(ts) = ev.timestamp() {
+                last_event_at = Some(SystemTime::from(ts));
+            }
+        }
         if let Some(src) = ev.forked_from_session() {
             if forked_from.is_none() {
                 forked_from = Some(src.to_string());
@@ -155,6 +165,7 @@ pub fn summarize(
         git_branch,
         title,
         mtime,
+        last_event_at,
         total_tokens,
         forked_from,
         copied_from: None,
@@ -233,7 +244,7 @@ mod tests {
         AiTitleEvent, AssistantEvent, AssistantMessage, CustomTitleEvent, ForkedFrom, Message,
         MessageContent, Usage, UserEvent,
     };
-    use chrono::Utc;
+    use chrono::{TimeZone, Utc};
     use std::time::UNIX_EPOCH;
 
     fn assistant_with_usage(input: u64, cache_creation: u64, cache_read: u64) -> Event {
@@ -352,6 +363,72 @@ mod tests {
             UNIX_EPOCH,
         );
         assert_eq!(s.title, "real user");
+    }
+
+    #[test]
+    fn last_event_at_is_last_real_turn_ignoring_title() {
+        let t1 = Utc.timestamp_opt(1_000, 0).unwrap();
+        let t2 = Utc.timestamp_opt(2_000, 0).unwrap();
+        let mut u = match user("hi", false) {
+            Event::User(u) => u,
+            _ => unreachable!(),
+        };
+        u.timestamp = Some(t1);
+        let mut a = match assistant_with_usage(1, 1, 1) {
+            Event::Assistant(a) => a,
+            _ => unreachable!(),
+        };
+        a.timestamp = Some(t2);
+        // A trailing /rename custom-title line must NOT count as activity.
+        let events = vec![
+            Event::User(u),
+            Event::Assistant(a),
+            Event::CustomTitle(CustomTitleEvent { custom_title: "renamed".into() }),
+        ];
+        let s = summarize(
+            &events,
+            uuid::Uuid::new_v4(),
+            PathBuf::from("/x.jsonl"),
+            "p".into(),
+            UNIX_EPOCH,
+        );
+        assert_eq!(s.last_event_at, Some(SystemTime::from(t2)));
+    }
+
+    #[test]
+    fn last_event_at_ignores_meta_user() {
+        let t1 = Utc.timestamp_opt(1_000, 0).unwrap();
+        let t2 = Utc.timestamp_opt(2_000, 0).unwrap();
+        let mut real = match user("real", false) {
+            Event::User(u) => u,
+            _ => unreachable!(),
+        };
+        real.timestamp = Some(t1);
+        let mut meta = match user("meta", true) {
+            Event::User(u) => u,
+            _ => unreachable!(),
+        };
+        meta.timestamp = Some(t2);
+        let s = summarize(
+            &[Event::User(real), Event::User(meta)],
+            uuid::Uuid::new_v4(),
+            PathBuf::from("/x.jsonl"),
+            "p".into(),
+            UNIX_EPOCH,
+        );
+        assert_eq!(s.last_event_at, Some(SystemTime::from(t1)));
+    }
+
+    #[test]
+    fn last_event_at_none_when_no_turns() {
+        let s = summarize(
+            &[Event::CustomTitle(CustomTitleEvent { custom_title: "x".into() })],
+            uuid::Uuid::new_v4(),
+            PathBuf::from("/x.jsonl"),
+            "p".into(),
+            UNIX_EPOCH,
+        );
+        assert_eq!(s.last_event_at, None);
     }
 
     #[test]
