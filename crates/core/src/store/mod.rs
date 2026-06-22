@@ -4,12 +4,13 @@ pub mod watcher;
 
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::time::SystemTime;
 
 use anyhow::{Context, Result};
 use chrono::Utc;
 use uuid::Uuid;
 
-use crate::session::parse::{parse_file, ParseOutcome};
+use crate::session::parse::{last_activity, parse_file, ParseOutcome};
 use crate::session::summary::{summarize, SessionSummary};
 use crate::session::{tree, Session};
 
@@ -139,6 +140,56 @@ pub fn discover(root: &Path) -> Result<Discovery> {
 }
 
 /// Fully read a single session file into memory.
+/// Cheap activity probe for the sidebar "running" poll. Returns `(session id,
+/// last real-event time)` for every session whose file was modified within
+/// `recent_secs` — the only ones that could be "running". Tail-reads each such
+/// file; everything older is skipped after a single stat.
+pub fn scan_activity(root: &Path, recent_secs: u64) -> Vec<(Uuid, SystemTime)> {
+    let projects = paths::projects_dir(root);
+    let now = SystemTime::now();
+    let mut out = Vec::new();
+    let read_dir = match fs::read_dir(&projects) {
+        Ok(rd) => rd,
+        Err(_) => return out,
+    };
+    for entry in read_dir.flatten() {
+        let path = entry.path();
+        if !path.is_dir() {
+            continue;
+        }
+        let inner = match fs::read_dir(&path) {
+            Ok(rd) => rd,
+            Err(_) => continue,
+        };
+        for child in inner.flatten() {
+            let child_path = child.path();
+            if child_path.extension().and_then(|s| s.to_str()) != Some("jsonl") {
+                continue;
+            }
+            let stem = match child_path.file_stem().and_then(|s| s.to_str()) {
+                Some(s) => s,
+                None => continue,
+            };
+            let id = match Uuid::parse_str(stem) {
+                Ok(u) => u,
+                Err(_) => continue,
+            };
+            let mtime = match child.metadata().and_then(|m| m.modified()) {
+                Ok(t) => t,
+                Err(_) => continue,
+            };
+            // Only recently-touched files can be running; skip the rest (stat only).
+            if now.duration_since(mtime).map(|d| d.as_secs()).unwrap_or(u64::MAX) > recent_secs {
+                continue;
+            }
+            if let Some(ts) = last_activity(&child_path) {
+                out.push((id, SystemTime::from(ts)));
+            }
+        }
+    }
+    out
+}
+
 pub fn open_session(file_path: PathBuf, project_label: String) -> Result<Session> {
     let id = file_path
         .file_stem()
