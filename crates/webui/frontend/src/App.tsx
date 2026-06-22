@@ -6,6 +6,8 @@ import Transcript from "./components/Transcript";
 import TerminalPane from "./components/TerminalPane";
 import LineageBanner from "./components/LineageBanner";
 import Spinner from "./components/Spinner";
+import { usePersistentState } from "./hooks/usePersistentState";
+import { useActivity } from "./hooks/useActivity";
 import type { ForkRef } from "./types";
 
 const MIN_WIDTH = 200;
@@ -29,6 +31,14 @@ export default function App() {
     projectLabel: string;
     cwd?: string;
   } | null>(null);
+
+  // Live per-session activity (epoch s of last real turn) for the sidebar
+  // running dot, and the per-session last-viewed times that drive "unread".
+  const activity = useActivity(refresh);
+  const [lastViewed, setLastViewed] = usePersistentState<Record<string, number>>(
+    "cm:lastViewed",
+    {},
+  );
 
   // Open an existing session (Manager + Terminal both follow `target`).
   const openSession = useCallback(
@@ -66,6 +76,8 @@ export default function App() {
       if (cancelled) return;
       if (exists) {
         open(target.filePath, target.projectLabel);
+        const nowSecs = Math.floor(Date.now() / 1000);
+        setLastViewed((m) => ({ ...m, [target.sessionId]: nowSecs }));
         if (polled) refresh(); // new session just appeared in its project dir
       } else {
         if (!polled) close(); // clear the previously-open session so Manager isn't stale
@@ -77,7 +89,18 @@ export default function App() {
     return () => {
       cancelled = true;
     };
-  }, [target, open, close, refresh]);
+  }, [target, open, close, refresh, setLastViewed]);
+
+  // While a session is open, keep its last-viewed time abreast of incoming turns
+  // so live-tailed content in the session you're watching isn't flagged unread.
+  useEffect(() => {
+    if (!target) return;
+    const live = activity.get(target.sessionId);
+    if (live == null) return;
+    setLastViewed((m) =>
+      live > (m[target.sessionId] ?? 0) ? { ...m, [target.sessionId]: live } : m,
+    );
+  }, [activity, target, setLastViewed]);
 
   const dragging = useRef(false);
   const startX = useRef(0);
@@ -145,6 +168,8 @@ export default function App() {
               sessions={sessions}
               loading={loading}
               activeId={target?.sessionId ?? null}
+              activity={activity}
+              lastViewed={lastViewed}
               onSelect={(s) => openSession(s)}
               onRefresh={refresh}
               onCollapse={() => setCollapsed(true)}

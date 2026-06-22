@@ -2,11 +2,14 @@ import { useState, useMemo, useCallback, useRef, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import type { SessionSummary, SortField, SortDir, DateRange } from "../types";
 import Spinner from "./Spinner";
+import { deriveStatus } from "../lib/sessionStatus";
 
 interface Props {
   sessions: SessionSummary[];
   loading: boolean;
   activeId: string | null;
+  activity: Map<string, number>;
+  lastViewed: Record<string, number>;
   onSelect: (s: SessionSummary) => void;
   onRefresh: () => void;
   onCollapse: () => void;
@@ -19,6 +22,8 @@ export default function Sidebar({
   sessions,
   loading,
   activeId,
+  activity,
+  lastViewed,
   onSelect,
   onRefresh,
   onCollapse,
@@ -373,6 +378,10 @@ export default function Sidebar({
         ) : (
           sorted.map((s) => {
             const editing = editingId === s.id;
+            const liveEventAt = activity.get(s.id) ?? s.last_event_at?.secs_since_epoch ?? null;
+            const status = deriveStatus(liveEventAt, lastViewed[s.id] ?? 0, now);
+            // You're looking at the open session — never flag it unread.
+            const unread = status.unread && s.id !== activeId;
             return (
             <div
               key={s.id}
@@ -388,6 +397,18 @@ export default function Sidebar({
                   : ""
               }`}
             >
+              {(status.running || unread) && (
+                <span
+                  className={`absolute left-1 top-2.5 h-2 w-2 rounded-full ${
+                    status.running ? "bg-green-500 animate-pulse" : "bg-[var(--color-accent)]"
+                  }`}
+                  title={
+                    status.running
+                      ? "Claude is working in this session"
+                      : "Unread — new since you last opened it"
+                  }
+                />
+              )}
               {editing ? (
                 /* Inline rename input (an input can't live inside the row button) */
                 <div className="flex-1 px-3 py-2 min-w-0 flex items-center gap-2">
@@ -433,7 +454,11 @@ export default function Sidebar({
                       {relativeTime(s.mtime.secs_since_epoch)}
                     </span>
                   </div>
-                  <div className="text-sm text-[var(--color-text)] truncate mt-0.5">
+                  <div
+                    className={`text-sm text-[var(--color-text)] truncate mt-0.5 ${
+                      unread ? "font-semibold" : ""
+                    }`}
+                  >
                     {s.title}
                   </div>
                   <div className="flex items-center gap-2 text-[10px] text-[var(--color-text-dim)] mt-0.5">
