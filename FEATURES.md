@@ -46,6 +46,7 @@ A tool to browse, search, edit, compact, harvest, and resume Claude Code session
 
 - **Multiple windows** (⌘N + native menu) — one per macOS Space; per-window live-tail isolation (watcher + events scoped by window label). → `2026-06-14-multi-window-design`
 - **One terminal per session, app-wide** — the PTY pool is keyed by session (not window), so a session opened in the terminal of one window can't be opened in another; the second window shows "already open in another window" + a **Switch to it** button. Prevents two `claude --resume` processes corrupting one `.jsonl`. → `2026-06-22-terminal-corruption-guard-design`
+- **Shared state across windows** — a single backend poller computes discovery + the activity scan once (app-globally, single-flight cache) and broadcasts `activity-updated` / `sessions-changed` to every window, so N windows cost ≈ one; windows listen instead of each polling. Unread (`lastViewed`) syncs across windows via the `storage` event. (Spawned windows are granted the event capability — `windows: ["main", "win-*"]` — which is what makes any cross-window event delivery work at all.) → `2026-06-22-shared-state-poller-design`
 
 ## Embedded terminal
 
