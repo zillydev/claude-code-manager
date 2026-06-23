@@ -190,6 +190,50 @@ pub fn scan_activity(root: &Path, recent_secs: u64) -> Vec<(Uuid, SystemTime, bo
     out
 }
 
+/// Order-independent, change-sensitive hash of a set of `(path, mtime_secs)`.
+/// Used to detect when the session set or any file changed (cheap re-discovery
+/// trigger for the shared poller).
+pub fn signature_of(mut entries: Vec<(String, u64)>) -> u64 {
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::{Hash, Hasher};
+    entries.sort();
+    let mut h = DefaultHasher::new();
+    entries.hash(&mut h);
+    h.finish()
+}
+
+/// Stat-walk `projects/*/*.jsonl` and hash `(path, mtime)` — a cheap probe to
+/// detect any add/remove/modify across all sessions without parsing.
+pub fn dir_signature(root: &Path) -> u64 {
+    let projects = paths::projects_dir(root);
+    let mut entries: Vec<(String, u64)> = Vec::new();
+    if let Ok(read_dir) = fs::read_dir(&projects) {
+        for entry in read_dir.flatten() {
+            let path = entry.path();
+            if !path.is_dir() {
+                continue;
+            }
+            if let Ok(inner) = fs::read_dir(&path) {
+                for child in inner.flatten() {
+                    let cp = child.path();
+                    if cp.extension().and_then(|s| s.to_str()) != Some("jsonl") {
+                        continue;
+                    }
+                    let mtime = child
+                        .metadata()
+                        .and_then(|m| m.modified())
+                        .ok()
+                        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                        .map(|d| d.as_secs())
+                        .unwrap_or(0);
+                    entries.push((cp.to_string_lossy().into_owned(), mtime));
+                }
+            }
+        }
+    }
+    signature_of(entries)
+}
+
 pub fn open_session(file_path: PathBuf, project_label: String) -> Result<Session> {
     let id = file_path
         .file_stem()
@@ -310,6 +354,19 @@ pub fn search_sessions(root: &Path, query: &str) -> Result<Vec<Uuid>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn signature_of_is_order_independent_and_change_sensitive() {
+        let a = signature_of(vec![("/p/x.jsonl".into(), 10), ("/p/y.jsonl".into(), 20)]);
+        let b = signature_of(vec![("/p/y.jsonl".into(), 20), ("/p/x.jsonl".into(), 10)]);
+        assert_eq!(a, b, "same entries, any order → same signature");
+
+        let c = signature_of(vec![("/p/x.jsonl".into(), 11), ("/p/y.jsonl".into(), 20)]);
+        assert_ne!(a, c, "a changed mtime → different signature");
+
+        let d = signature_of(vec![("/p/x.jsonl".into(), 10)]);
+        assert_ne!(a, d, "a removed entry → different signature");
+    }
 
     #[test]
     fn trash_moves_file_and_writes_info() {

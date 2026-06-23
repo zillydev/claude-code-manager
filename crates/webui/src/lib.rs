@@ -1,11 +1,13 @@
 mod commands;
+mod shared;
 mod terminal;
 mod window;
 
 use std::sync::Mutex;
+use std::time::Duration;
 
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem, Submenu};
-use tauri::{Manager, WindowEvent};
+use tauri::{Emitter, Manager, WindowEvent};
 
 /// Build the application menu: the standard macOS App/Edit/Window items
 /// (installing a custom menu replaces the OS default, so the standard
@@ -70,6 +72,30 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .manage(Mutex::new(commands::WatcherState::default()))
         .manage(Mutex::new(terminal::TerminalState::default()))
+        .manage(shared::Shared::new())
+        .setup(|app| {
+            // One app-wide poller: every 3s it refreshes the shared activity scan
+            // and (only when the project dir's signature changes) re-discovers,
+            // then broadcasts to ALL windows. Replaces each window polling on its
+            // own, so N windows cost the same as one. Idle when no windows exist.
+            let handle = app.handle().clone();
+            std::thread::spawn(move || loop {
+                std::thread::sleep(Duration::from_secs(3));
+                if handle.webview_windows().is_empty() {
+                    continue;
+                }
+                let root = match claude_manager_core::store::paths::default_claude_root() {
+                    Some(r) => r,
+                    None => continue,
+                };
+                let outcome = handle.state::<shared::Shared>().poll(&root);
+                let _ = handle.emit("activity-updated", &outcome.activity);
+                if outcome.sessions_changed {
+                    let _ = handle.emit("sessions-changed", ());
+                }
+            });
+            Ok(())
+        })
         .menu(build_menu)
         .on_menu_event(|app, event| {
             if event.id().as_ref() == "new_window" {
@@ -95,6 +121,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             commands::list_sessions,
+            commands::refresh_sessions,
             commands::open_session,
             commands::stop_watching,
             commands::search_transcripts,

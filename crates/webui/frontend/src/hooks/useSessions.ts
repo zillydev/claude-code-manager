@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { type UnlistenFn } from "@tauri-apps/api/event";
+import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import type { SessionSummary, RenderedSession, RenderedTurn } from "../types";
 
@@ -9,12 +9,23 @@ export function useSessions() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  // Pull the cached list (cheap — discovery is shared in the backend).
+  const pull = useCallback(async () => {
+    try {
+      setSessions(await invoke<SessionSummary[]>("list_sessions"));
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  // Manual ↻: force a re-discovery (the backend broadcasts to other windows too).
   const refresh = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const result = await invoke<SessionSummary[]>("list_sessions");
-      setSessions(result);
+      setSessions(await invoke<SessionSummary[]>("refresh_sessions"));
     } catch (e) {
       setError(String(e));
     } finally {
@@ -23,8 +34,14 @@ export function useSessions() {
   }, []);
 
   useEffect(() => {
-    refresh();
-  }, [refresh]);
+    pull();
+    // The backend poller broadcasts "sessions-changed" to ALL windows on any
+    // discovery change; re-pull the (now cached) list.
+    const un = listen("sessions-changed", () => pull());
+    return () => {
+      un.then((f) => f());
+    };
+  }, [pull]);
 
   return { sessions, loading, error, refresh };
 }

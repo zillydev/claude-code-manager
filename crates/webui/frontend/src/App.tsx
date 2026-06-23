@@ -34,7 +34,7 @@ export default function App() {
 
   // Live per-session activity (epoch s of last real turn) for the sidebar
   // running dot, and the per-session last-viewed times that drive "unread".
-  const activity = useActivity(refresh);
+  const activity = useActivity();
   const [lastViewed, setLastViewed] = usePersistentState<Record<string, number>>(
     "cm:lastViewed",
     {},
