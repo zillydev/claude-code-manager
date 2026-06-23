@@ -34,15 +34,30 @@ pub fn terminal_argv(session_id: &str, fresh: bool) -> Vec<String> {
     v
 }
 
-fn key(label: &str, session_id: &str) -> String {
-    format!("{label}|{session_id}")
+#[derive(Debug, PartialEq, Eq)]
+pub enum OpenDecision {
+    Spawn,
+    Reuse,
+    Busy,
 }
 
-/// A live PTY: master (resize), writer (input), child (kill).
+/// Given the current owner of a session's PTY (if any) and the window asking to
+/// open it: spawn if free, reuse if the caller already owns it, else refuse.
+pub fn open_decision(existing_owner: Option<&str>, requester: &str) -> OpenDecision {
+    match existing_owner {
+        None => OpenDecision::Spawn,
+        Some(o) if o == requester => OpenDecision::Reuse,
+        Some(_) => OpenDecision::Busy,
+    }
+}
+
+/// A live PTY: master (resize), writer (input), child (kill), and the window
+/// label that owns it (one PTY per session, app-wide).
 pub struct PtyHandle {
     master: Box<dyn MasterPty + Send>,
     writer: Box<dyn Write + Send>,
     child: Box<dyn Child + Send + Sync>,
+    owner: String,
 }
 
 #[derive(Default)]
@@ -51,47 +66,51 @@ pub struct TerminalState {
 }
 
 impl TerminalState {
-    pub fn has(&self, label: &str, session_id: &str) -> bool {
-        self.ptys.contains_key(&key(label, session_id))
+    pub fn owner(&self, session_id: &str) -> Option<&str> {
+        self.ptys.get(session_id).map(|h| h.owner.as_str())
     }
-    pub fn insert(&mut self, label: &str, session_id: &str, handle: PtyHandle) {
-        self.ptys.insert(key(label, session_id), handle);
+    pub fn insert(&mut self, session_id: &str, handle: PtyHandle) {
+        self.ptys.insert(session_id.to_string(), handle);
     }
-    pub fn write(&mut self, label: &str, session_id: &str, data: &[u8]) -> std::io::Result<()> {
-        if let Some(h) = self.ptys.get_mut(&key(label, session_id)) {
+    pub fn write(&mut self, session_id: &str, data: &[u8]) -> std::io::Result<()> {
+        if let Some(h) = self.ptys.get_mut(session_id) {
             h.writer.write_all(data)?;
             h.writer.flush()?;
         }
         Ok(())
     }
-    pub fn resize(&self, label: &str, session_id: &str, rows: u16, cols: u16) {
-        if let Some(h) = self.ptys.get(&key(label, session_id)) {
+    pub fn resize(&self, session_id: &str, rows: u16, cols: u16) {
+        if let Some(h) = self.ptys.get(session_id) {
             let _ = h.master.resize(PtySize { rows, cols, pixel_width: 0, pixel_height: 0 });
         }
     }
-    pub fn close(&mut self, label: &str, session_id: &str) {
-        if let Some(mut h) = self.ptys.remove(&key(label, session_id)) {
+    pub fn close(&mut self, session_id: &str) {
+        if let Some(mut h) = self.ptys.remove(session_id) {
             let _ = h.child.kill();
         }
     }
+    /// Kill+drop every PTY owned by a window (window-close cleanup).
     pub fn close_window(&mut self, label: &str) {
-        let prefix = format!("{label}|");
-        let keys: Vec<String> =
-            self.ptys.keys().filter(|k| k.starts_with(&prefix)).cloned().collect();
-        for k in keys {
-            if let Some(mut h) = self.ptys.remove(&k) {
+        let ids: Vec<String> = self
+            .ptys
+            .iter()
+            .filter(|(_, h)| h.owner == label)
+            .map(|(id, _)| id.clone())
+            .collect();
+        for id in ids {
+            if let Some(mut h) = self.ptys.remove(&id) {
                 let _ = h.child.kill();
             }
         }
     }
     /// Kill every terminal (used as an app-exit backstop).
     pub fn close_all(&mut self) {
-        for (_k, mut h) in self.ptys.drain() {
+        for (_id, mut h) in self.ptys.drain() {
             let _ = h.child.kill();
         }
     }
-    fn remove_key(&mut self, k: &str) {
-        self.ptys.remove(k);
+    fn remove_key(&mut self, session_id: &str) {
+        self.ptys.remove(session_id);
     }
 }
 
@@ -127,7 +146,8 @@ pub fn spawn_terminal(
         pair.master.try_clone_reader().map_err(|e| std::io::Error::other(e.to_string()))?;
     let writer = pair.master.take_writer().map_err(|e| std::io::Error::other(e.to_string()))?;
 
-    let k = key(&label, &session_id);
+    let owner = label.clone();
+    let cleanup_id = session_id.clone();
     std::thread::spawn(move || {
         let mut buf = [0u8; 8192];
         loop {
@@ -150,12 +170,12 @@ pub fn spawn_terminal(
         );
         if let Some(state) = app.try_state::<std::sync::Mutex<TerminalState>>() {
             if let Ok(mut g) = state.lock() {
-                g.remove_key(&k);
+                g.remove_key(&cleanup_id);
             }
         }
     });
 
-    Ok(PtyHandle { master: pair.master, writer, child })
+    Ok(PtyHandle { master: pair.master, writer, child, owner })
 }
 
 #[cfg(test)]
@@ -179,5 +199,12 @@ mod tests {
         let v = terminal_argv("xyz", true);
         assert!(!v[0].is_empty(), "resolved a claude entrypoint");
         assert_eq!(&v[1..], &["--dangerously-skip-permissions", "--session-id", "xyz"]);
+    }
+
+    #[test]
+    fn open_decision_spawn_reuse_busy() {
+        assert_eq!(open_decision(None, "main"), OpenDecision::Spawn);
+        assert_eq!(open_decision(Some("main"), "main"), OpenDecision::Reuse);
+        assert_eq!(open_decision(Some("main"), "win-1"), OpenDecision::Busy);
     }
 }
