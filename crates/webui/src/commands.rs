@@ -13,6 +13,8 @@ use claude_manager_core::session::tree;
 use claude_manager_core::store;
 use claude_manager_core::store::paths;
 use claude_manager_core::store::watcher;
+
+use crate::shared::Shared;
 use serde::Serialize;
 use std::path::PathBuf;
 use tauri::{AppHandle, Emitter, Manager};
@@ -30,16 +32,28 @@ impl Default for WatcherState {
     }
 }
 
+/// The sessions list, served from the app-global `Shared` cache (computed once,
+/// single-flight, refreshed by the background poller). discover() fully parses
+/// every session file (~6s debug), so it runs at most once across all windows;
+/// the blocking pool keeps it off the Tauri main thread on a cold cache.
 #[tauri::command]
-pub async fn list_sessions() -> Result<Vec<SessionSummary>, String> {
-    // discover() fully parses every session file (hundreds of MB across all
-    // projects — ~6s in a debug build). Run it on the blocking pool so it never
-    // ties up the Tauri main thread: a synchronous command would block the UI,
-    // freezing the window (macOS beachball) on initial load and on every refresh.
-    tauri::async_runtime::spawn_blocking(|| -> Result<Vec<SessionSummary>, String> {
+pub async fn list_sessions(app: AppHandle) -> Result<Vec<SessionSummary>, String> {
+    tauri::async_runtime::spawn_blocking(move || -> Result<Vec<SessionSummary>, String> {
         let root = paths::default_claude_root().ok_or("could not locate ~/.claude")?;
-        let disc = store::discover(&root).map_err(|e| e.to_string())?;
-        Ok(disc.sessions)
+        app.state::<Shared>().sessions(&root)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// Force a re-discovery (manual ↻) and broadcast so every window re-pulls.
+#[tauri::command]
+pub async fn refresh_sessions(app: AppHandle) -> Result<Vec<SessionSummary>, String> {
+    tauri::async_runtime::spawn_blocking(move || -> Result<Vec<SessionSummary>, String> {
+        let root = paths::default_claude_root().ok_or("could not locate ~/.claude")?;
+        let sessions = app.state::<Shared>().refresh_sessions(&root)?;
+        let _ = app.emit("sessions-changed", ());
+        Ok(sessions)
     })
     .await
     .map_err(|e| e.to_string())?
@@ -445,7 +459,7 @@ pub fn path_exists(path: String) -> bool {
     std::path::Path::new(&path).is_file()
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Clone)]
 pub struct SessionActivity {
     pub id: String,
     /// Last real-event time, epoch seconds.
@@ -455,28 +469,13 @@ pub struct SessionActivity {
     pub awaiting_input: bool,
 }
 
-/// Lightweight poll for the sidebar "running" dot: last real-event time for
-/// sessions touched in the last 60s. Cheap (mostly stats) — safe to call ~every
-/// few seconds. Runs on the blocking pool so it never stalls the UI thread.
+/// The sidebar "running"/"unread" signal, served from the `Shared` cache that
+/// the background poller refreshes. A cheap clone — the actual scan happens once
+/// app-wide in the poller, not per window. Windows get live updates via the
+/// "activity-updated" broadcast; this is just the initial pull on mount.
 #[tauri::command]
-pub async fn session_activity() -> Result<Vec<SessionActivity>, String> {
-    tauri::async_runtime::spawn_blocking(|| -> Result<Vec<SessionActivity>, String> {
-        let root = paths::default_claude_root().ok_or("could not locate ~/.claude")?;
-        let rows = store::scan_activity(&root, 60)
-            .into_iter()
-            .map(|(id, t, awaiting)| SessionActivity {
-                id: id.to_string(),
-                last_event_at: t
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .map(|d| d.as_secs() as i64)
-                    .unwrap_or(0),
-                awaiting_input: awaiting,
-            })
-            .collect();
-        Ok(rows)
-    })
-    .await
-    .map_err(|e| e.to_string())?
+pub fn session_activity(app: AppHandle) -> Result<Vec<SessionActivity>, String> {
+    Ok(app.state::<Shared>().activity())
 }
 
 #[derive(Serialize)]
