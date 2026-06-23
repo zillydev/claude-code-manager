@@ -25,6 +25,8 @@ interface Props {
   onBack: () => void;
   branchPoints?: Map<string, ForkRef[]>;
   onOpenSession?: (s: SessionSummary) => void;
+  /** Open the lineage tree for this session; omitted/null when it has no lineage. */
+  onViewTree?: (() => void) | null;
   /** Whether the transcript's tab is currently showing (false when on Terminal). */
   visible?: boolean;
 }
@@ -34,6 +36,7 @@ export default function Transcript({
   onBack,
   branchPoints,
   onOpenSession,
+  onViewTree,
   visible = true,
 }: Props) {
   const [statsOpen, setStatsOpen] = usePersistentState("cm.detailsOpen", true);
@@ -159,6 +162,15 @@ export default function Transcript({
           {session.title}
         </span>
         <div className="ml-auto flex gap-2">
+          {onViewTree && (
+            <button
+              onClick={onViewTree}
+              className="text-xs px-2 py-1 rounded border border-[var(--color-border)] text-[var(--color-text-dim)] hover:border-[var(--color-accent)] hover:text-[var(--color-accent)] transition-colors"
+              title="View this session's fork/copy lineage"
+            >
+              ⑂ Tree
+            </button>
+          )}
           <button
             onClick={() => setCompact(!compact)}
             className={`text-xs px-2 py-1 rounded border ${

@@ -5,6 +5,7 @@ import Sidebar from "./components/Sidebar";
 import Transcript from "./components/Transcript";
 import TerminalPane from "./components/TerminalPane";
 import LineageBanner from "./components/LineageBanner";
+import LineageTree from "./components/LineageTree";
 import Spinner from "./components/Spinner";
 import { usePersistentState } from "./hooks/usePersistentState";
 import { useActivity } from "./hooks/useActivity";
@@ -39,6 +40,8 @@ export default function App() {
     "cm:lastViewed",
     {},
   );
+  // Session whose lineage tree is shown in the overlay (null = closed).
+  const [lineageFor, setLineageFor] = useState<string | null>(null);
 
   // Open an existing session (Manager + Terminal both follow `target`).
   const openSession = useCallback(
@@ -196,6 +199,7 @@ export default function App() {
                 }
               }}
               onNewSession={newSession}
+              onViewTree={(s) => setLineageFor(s.id)}
             />
           </div>
           {/* Drag handle */}
@@ -237,6 +241,11 @@ export default function App() {
               ? sessions.find((s) => s.id === openSummary.copied_from) ?? null
               : null;
             const copies = sessions.filter((s) => s.copied_from === transcript.id);
+            const hasLineage =
+              !!(openSummary && (openSummary.forked_from || openSummary.copied_from)) ||
+              sessions.some(
+                (s) => s.forked_from === transcript.id || s.copied_from === transcript.id,
+              );
             const branchPoints = new Map<string, ForkRef[]>();
             const addBranch = (msg: string, ref: ForkRef) => {
               const arr = branchPoints.get(msg);
@@ -265,6 +274,7 @@ export default function App() {
                     onBack={close}
                     branchPoints={branchPoints}
                     onOpenSession={(s) => openSession(s)}
+                    onViewTree={hasLineage ? () => setLineageFor(transcript.id) : null}
                     visible={activeTab === "manager"}
                   />
                 </div>
@@ -299,6 +309,17 @@ export default function App() {
           </div>
         </div>
       </main>
+      {lineageFor && (
+        <LineageTree
+          sessions={sessions}
+          centerId={lineageFor}
+          onOpen={(s) => {
+            openSession(s);
+            setLineageFor(null);
+          }}
+          onClose={() => setLineageFor(null)}
+        />
+      )}
     </div>
   );
 }

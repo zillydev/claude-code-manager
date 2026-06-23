@@ -17,6 +17,7 @@ interface Props {
   onDelete: (s: SessionSummary) => void | Promise<void>;
   onRename: (s: SessionSummary, newTitle: string) => void | Promise<void>;
   onNewSession: (cwd: string) => Promise<void>;
+  onViewTree: (s: SessionSummary) => void;
 }
 
 export default function Sidebar({
@@ -31,6 +32,7 @@ export default function Sidebar({
   onDelete,
   onRename,
   onNewSession,
+  onViewTree,
 }: Props) {
   const [textFilter, setTextFilter] = useState("");
   // One project/directory filter: "" | "name:<basename>" | "dir:<cwd>".
@@ -476,16 +478,24 @@ export default function Sidebar({
                     )}
                     {childrenBySource.has(s.id) && (
                       <span
-                        className="text-[var(--color-accent)] opacity-80"
-                        title={`${childrenBySource.get(s.id)!.length} session(s) forked from this`}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onViewTree(s);
+                        }}
+                        className="text-[var(--color-accent)] opacity-80 cursor-pointer hover:opacity-100"
+                        title={`${childrenBySource.get(s.id)!.length} session(s) forked from this — view tree`}
                       >
                         ⑂ {childrenBySource.get(s.id)!.length}
                       </span>
                     )}
                     {copiedChildrenBySource.has(s.id) && (
                       <span
-                        className="text-[var(--color-accent)] opacity-80"
-                        title={`${copiedChildrenBySource.get(s.id)!.length} session(s) copied from this`}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onViewTree(s);
+                        }}
+                        className="text-[var(--color-accent)] opacity-80 cursor-pointer hover:opacity-100"
+                        title={`${copiedChildrenBySource.get(s.id)!.length} session(s) copied from this — view tree`}
                       >
                         ⧉ {copiedChildrenBySource.get(s.id)!.length}
                       </span>
