@@ -16,6 +16,15 @@ pub struct SessionSummary {
     pub git_branch: Option<String>,
     pub title: String,
     pub mtime: SystemTime,
+    /// Timestamp of the last real conversation turn (see `Event::is_activity_turn`).
+    /// Drives the sidebar running/unread indicators; `None` for a session with no
+    /// turns yet. Never reflects mtime, so a rename never looks like activity.
+    pub last_event_at: Option<SystemTime>,
+    /// Whether the last real turn is a completed (non-sidechain, `end_turn`)
+    /// assistant turn — i.e. claude is done and it's the user's turn. When false
+    /// the session is mid-turn (claude working/thinking). Distinguishes "running"
+    /// from "unread" so a thinking pause doesn't flip a live session to unread.
+    pub awaiting_input: bool,
     /// Current context-window size — the last real assistant turn's full
     /// request input (input + cache_creation + cache_read). Matches the token
     /// count Claude Code's TUI shows, not a cumulative lifetime sum.
@@ -57,8 +66,22 @@ pub fn summarize(
     let mut git_branch: Option<String> = None;
     let mut forked_from: Option<String> = None;
     let mut forked_from_message: Option<String> = None;
+    let mut last_event_at: Option<SystemTime> = None;
+    let mut awaiting_input = false;
 
     for ev in events {
+        if ev.is_activity_turn() {
+            if let Some(ts) = ev.timestamp() {
+                last_event_at = Some(SystemTime::from(ts));
+            }
+            // Last activity turn wins: claude is "done" only if it ends on a
+            // completed main-thread assistant turn (not a sub-agent's).
+            awaiting_input = matches!(
+                ev,
+                Event::Assistant(a)
+                    if !a.is_sidechain && a.message.stop_reason.as_deref() == Some("end_turn")
+            );
+        }
         if let Some(src) = ev.forked_from_session() {
             if forked_from.is_none() {
                 forked_from = Some(src.to_string());
@@ -155,6 +178,8 @@ pub fn summarize(
         git_branch,
         title,
         mtime,
+        last_event_at,
+        awaiting_input,
         total_tokens,
         forked_from,
         copied_from: None,
@@ -233,7 +258,7 @@ mod tests {
         AiTitleEvent, AssistantEvent, AssistantMessage, CustomTitleEvent, ForkedFrom, Message,
         MessageContent, Usage, UserEvent,
     };
-    use chrono::Utc;
+    use chrono::{TimeZone, Utc};
     use std::time::UNIX_EPOCH;
 
     fn assistant_with_usage(input: u64, cache_creation: u64, cache_read: u64) -> Event {
@@ -352,6 +377,131 @@ mod tests {
             UNIX_EPOCH,
         );
         assert_eq!(s.title, "real user");
+    }
+
+    #[test]
+    fn last_event_at_is_last_real_turn_ignoring_title() {
+        let t1 = Utc.timestamp_opt(1_000, 0).unwrap();
+        let t2 = Utc.timestamp_opt(2_000, 0).unwrap();
+        let mut u = match user("hi", false) {
+            Event::User(u) => u,
+            _ => unreachable!(),
+        };
+        u.timestamp = Some(t1);
+        let mut a = match assistant_with_usage(1, 1, 1) {
+            Event::Assistant(a) => a,
+            _ => unreachable!(),
+        };
+        a.timestamp = Some(t2);
+        // A trailing /rename custom-title line must NOT count as activity.
+        let events = vec![
+            Event::User(u),
+            Event::Assistant(a),
+            Event::CustomTitle(CustomTitleEvent { custom_title: "renamed".into() }),
+        ];
+        let s = summarize(
+            &events,
+            uuid::Uuid::new_v4(),
+            PathBuf::from("/x.jsonl"),
+            "p".into(),
+            UNIX_EPOCH,
+        );
+        assert_eq!(s.last_event_at, Some(SystemTime::from(t2)));
+    }
+
+    #[test]
+    fn last_event_at_ignores_meta_user() {
+        let t1 = Utc.timestamp_opt(1_000, 0).unwrap();
+        let t2 = Utc.timestamp_opt(2_000, 0).unwrap();
+        let mut real = match user("real", false) {
+            Event::User(u) => u,
+            _ => unreachable!(),
+        };
+        real.timestamp = Some(t1);
+        let mut meta = match user("meta", true) {
+            Event::User(u) => u,
+            _ => unreachable!(),
+        };
+        meta.timestamp = Some(t2);
+        let s = summarize(
+            &[Event::User(real), Event::User(meta)],
+            uuid::Uuid::new_v4(),
+            PathBuf::from("/x.jsonl"),
+            "p".into(),
+            UNIX_EPOCH,
+        );
+        assert_eq!(s.last_event_at, Some(SystemTime::from(t1)));
+    }
+
+    #[test]
+    fn last_event_at_none_when_no_turns() {
+        let s = summarize(
+            &[Event::CustomTitle(CustomTitleEvent { custom_title: "x".into() })],
+            uuid::Uuid::new_v4(),
+            PathBuf::from("/x.jsonl"),
+            "p".into(),
+            UNIX_EPOCH,
+        );
+        assert_eq!(s.last_event_at, None);
+    }
+
+    fn assistant_stop(reason: &str, sidechain: bool) -> Event {
+        let mut a = match assistant_with_usage(1, 1, 1) {
+            Event::Assistant(a) => a,
+            _ => unreachable!(),
+        };
+        a.message.stop_reason = Some(reason.into());
+        a.is_sidechain = sidechain;
+        Event::Assistant(a)
+    }
+
+    #[test]
+    fn awaiting_input_true_when_last_turn_is_assistant_end_turn() {
+        let s = summarize(
+            &[user("hi", false), assistant_stop("end_turn", false)],
+            uuid::Uuid::new_v4(),
+            PathBuf::from("/x.jsonl"),
+            "p".into(),
+            UNIX_EPOCH,
+        );
+        assert!(s.awaiting_input);
+    }
+
+    #[test]
+    fn awaiting_input_false_when_last_turn_is_user() {
+        let s = summarize(
+            &[assistant_stop("end_turn", false), user("hi", false)],
+            uuid::Uuid::new_v4(),
+            PathBuf::from("/x.jsonl"),
+            "p".into(),
+            UNIX_EPOCH,
+        );
+        assert!(!s.awaiting_input, "user spoke last → claude's turn (mid-turn)");
+    }
+
+    #[test]
+    fn awaiting_input_false_when_assistant_still_using_tools() {
+        let s = summarize(
+            &[assistant_stop("tool_use", false)],
+            uuid::Uuid::new_v4(),
+            PathBuf::from("/x.jsonl"),
+            "p".into(),
+            UNIX_EPOCH,
+        );
+        assert!(!s.awaiting_input, "pending tool_use → mid-turn");
+    }
+
+    #[test]
+    fn awaiting_input_false_when_only_a_subagent_finished() {
+        // A sub-agent's end_turn doesn't mean the main agent is done.
+        let s = summarize(
+            &[user("hi", false), assistant_stop("end_turn", true)],
+            uuid::Uuid::new_v4(),
+            PathBuf::from("/x.jsonl"),
+            "p".into(),
+            UNIX_EPOCH,
+        );
+        assert!(!s.awaiting_input, "sidechain end_turn → main thread still working");
     }
 
     #[test]

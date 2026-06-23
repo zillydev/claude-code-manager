@@ -1,0 +1,10 @@
+- UI overhaul
+  - create new session from directory. add two options, create session from pasted directory path, or if a project is already selected, create session in that project
+  - loading indicators on everything
+  - brainstorm on how best to show forked sessions. ideally some tree UI for best visualisation of where a session began, and how many different sessions were forked from it
+  - UI customisation through stored configuration
+  - show indicators for which sessions are currently running, and if claude has stopped/asking for input in a session, which are unread
+- Concurrency
+  - identify gaps which could cause issues when multiple windows of claude manager are open
+  - shouldn't allow two claude terminal sessions to open of the same session as it could cause corruption
+  - avoid recomputing things. keep the state shared so every window feels as snappy as a single window

@@ -3,6 +3,7 @@ use std::io::{BufRead, BufReader};
 use std::path::Path;
 
 use anyhow::Result;
+use chrono::{DateTime, Utc};
 
 use super::event::Event;
 
@@ -97,6 +98,28 @@ pub fn parse_tail(path: &Path, from_offset: u64) -> Result<ParseOutcome> {
     })
 }
 
+/// The last real conversation turn's `(timestamp, awaiting_input)`, read from only
+/// the file's tail (no full parse) — the cheap activity probe behind the sidebar
+/// running/unread dots. `awaiting_input` is true when that turn is a completed
+/// (non-sidechain `end_turn`) assistant turn, i.e. claude is done and it's the
+/// user's turn. Skips meta turns and the rename `custom-title` line.
+pub fn last_activity(path: &Path) -> Option<(DateTime<Utc>, bool)> {
+    const TAIL_BYTES: u64 = 65_536;
+    let len = std::fs::metadata(path).ok()?.len();
+    let outcome = parse_tail(path, len.saturating_sub(TAIL_BYTES)).ok()?;
+    let ev = outcome
+        .events
+        .iter()
+        .rev()
+        .find(|ev| ev.is_activity_turn() && ev.timestamp().is_some())?;
+    let awaiting = matches!(
+        ev,
+        Event::Assistant(a)
+            if !a.is_sidechain && a.message.stop_reason.as_deref() == Some("end_turn")
+    );
+    Some((ev.timestamp()?, awaiting))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -151,5 +174,35 @@ mod tests {
 
         let out2 = parse_tail(&p.0, out1.bytes_read).unwrap();
         assert_eq!(out2.events.len(), 1);
+    }
+
+    #[test]
+    fn last_activity_skips_trailing_custom_title() {
+        let p = tmp("last_activity_title");
+        let mut f = File::create(&p.0).unwrap();
+        writeln!(f, r#"{{"type":"user","uuid":"00000000-0000-0000-0000-000000000001","timestamp":"2026-06-22T10:00:05Z","message":{{"role":"user","content":"hello"}}}}"#).unwrap();
+        writeln!(f, r#"{{"type":"custom-title","customTitle":"renamed"}}"#).unwrap();
+        drop(f);
+
+        let expected: DateTime<Utc> = "2026-06-22T10:00:05Z".parse().unwrap();
+        // last real turn is a user message → not awaiting (mid-turn).
+        assert_eq!(last_activity(&p.0), Some((expected, false)));
+    }
+
+    #[test]
+    fn last_activity_awaiting_when_assistant_end_turn_last() {
+        let p = tmp("last_activity_endturn");
+        let mut f = File::create(&p.0).unwrap();
+        writeln!(f, r#"{{"type":"user","uuid":"00000000-0000-0000-0000-000000000001","timestamp":"2026-06-22T10:00:05Z","message":{{"role":"user","content":"hi"}}}}"#).unwrap();
+        writeln!(f, r#"{{"type":"assistant","uuid":"00000000-0000-0000-0000-000000000002","timestamp":"2026-06-22T10:00:09Z","message":{{"stop_reason":"end_turn","content":[]}}}}"#).unwrap();
+        drop(f);
+
+        let expected: DateTime<Utc> = "2026-06-22T10:00:09Z".parse().unwrap();
+        assert_eq!(last_activity(&p.0), Some((expected, true)));
+    }
+
+    #[test]
+    fn last_activity_none_for_missing_file() {
+        assert_eq!(last_activity(Path::new("/no/such/file-xyz.jsonl")), None);
     }
 }
