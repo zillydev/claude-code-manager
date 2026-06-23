@@ -9,6 +9,9 @@ export interface SessionSummary {
   /// Timestamp of the last real conversation turn; null if the session has no
   /// turns yet. Drives the sidebar running/unread indicators.
   last_event_at: { secs_since_epoch: number; nanos_since_epoch: number } | null;
+  /// Whether the last turn is a completed assistant turn (claude is done). False
+  /// while mid-turn (working/thinking). Separates "running" from "unread".
+  awaiting_input: boolean;
   total_tokens: number;
   /// The source session this one was forked from (null if not derived).
   forked_from: string | null;

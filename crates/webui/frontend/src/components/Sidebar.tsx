@@ -3,12 +3,13 @@ import { invoke } from "@tauri-apps/api/core";
 import type { SessionSummary, SortField, SortDir, DateRange } from "../types";
 import Spinner from "./Spinner";
 import { deriveStatus } from "../lib/sessionStatus";
+import type { LiveActivity } from "../hooks/useActivity";
 
 interface Props {
   sessions: SessionSummary[];
   loading: boolean;
   activeId: string | null;
-  activity: Map<string, number>;
+  activity: Map<string, LiveActivity>;
   lastViewed: Record<string, number>;
   onSelect: (s: SessionSummary) => void;
   onRefresh: () => void;
@@ -378,11 +379,13 @@ export default function Sidebar({
         ) : (
           sorted.map((s) => {
             const editing = editingId === s.id;
-            const liveEventAt = activity.get(s.id) ?? s.last_event_at?.secs_since_epoch ?? null;
+            const act = activity.get(s.id);
+            const liveEventAt = act?.at ?? s.last_event_at?.secs_since_epoch ?? null;
+            const awaiting = act?.awaiting ?? s.awaiting_input;
             // No view history (never opened) ⇒ not unread, else every session floods
             // unread on first launch. Baseline to the session's own last event so only
             // sessions you've opened (which persist a real lastViewed) can go unread.
-            const status = deriveStatus(liveEventAt, lastViewed[s.id] ?? liveEventAt ?? 0, now);
+            const status = deriveStatus(liveEventAt, awaiting, lastViewed[s.id] ?? liveEventAt ?? 0, now);
             // You're looking at the open session — never flag it unread.
             const unread = status.unread && s.id !== activeId;
             return (

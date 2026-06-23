@@ -431,6 +431,9 @@ pub struct SessionActivity {
     pub id: String,
     /// Last real-event time, epoch seconds.
     pub last_event_at: i64,
+    /// Whether the session's last turn is a completed assistant turn (claude is
+    /// done). Distinguishes a thinking pause (still running) from "unread".
+    pub awaiting_input: bool,
 }
 
 /// Lightweight poll for the sidebar "running" dot: last real-event time for
@@ -442,12 +445,13 @@ pub async fn session_activity() -> Result<Vec<SessionActivity>, String> {
         let root = paths::default_claude_root().ok_or("could not locate ~/.claude")?;
         let rows = store::scan_activity(&root, 60)
             .into_iter()
-            .map(|(id, t)| SessionActivity {
+            .map(|(id, t, awaiting)| SessionActivity {
                 id: id.to_string(),
                 last_event_at: t
                     .duration_since(std::time::UNIX_EPOCH)
                     .map(|d| d.as_secs() as i64)
                     .unwrap_or(0),
+                awaiting_input: awaiting,
             })
             .collect();
         Ok(rows)

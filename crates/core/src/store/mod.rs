@@ -140,11 +140,11 @@ pub fn discover(root: &Path) -> Result<Discovery> {
 }
 
 /// Fully read a single session file into memory.
-/// Cheap activity probe for the sidebar "running" poll. Returns `(session id,
-/// last real-event time)` for every session whose file was modified within
-/// `recent_secs` — the only ones that could be "running". Tail-reads each such
-/// file; everything older is skipped after a single stat.
-pub fn scan_activity(root: &Path, recent_secs: u64) -> Vec<(Uuid, SystemTime)> {
+/// Cheap activity probe for the sidebar running/unread poll. Returns `(session
+/// id, last real-event time, awaiting_input)` for every session whose file was
+/// modified within `recent_secs` — the only ones that could be "running".
+/// Tail-reads each such file; everything older is skipped after a single stat.
+pub fn scan_activity(root: &Path, recent_secs: u64) -> Vec<(Uuid, SystemTime, bool)> {
     let projects = paths::projects_dir(root);
     let now = SystemTime::now();
     let mut out = Vec::new();
@@ -182,8 +182,8 @@ pub fn scan_activity(root: &Path, recent_secs: u64) -> Vec<(Uuid, SystemTime)> {
             if now.duration_since(mtime).map(|d| d.as_secs()).unwrap_or(u64::MAX) > recent_secs {
                 continue;
             }
-            if let Some(ts) = last_activity(&child_path) {
-                out.push((id, SystemTime::from(ts)));
+            if let Some((ts, awaiting)) = last_activity(&child_path) {
+                out.push((id, SystemTime::from(ts), awaiting));
             }
         }
     }

@@ -4,17 +4,18 @@ import { invoke } from "@tauri-apps/api/core";
 const POLL_MS = 3000;
 const REFRESH_DEBOUNCE_MS = 1500;
 
-type Activity = { id: string; last_event_at: number };
+type Activity = { id: string; last_event_at: number; awaiting_input: boolean };
+export type LiveActivity = { at: number; awaiting: boolean };
 
 /**
- * Polls the backend for recently-active sessions' last-event time (epoch s) so
- * the sidebar can show a live "running" dot. Only polls while the window is
+ * Polls the backend for recently-active sessions' last-event time + turn state
+ * so the sidebar can show a live "running" dot. Only polls while the window is
  * visible. When any session's activity advances, fires a debounced full
  * `refresh()` so the parsed list (tokens/title/last_event_at) catches up.
- * Returns a Map of sessionId → last_event_at for recently-touched sessions only.
+ * Returns a Map of sessionId → {at, awaiting} for recently-touched sessions only.
  */
-export function useActivity(refresh: () => void): Map<string, number> {
-  const [map, setMap] = useState<Map<string, number>>(new Map());
+export function useActivity(refresh: () => void): Map<string, LiveActivity> {
+  const [map, setMap] = useState<Map<string, LiveActivity>>(new Map());
   const mapRef = useRef(map);
   mapRef.current = map;
   const refreshRef = useRef(refresh);
@@ -29,10 +30,12 @@ export function useActivity(refresh: () => void): Map<string, number> {
       try {
         const rows = await invoke<Activity[]>("session_activity");
         if (cancelled) return;
-        const next = new Map(rows.map((r) => [r.id, r.last_event_at]));
+        const next = new Map<string, LiveActivity>(
+          rows.map((r) => [r.id, { at: r.last_event_at, awaiting: r.awaiting_input }]),
+        );
         let advanced = false;
-        for (const [id, t] of next) {
-          if (t > (mapRef.current.get(id) ?? 0)) {
+        for (const [id, v] of next) {
+          if (v.at > (mapRef.current.get(id)?.at ?? 0)) {
             advanced = true;
             break;
           }

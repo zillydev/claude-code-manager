@@ -95,7 +95,7 @@ export default function App() {
   // so live-tailed content in the session you're watching isn't flagged unread.
   useEffect(() => {
     if (!target) return;
-    const live = activity.get(target.sessionId);
+    const live = activity.get(target.sessionId)?.at;
     if (live == null) return;
     setLastViewed((m) =>
       live > (m[target.sessionId] ?? 0) ? { ...m, [target.sessionId]: live } : m,
