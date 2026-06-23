@@ -31,6 +31,11 @@ export default function TerminalView({
   const [blocked, setBlocked] = useState<{ owner: string | null } | null>(null);
   const blockedRef = useRef(false);
   blockedRef.current = blocked !== null;
+  // Resolves once the terminal-output/exit listeners are attached. terminal_open
+  // (which spawns claude) awaits this so claude's first paint can't be emitted
+  // before we're listening — otherwise it's lost and the pane sticks on "Starting".
+  const listenersReady = useRef<Promise<void> | null>(null);
+  const listenersReadyResolve = useRef<(() => void) | null>(null);
 
   useEffect(() => {
     const host = hostRef.current;
@@ -88,6 +93,10 @@ export default function TerminalView({
     const unsubs: Array<() => void> = [];
     let disposed = false;
 
+    listenersReady.current = new Promise<void>((resolve) => {
+      listenersReadyResolve.current = resolve;
+    });
+
     (async () => {
       unsubs.push(
         await w.listen<{ sessionId: string; data: string }>("terminal-output", (e) => {
@@ -103,6 +112,8 @@ export default function TerminalView({
           }
         }),
       );
+      // Listeners are now live — let terminal_open proceed to spawn.
+      listenersReadyResolve.current?.();
       if (disposed) unsubs.forEach((u) => u());
       // NB: terminal_open is deferred to the activation effect below, so the PTY
       // is spawned only once the host is visible and correctly sized.
@@ -153,7 +164,7 @@ export default function TerminalView({
     const f = fitRef.current;
     const host = hostRef.current;
     if (!t || !f || !host) return;
-    const raf = requestAnimationFrame(() => {
+    const raf = requestAnimationFrame(async () => {
       if (!openedRef.current) {
         openedRef.current = true;
         t.open(host);
@@ -162,6 +173,9 @@ export default function TerminalView({
         } catch {
           /* ignore */
         }
+        // Wait until the output/exit listeners are attached before spawning, so
+        // claude's first paint is never emitted into the void.
+        await listenersReady.current;
         invoke<{ status: string; owner: string | null }>("terminal_open", {
           sessionId,
           filePath,
