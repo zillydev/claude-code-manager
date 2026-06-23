@@ -1,7 +1,7 @@
 {
   "identifier": "default",
   "description": "Default permissions for claude-manager",
-  "windows": ["main"],
+  "windows": ["main", "win-*"],
   "permissions": [
     "core:default",
     "core:event:default",
