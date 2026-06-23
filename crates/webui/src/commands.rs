@@ -373,7 +373,18 @@ pub async fn delete_message(file_path: String, message_uuid: String) -> Result<C
     .map_err(|e| e.to_string())?
 }
 
-/// Start (or no-op if already running) the terminal for a session in this window.
+#[derive(Serialize)]
+pub struct TerminalOpenResult {
+    /// "started" | "reused" | "busy".
+    pub status: String,
+    /// Owner window label when `busy`, so the frontend can offer "switch to it".
+    pub owner: Option<String>,
+}
+
+/// Open the terminal for a session in this window. One `claude` PTY per session
+/// app-wide: reuse if this window already owns it, refuse ("busy") if another
+/// window does, else spawn. Blocking a cross-window open prevents two
+/// `claude --resume` processes from corrupting the same `.jsonl`.
 #[tauri::command]
 pub fn terminal_open(
     session_id: String,
@@ -383,14 +394,9 @@ pub fn terminal_open(
     new_cwd: Option<String>,
     window: tauri::WebviewWindow,
     app: AppHandle,
-) -> Result<(), String> {
+) -> Result<TerminalOpenResult, String> {
     let label = window.label().to_string();
-    {
-        let state = app.state::<Mutex<TerminalState>>();
-        if state.lock().map_err(|e| e.to_string())?.has(&label, &session_id) {
-            return Ok(());
-        }
-    }
+    // Resolve cwd/fresh BEFORE locking (file read, no pool access).
     // `new_cwd` Some → a brand-new session: spawn fresh (`--session-id`) in that
     // dir. None → resume an existing session, cwd from its first cwd event.
     let (cwd, fresh) = match new_cwd {
@@ -402,21 +408,34 @@ pub fn terminal_open(
             (cwd, false)
         }
     };
-    let handle = terminal::spawn_terminal(
-        app.clone(),
-        label.clone(),
-        session_id.clone(),
-        cwd,
-        rows,
-        cols,
-        fresh,
-    )
-    .map_err(|e| format!("failed to start terminal: {e}"))?;
-    app.state::<Mutex<TerminalState>>()
-        .lock()
-        .map_err(|e| e.to_string())?
-        .insert(&label, &session_id, handle);
-    Ok(())
+
+    let state = app.state::<Mutex<TerminalState>>();
+    let mut guard = state.lock().map_err(|e| e.to_string())?;
+    match terminal::open_decision(guard.owner(&session_id), &label) {
+        terminal::OpenDecision::Reuse => {
+            Ok(TerminalOpenResult { status: "reused".into(), owner: None })
+        }
+        terminal::OpenDecision::Busy => {
+            let owner = guard.owner(&session_id).map(str::to_string);
+            Ok(TerminalOpenResult { status: "busy".into(), owner })
+        }
+        terminal::OpenDecision::Spawn => {
+            // Spawn under the lock so two windows racing the same fresh session
+            // can't both spawn (the owner is recorded before the lock releases).
+            let handle = terminal::spawn_terminal(
+                app.clone(),
+                label.clone(),
+                session_id.clone(),
+                cwd,
+                rows,
+                cols,
+                fresh,
+            )
+            .map_err(|e| format!("failed to start terminal: {e}"))?;
+            guard.insert(&session_id, handle);
+            Ok(TerminalOpenResult { status: "started".into(), owner: None })
+        }
+    }
 }
 
 /// Cheap existence check — used to poll for a new session's file appearing
@@ -481,17 +500,11 @@ pub fn new_session(cwd: String) -> Result<NewSessionResult, String> {
 }
 
 #[tauri::command]
-pub fn terminal_input(
-    session_id: String,
-    data: String,
-    window: tauri::WebviewWindow,
-    app: AppHandle,
-) -> Result<(), String> {
-    let label = window.label().to_string();
+pub fn terminal_input(session_id: String, data: String, app: AppHandle) -> Result<(), String> {
     app.state::<Mutex<TerminalState>>()
         .lock()
         .map_err(|e| e.to_string())?
-        .write(&label, &session_id, data.as_bytes())
+        .write(&session_id, data.as_bytes())
         .map_err(|e| e.to_string())
 }
 
@@ -500,27 +513,30 @@ pub fn terminal_resize(
     session_id: String,
     rows: u16,
     cols: u16,
-    window: tauri::WebviewWindow,
     app: AppHandle,
 ) -> Result<(), String> {
-    let label = window.label().to_string();
     app.state::<Mutex<TerminalState>>()
         .lock()
         .map_err(|e| e.to_string())?
-        .resize(&label, &session_id, rows, cols);
+        .resize(&session_id, rows, cols);
     Ok(())
 }
 
 #[tauri::command]
-pub fn terminal_close(
-    session_id: String,
-    window: tauri::WebviewWindow,
-    app: AppHandle,
-) -> Result<(), String> {
-    let label = window.label().to_string();
+pub fn terminal_close(session_id: String, app: AppHandle) -> Result<(), String> {
     app.state::<Mutex<TerminalState>>()
         .lock()
         .map_err(|e| e.to_string())?
-        .close(&label, &session_id);
+        .close(&session_id);
+    Ok(())
+}
+
+/// Focus a window by label — used by the "switch to it" button when a session
+/// is already open in another window. On macOS this jumps to that window's Space.
+#[tauri::command]
+pub fn focus_window(label: String, app: AppHandle) -> Result<(), String> {
+    if let Some(w) = app.get_webview_window(&label) {
+        w.set_focus().map_err(|e| e.to_string())?;
+    }
     Ok(())
 }

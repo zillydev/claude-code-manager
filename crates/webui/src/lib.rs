@@ -107,6 +107,7 @@ pub fn run() {
             commands::new_session,
             commands::path_exists,
             commands::session_activity,
+            commands::focus_window,
             commands::terminal_open,
             commands::terminal_input,
             commands::terminal_resize,

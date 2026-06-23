@@ -28,6 +28,9 @@ export default function TerminalView({
   const fitRef = useRef<FitAddon | null>(null);
   const [exited, setExited] = useState(false);
   const [started, setStarted] = useState(false);
+  const [blocked, setBlocked] = useState<{ owner: string | null } | null>(null);
+  const blockedRef = useRef(false);
+  blockedRef.current = blocked !== null;
 
   useEffect(() => {
     const host = hostRef.current;
@@ -106,6 +109,7 @@ export default function TerminalView({
     })();
 
     const onData = term.onData((d) => {
+      if (blockedRef.current) return;
       invoke("terminal_input", { sessionId, data: d }).catch(() => {});
     });
 
@@ -113,6 +117,8 @@ export default function TerminalView({
     const ro = new ResizeObserver(() => {
       // Skip while hidden (display:none → 0-size) so we never fit to a tiny size.
       if (host.clientWidth === 0 || host.clientHeight === 0) return;
+      // A blocked window must not resize the owner's PTY (pool is session-keyed).
+      if (blockedRef.current) return;
       // Debounce: a window drag fires this dozens of times — resize once it
       // settles so claude gets a single clean SIGWINCH to repaint at the final size.
       clearTimeout(resizeTimer);
@@ -156,13 +162,17 @@ export default function TerminalView({
         } catch {
           /* ignore */
         }
-        invoke("terminal_open", {
+        invoke<{ status: string; owner: string | null }>("terminal_open", {
           sessionId,
           filePath,
           rows: t.rows,
           cols: t.cols,
           newCwd: cwd ?? null,
-        }).catch((err) => t.write(`\r\n\x1b[31m[failed to start: ${err}]\x1b[0m\r\n`));
+        })
+          .then((res) => {
+            if (res.status === "busy") setBlocked({ owner: res.owner });
+          })
+          .catch((err) => t.write(`\r\n\x1b[31m[failed to start: ${err}]\x1b[0m\r\n`));
       } else {
         try {
           f.fit();
@@ -182,6 +192,7 @@ export default function TerminalView({
     if (!t) return;
     t.clear();
     setStarted(false);
+    setBlocked(null);
     invoke("terminal_open", { sessionId, filePath, rows: t.rows, cols: t.cols })
       .then(() => setExited(false))
       .catch(() => {});
@@ -190,10 +201,23 @@ export default function TerminalView({
   return (
     <div className="relative h-full w-full" style={{ display: active ? "block" : "none" }}>
       <div ref={hostRef} className="h-full w-full" />
-      {!started && !exited && (
+      {!started && !exited && !blocked && (
         <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-[var(--color-text-dim)] pointer-events-none">
           <Spinner size="md" />
           <span className="text-sm">Starting claude…</span>
+        </div>
+      )}
+      {blocked && (
+        <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 px-6 text-center text-[var(--color-text-dim)]">
+          <span className="text-sm">This session is already open in another window.</span>
+          {blocked.owner && (
+            <button
+              onClick={() => invoke("focus_window", { label: blocked.owner }).catch(() => {})}
+              className="px-3 py-1 rounded bg-[var(--color-accent)] text-white text-xs"
+            >
+              Switch to it
+            </button>
+          )}
         </div>
       )}
       {exited && (
