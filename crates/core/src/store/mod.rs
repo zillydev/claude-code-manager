@@ -2,6 +2,7 @@ pub mod lineage;
 pub mod paths;
 pub mod watcher;
 
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
@@ -10,6 +11,7 @@ use anyhow::{Context, Result};
 use chrono::Utc;
 use uuid::Uuid;
 
+use crate::session::event::{Block, Event, MessageContent, UserBlock};
 use crate::session::parse::{last_activity, parse_file, ParseOutcome};
 use crate::session::summary::{summarize, SessionSummary};
 use crate::session::{tree, Session};
@@ -234,6 +236,64 @@ pub fn dir_signature(root: &Path) -> u64 {
     signature_of(entries)
 }
 
+/// One-line, ~`max`-char previews for specific message uuids in a single session
+/// file. Parses the file once; returns only requested uuids that resolve to a
+/// non-empty text turn (a user text message, or an assistant's first text block).
+/// Used to label fork/copy branch points in the lineage tree.
+pub fn message_snippets(path: &Path, wanted: &HashSet<Uuid>) -> HashMap<Uuid, String> {
+    let mut out = HashMap::new();
+    if wanted.is_empty() {
+        return out;
+    }
+    let outcome = match parse_file(path) {
+        Ok(o) => o,
+        Err(_) => return out,
+    };
+    for ev in &outcome.events {
+        let id = match ev.uuid() {
+            Some(id) => id,
+            None => continue,
+        };
+        if !wanted.contains(&id) || out.contains_key(&id) {
+            continue;
+        }
+        if let Some(text) = preview_text(ev) {
+            let line = one_line_truncated(&text, 60);
+            if !line.is_empty() {
+                out.insert(id, line);
+            }
+        }
+    }
+    out
+}
+
+fn preview_text(ev: &Event) -> Option<String> {
+    match ev {
+        Event::User(u) => match &u.message.content {
+            MessageContent::Text(t) => Some(t.clone()),
+            MessageContent::Blocks(bs) => bs.iter().find_map(|b| match b {
+                UserBlock::Text { text } => Some(text.clone()),
+                _ => None,
+            }),
+        },
+        Event::Assistant(a) => a.message.content.iter().find_map(|b| match b {
+            Block::Text { text } => Some(text.clone()),
+            _ => None,
+        }),
+        _ => None,
+    }
+}
+
+fn one_line_truncated(s: &str, max: usize) -> String {
+    let collapsed = s.split_whitespace().collect::<Vec<_>>().join(" ");
+    if collapsed.chars().count() <= max {
+        collapsed
+    } else {
+        let t: String = collapsed.chars().take(max.saturating_sub(1)).collect();
+        format!("{t}…")
+    }
+}
+
 pub fn open_session(file_path: PathBuf, project_label: String) -> Result<Session> {
     let id = file_path
         .file_stem()
@@ -354,6 +414,40 @@ pub fn search_sessions(root: &Path, query: &str) -> Result<Vec<Uuid>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn message_snippets_resolves_text_and_truncates() {
+        use std::collections::HashSet;
+        let root = std::env::temp_dir().join(format!("cm-snip-{}", std::process::id()));
+        let proj = root.join("projects").join("-tmp-proj");
+        fs::create_dir_all(&proj).unwrap();
+        let path = proj.join("s.jsonl");
+        let u1 = "00000000-0000-0000-0000-0000000000a1";
+        let u2 = "00000000-0000-0000-0000-0000000000a2";
+        fs::write(
+            &path,
+            format!(
+                "{}\n{}\n",
+                format!(r#"{{"type":"user","uuid":"{u1}","message":{{"role":"user","content":"hello fork point here"}}}}"#),
+                format!(r#"{{"type":"user","uuid":"{u2}","message":{{"role":"user","content":"{}"}}}}"#, "x ".repeat(80)),
+            ),
+        )
+        .unwrap();
+
+        let wanted: HashSet<Uuid> =
+            [u1, u2].iter().map(|s| Uuid::parse_str(s).unwrap()).collect();
+        let got = message_snippets(&path, &wanted);
+
+        assert_eq!(
+            got.get(&Uuid::parse_str(u1).unwrap()).map(String::as_str),
+            Some("hello fork point here")
+        );
+        let long = got.get(&Uuid::parse_str(u2).unwrap()).unwrap();
+        assert!(long.ends_with('…') && long.chars().count() == 60, "got: {long:?}");
+        assert!(!got.contains_key(&Uuid::parse_str("00000000-0000-0000-0000-0000000000ff").unwrap()));
+
+        let _ = fs::remove_dir_all(&root);
+    }
 
     #[test]
     fn signature_of_is_order_independent_and_change_sensitive() {
