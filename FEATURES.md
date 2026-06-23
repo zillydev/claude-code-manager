@@ -45,6 +45,7 @@ A tool to browse, search, edit, compact, harvest, and resume Claude Code session
 ## Multi-window
 
 - **Multiple windows** (⌘N + native menu) — one per macOS Space; per-window live-tail isolation (watcher + events scoped by window label). → `2026-06-14-multi-window-design`
+- **One terminal per session, app-wide** — the PTY pool is keyed by session (not window), so a session opened in the terminal of one window can't be opened in another; the second window shows "already open in another window" + a **Switch to it** button. Prevents two `claude --resume` processes corrupting one `.jsonl`. → `2026-06-22-terminal-corruption-guard-design`
 
 ## Embedded terminal
 
