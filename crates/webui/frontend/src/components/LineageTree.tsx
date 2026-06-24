@@ -15,7 +15,9 @@ export default function LineageTree({
   onClose: () => void;
 }) {
   const root = useMemo(() => buildLineageTree(sessions, centerId), [sessions, centerId]);
-  const [snippets, setSnippets] = useState<Record<string, string>>({});
+  const [snippets, setSnippets] = useState<Record<string, { snippet: string; onPath: boolean }>>(
+    {},
+  );
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -36,8 +38,16 @@ export default function LineageTree({
     };
     walk(root);
     if (refs.length === 0) return;
-    invoke<{ message_uuid: string; snippet: string }[]>("resolve_branch_messages", { refs })
-      .then((rows) => setSnippets(Object.fromEntries(rows.map((r) => [r.message_uuid, r.snippet]))))
+    invoke<{ message_uuid: string; snippet: string; on_path: boolean }[]>("resolve_branch_messages", {
+      refs,
+    })
+      .then((rows) =>
+        setSnippets(
+          Object.fromEntries(
+            rows.map((r) => [r.message_uuid, { snippet: r.snippet, onPath: r.on_path }]),
+          ),
+        ),
+      )
       .catch(() => {});
   }, [root]);
 
@@ -45,7 +55,8 @@ export default function LineageTree({
 
   const renderNode = (node: LineageNode, depth: number, parent?: LineageNode) => {
     const isCurrent = node.session.id === centerId;
-    const snippet = node.branchMessageUuid ? snippets[node.branchMessageUuid] : undefined;
+    const resolved = node.branchMessageUuid ? snippets[node.branchMessageUuid] : undefined;
+    const snippet = resolved?.snippet;
     const label =
       node.edge === "root"
         ? "◀ origin"
@@ -54,21 +65,33 @@ export default function LineageTree({
             ? `⑂ forked at “${snippet}”`
             : "⑂ forked here"
           : `⧉ copied${node.copiedOverlap != null ? ` · ${node.copiedOverlap} shared` : ""}`;
-    // The branch label links to the parent session, scrolled to the branch message.
-    const canJumpToBranch = !!(parent && node.branchMessageUuid);
+    // The branch label links to the parent session, scrolled to the branch
+    // message — but only when that message is actually rendered there. A branch
+    // point on an edited-away branch isn't shown, so there's nothing to open to.
+    const canJumpToBranch = !!(parent && node.branchMessageUuid && resolved?.onPath);
     return (
       <div key={node.session.id} style={{ paddingLeft: depth * 18 }}>
         {node.edge === "root" ? (
           <div className="mt-1.5 text-[10px] text-[var(--color-text-dim)]">{label}</div>
-        ) : (
+        ) : canJumpToBranch ? (
           <button
-            onClick={() => canJumpToBranch && onOpen(parent!.session, node.branchMessageUuid!)}
-            disabled={!canJumpToBranch}
-            title={canJumpToBranch ? "Open the parent session at this point" : undefined}
-            className="mt-1.5 block text-left text-[10px] text-[var(--color-text-dim)] hover:text-[var(--color-accent)] disabled:cursor-default"
+            onClick={() => onOpen(parent!.session, node.branchMessageUuid!)}
+            title="Open the parent session at this point"
+            className="mt-1.5 block text-left text-[10px] text-[var(--color-text-dim)] hover:text-[var(--color-accent)]"
           >
             {label}
           </button>
+        ) : (
+          <div
+            className="mt-1.5 text-[10px] text-[var(--color-text-dim)]"
+            title={
+              node.branchMessageUuid && resolved && !resolved.onPath
+                ? "Branch point is on an edited-away branch, not shown"
+                : undefined
+            }
+          >
+            {label}
+          </div>
         )}
         <button
           disabled={isCurrent}

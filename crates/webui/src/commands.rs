@@ -508,6 +508,10 @@ pub struct BranchRef {
 pub struct BranchSnippet {
     pub message_uuid: String,
     pub snippet: String,
+    /// Whether this message is actually rendered in the parent's transcript.
+    /// A branch point on an edited-away branch resolves a snippet (we scan the
+    /// whole file) but isn't shown, so the UI can't scroll to it.
+    pub on_path: bool,
 }
 
 /// Resolve short previews for fork/copy branch-point messages. Each branch
@@ -524,8 +528,28 @@ pub async fn resolve_branch_messages(refs: Vec<BranchRef>) -> Result<Vec<BranchS
             }
         }
         let mut snippets: HashMap<uuid::Uuid, String> = HashMap::new();
+        let mut on_path: HashSet<uuid::Uuid> = HashSet::new();
         for (file, wanted) in &by_file {
-            snippets.extend(store::message_snippets(std::path::Path::new(file), wanted));
+            let path = std::path::Path::new(file);
+            snippets.extend(store::message_snippets(path, wanted));
+            // A branch point is reachable only if the transcript actually renders
+            // it. Render the parent (same path the UI uses) and collect every
+            // shown turn's uuids; a message on an edited-away branch won't appear.
+            if let Ok(session) = store::open_session(path.to_path_buf(), String::new()) {
+                for t in &render_session(&session).turns {
+                    if let RenderedTurn::User { uuids, .. } | RenderedTurn::Assistant { uuids, .. } =
+                        t
+                    {
+                        for u in uuids {
+                            if let Ok(id) = uuid::Uuid::parse_str(u) {
+                                if wanted.contains(&id) {
+                                    on_path.insert(id);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
         }
         let mut out = Vec::new();
         let mut seen = HashSet::new();
@@ -536,6 +560,7 @@ pub async fn resolve_branch_messages(refs: Vec<BranchRef>) -> Result<Vec<BranchS
                         out.push(BranchSnippet {
                             message_uuid: r.message_uuid.clone(),
                             snippet: s.clone(),
+                            on_path: on_path.contains(&id),
                         });
                     }
                 }
