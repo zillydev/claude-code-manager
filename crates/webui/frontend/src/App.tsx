@@ -31,6 +31,8 @@ export default function App() {
     filePath: string;
     projectLabel: string;
     cwd?: string;
+    /** Message uuid to scroll the transcript to on open (e.g. a fork point). */
+    scrollToMessage?: string;
   } | null>(null);
 
   // Live per-session activity (epoch s of last real turn) for the sidebar
@@ -44,9 +46,16 @@ export default function App() {
   const [lineageFor, setLineageFor] = useState<string | null>(null);
 
   // Open an existing session (Manager + Terminal both follow `target`).
+  // `scrollToMessage` optionally scrolls the transcript to a specific message
+  // (e.g. a fork point opened from the lineage tree).
   const openSession = useCallback(
-    (s: { id: string; file_path: string; project_label: string }) => {
-      setTarget({ sessionId: s.id, filePath: s.file_path, projectLabel: s.project_label });
+    (s: { id: string; file_path: string; project_label: string }, scrollToMessage?: string) => {
+      setTarget({
+        sessionId: s.id,
+        filePath: s.file_path,
+        projectLabel: s.project_label,
+        scrollToMessage,
+      });
     },
     [],
   );
@@ -275,6 +284,7 @@ export default function App() {
                     branchPoints={branchPoints}
                     onOpenSession={(s) => openSession(s)}
                     onViewTree={hasLineage ? () => setLineageFor(transcript.id) : null}
+                    scrollToMessage={target?.scrollToMessage ?? null}
                     visible={activeTab === "manager"}
                   />
                 </div>
@@ -313,8 +323,8 @@ export default function App() {
         <LineageTree
           sessions={sessions}
           centerId={lineageFor}
-          onOpen={(s) => {
-            openSession(s);
+          onOpen={(s, scrollToMessage) => {
+            openSession(s, scrollToMessage);
             setLineageFor(null);
           }}
           onClose={() => setLineageFor(null)}

@@ -11,7 +11,7 @@ export default function LineageTree({
 }: {
   sessions: SessionSummary[];
   centerId: string;
-  onOpen: (s: SessionSummary) => void;
+  onOpen: (s: SessionSummary, scrollToMessage?: string) => void;
   onClose: () => void;
 }) {
   const root = useMemo(() => buildLineageTree(sessions, centerId), [sessions, centerId]);
@@ -43,7 +43,7 @@ export default function LineageTree({
 
   if (!root) return null;
 
-  const renderNode = (node: LineageNode, depth: number) => {
+  const renderNode = (node: LineageNode, depth: number, parent?: LineageNode) => {
     const isCurrent = node.session.id === centerId;
     const snippet = node.branchMessageUuid ? snippets[node.branchMessageUuid] : undefined;
     const label =
@@ -54,9 +54,22 @@ export default function LineageTree({
             ? `⑂ forked at “${snippet}”`
             : "⑂ forked here"
           : `⧉ copied${node.copiedOverlap != null ? ` · ${node.copiedOverlap} shared` : ""}`;
+    // The branch label links to the parent session, scrolled to the branch message.
+    const canJumpToBranch = !!(parent && node.branchMessageUuid);
     return (
       <div key={node.session.id} style={{ paddingLeft: depth * 18 }}>
-        <div className="mt-1.5 text-[10px] text-[var(--color-text-dim)]">{label}</div>
+        {node.edge === "root" ? (
+          <div className="mt-1.5 text-[10px] text-[var(--color-text-dim)]">{label}</div>
+        ) : (
+          <button
+            onClick={() => canJumpToBranch && onOpen(parent!.session, node.branchMessageUuid!)}
+            disabled={!canJumpToBranch}
+            title={canJumpToBranch ? "Open the parent session at this point" : undefined}
+            className="mt-1.5 block text-left text-[10px] text-[var(--color-text-dim)] hover:text-[var(--color-accent)] disabled:cursor-default"
+          >
+            {label}
+          </button>
+        )}
         <button
           disabled={isCurrent}
           onClick={() => !isCurrent && onOpen(node.session)}
@@ -70,7 +83,7 @@ export default function LineageTree({
           <span className="truncate">{node.session.title}</span>
           {isCurrent && <span className="ml-2 text-xs">● you</span>}
         </button>
-        {node.children.map((c) => renderNode(c, depth + 1))}
+        {node.children.map((c) => renderNode(c, depth + 1, node))}
       </div>
     );
   };

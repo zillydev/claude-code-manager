@@ -27,6 +27,8 @@ interface Props {
   onOpenSession?: (s: SessionSummary) => void;
   /** Open the lineage tree for this session; omitted/null when it has no lineage. */
   onViewTree?: (() => void) | null;
+  /** Message uuid to center + flash on open (e.g. a fork point); null = jump to bottom. */
+  scrollToMessage?: string | null;
   /** Whether the transcript's tab is currently showing (false when on Terminal). */
   visible?: boolean;
 }
@@ -37,6 +39,7 @@ export default function Transcript({
   branchPoints,
   onOpenSession,
   onViewTree,
+  scrollToMessage,
   visible = true,
 }: Props) {
   const [statsOpen, setStatsOpen] = usePersistentState("cm.detailsOpen", true);
@@ -100,19 +103,37 @@ export default function Transcript({
     return () => container.removeEventListener("scroll", onScroll);
   }, []);
 
-  // On opening/switching a session, jump to the latest. On a new turn within
-  // the same session (live tail), only follow if the user is at the bottom —
-  // otherwise leave their scroll position alone.
+  // On opening/switching a session, jump to the latest — unless we were asked to
+  // scroll to a specific message (e.g. a fork point from the lineage tree), in
+  // which case center + flash it. On a new turn within the same session (live
+  // tail), only follow if the user is at the bottom — otherwise leave them alone.
   useEffect(() => {
     const isNewSession = prevSessionId.current !== session.id;
     prevSessionId.current = session.id;
     if (isNewSession) {
-      atBottomRef.current = true;
-      bottomRef.current?.scrollIntoView();
+      if (scrollToMessage) {
+        atBottomRef.current = false;
+        requestAnimationFrame(() => {
+          const el = turnsRef.current?.querySelector<HTMLElement>(
+            `[data-msg-uuid="${scrollToMessage}"]`,
+          );
+          if (el) {
+            el.scrollIntoView({ block: "center" });
+            el.classList.add("ring-2", "ring-[var(--color-accent)]", "rounded");
+            setTimeout(() => el.classList.remove("ring-2", "ring-[var(--color-accent)]", "rounded"), 1600);
+          } else {
+            atBottomRef.current = true;
+            bottomRef.current?.scrollIntoView();
+          }
+        });
+      } else {
+        atBottomRef.current = true;
+        bottomRef.current?.scrollIntoView();
+      }
     } else if (atBottomRef.current) {
       bottomRef.current?.scrollIntoView({ behavior: "smooth" });
     }
-  }, [session.id, session.turns.length]);
+  }, [session.id, session.turns.length, scrollToMessage]);
 
   // When this tab becomes visible again, restore the bottom if we were pinned
   // there: display:none can drift the scroll position, and live turns may have
@@ -442,7 +463,7 @@ const Turn = memo(function Turn({
   switch (turn.type) {
     case "user":
       return (
-        <div className="group">
+        <div className="group" data-msg-uuid={turn.uuid}>
           <div className="flex items-baseline gap-2 mb-1">
             <span className="text-xs text-[var(--color-text-dim)]">{ts}</span>
             <span className="font-medium text-[var(--color-user)]">user</span>
@@ -477,7 +498,7 @@ const Turn = memo(function Turn({
 
     case "assistant":
       return (
-        <div className="group">
+        <div className="group" data-msg-uuid={turn.uuid}>
           <div className="flex items-baseline gap-2 mb-1">
             <span className="text-xs text-[var(--color-text-dim)]">{ts}</span>
             <span className="font-medium text-[var(--color-assistant)]">
