@@ -104,28 +104,14 @@ export default function Transcript({
   }, []);
 
   // On opening/switching a session, jump to the latest — unless we were asked to
-  // scroll to a specific message (e.g. a fork point from the lineage tree), in
-  // which case center + flash it. On a new turn within the same session (live
-  // tail), only follow if the user is at the bottom — otherwise leave them alone.
+  // scroll to a specific message (the effect below handles that). On a new turn
+  // within the same session (live tail), only follow if the user is at the bottom.
   useEffect(() => {
     const isNewSession = prevSessionId.current !== session.id;
     prevSessionId.current = session.id;
     if (isNewSession) {
       if (scrollToMessage) {
-        atBottomRef.current = false;
-        requestAnimationFrame(() => {
-          const el = turnsRef.current?.querySelector<HTMLElement>(
-            `[data-msg-uuid="${scrollToMessage}"]`,
-          );
-          if (el) {
-            el.scrollIntoView({ block: "center" });
-            el.classList.add("ring-2", "ring-[var(--color-accent)]", "rounded");
-            setTimeout(() => el.classList.remove("ring-2", "ring-[var(--color-accent)]", "rounded"), 1600);
-          } else {
-            atBottomRef.current = true;
-            bottomRef.current?.scrollIntoView();
-          }
-        });
+        atBottomRef.current = false; // the scroll-to-message effect takes over
       } else {
         atBottomRef.current = true;
         bottomRef.current?.scrollIntoView();
@@ -134,6 +120,35 @@ export default function Transcript({
       bottomRef.current?.scrollIntoView({ behavior: "smooth" });
     }
   }, [session.id, session.turns.length, scrollToMessage]);
+
+  // Scroll to + flash a specific message (e.g. a fork point opened from the
+  // lineage tree). Keyed on the message too, so it also fires when the target is
+  // the already-open session. Branch points match fork_uuid first (the
+  // original/stable uuid), then the in-file uuid — same precedence as the inline
+  // markers; a couple of rAFs let heavy turns finish laying out first.
+  useEffect(() => {
+    if (!scrollToMessage) return;
+    let raf2 = 0;
+    const raf1 = requestAnimationFrame(() => {
+      raf2 = requestAnimationFrame(() => {
+        const el =
+          turnsRef.current?.querySelector<HTMLElement>(`[data-fork-uuid="${scrollToMessage}"]`) ??
+          turnsRef.current?.querySelector<HTMLElement>(`[data-msg-uuid="${scrollToMessage}"]`);
+        if (!el) return;
+        atBottomRef.current = false;
+        el.scrollIntoView({ block: "center" });
+        el.classList.add("ring-2", "ring-[var(--color-accent)]", "rounded");
+        setTimeout(
+          () => el.classList.remove("ring-2", "ring-[var(--color-accent)]", "rounded"),
+          1600,
+        );
+      });
+    });
+    return () => {
+      cancelAnimationFrame(raf1);
+      cancelAnimationFrame(raf2);
+    };
+  }, [session.id, scrollToMessage]);
 
   // When this tab becomes visible again, restore the bottom if we were pinned
   // there: display:none can drift the scroll position, and live turns may have
@@ -463,7 +478,7 @@ const Turn = memo(function Turn({
   switch (turn.type) {
     case "user":
       return (
-        <div className="group" data-msg-uuid={turn.uuid}>
+        <div className="group" data-msg-uuid={turn.uuid} data-fork-uuid={turn.fork_uuid}>
           <div className="flex items-baseline gap-2 mb-1">
             <span className="text-xs text-[var(--color-text-dim)]">{ts}</span>
             <span className="font-medium text-[var(--color-user)]">user</span>
@@ -498,7 +513,7 @@ const Turn = memo(function Turn({
 
     case "assistant":
       return (
-        <div className="group" data-msg-uuid={turn.uuid}>
+        <div className="group" data-msg-uuid={turn.uuid} data-fork-uuid={turn.fork_uuid}>
           <div className="flex items-baseline gap-2 mb-1">
             <span className="text-xs text-[var(--color-text-dim)]">{ts}</span>
             <span className="font-medium text-[var(--color-assistant)]">
