@@ -123,17 +123,20 @@ export default function Transcript({
 
   // Scroll to + flash a specific message (e.g. a fork point opened from the
   // lineage tree). Keyed on the message too, so it also fires when the target is
-  // the already-open session. Branch points match fork_uuid first (the
-  // original/stable uuid), then the in-file uuid — same precedence as the inline
-  // markers; a couple of rAFs let heavy turns finish laying out first.
+  // the already-open session. Matches against the turn's full uuid list, so a
+  // branch point that is a merged-away assistant event still resolves to its
+  // (merged) turn; a couple of rAFs let heavy turns finish laying out first.
   useEffect(() => {
     if (!scrollToMessage) return;
     let raf2 = 0;
     const raf1 = requestAnimationFrame(() => {
       raf2 = requestAnimationFrame(() => {
-        const el =
-          turnsRef.current?.querySelector<HTMLElement>(`[data-fork-uuid="${scrollToMessage}"]`) ??
-          turnsRef.current?.querySelector<HTMLElement>(`[data-msg-uuid="${scrollToMessage}"]`);
+        // Match the turn that COVERS this message uuid — `~=` matches one token
+        // in the space-separated uuid list, so a merged assistant turn is found
+        // by any of its constituent event uuids, not just head/fork.
+        const el = turnsRef.current?.querySelector<HTMLElement>(
+          `[data-msg-uuids~="${scrollToMessage}"]`,
+        );
         if (!el) return;
         atBottomRef.current = false;
         el.scrollIntoView({ block: "center" });
@@ -478,7 +481,7 @@ const Turn = memo(function Turn({
   switch (turn.type) {
     case "user":
       return (
-        <div className="group" data-msg-uuid={turn.uuid} data-fork-uuid={turn.fork_uuid}>
+        <div className="group" data-msg-uuids={turn.uuids.join(" ")}>
           <div className="flex items-baseline gap-2 mb-1">
             <span className="text-xs text-[var(--color-text-dim)]">{ts}</span>
             <span className="font-medium text-[var(--color-user)]">user</span>
@@ -513,7 +516,7 @@ const Turn = memo(function Turn({
 
     case "assistant":
       return (
-        <div className="group" data-msg-uuid={turn.uuid} data-fork-uuid={turn.fork_uuid}>
+        <div className="group" data-msg-uuids={turn.uuids.join(" ")}>
           <div className="flex items-baseline gap-2 mb-1">
             <span className="text-xs text-[var(--color-text-dim)]">{ts}</span>
             <span className="font-medium text-[var(--color-assistant)]">
