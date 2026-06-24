@@ -62,6 +62,10 @@ pub enum RenderedTurn {
         /// renders streamed turns with batch-local, unusable indices).
         edit_uuid: String,
         fork_uuid: String,
+        /// Every event uuid this turn covers (one for a user turn). Lets the UI
+        /// locate the turn by ANY message uuid it contains — needed because a
+        /// fork/copy branch point can be a merged-away assistant event.
+        uuids: Vec<String>,
         /// True only on the active (post-compaction) segment. Pre-compaction
         /// turns are view-only; their indices are segment-local and must not be
         /// used by the backend.
@@ -84,6 +88,9 @@ pub enum RenderedTurn {
         /// Stable uuid of the LAST merged event — the fork cutoff (so a fork
         /// includes the whole reply plus its interleaved tool-result lines).
         fork_uuid: String,
+        /// Every merged assistant event's uuid (head + all merged-in events).
+        /// Lets the UI locate this turn by any of them, not just head/fork.
+        uuids: Vec<String>,
         editable: bool,
     },
     #[serde(rename = "system")]
@@ -253,6 +260,7 @@ fn render_path_turns(path: &[&Event], editable: bool) -> Vec<RenderedTurn> {
                     edit_index: idx,
                     fork_index: idx,
                     edit_uuid: uuid.clone(),
+                    uuids: vec![uuid.clone()],
                     fork_uuid: uuid,
                     editable,
                 });
@@ -271,6 +279,8 @@ fn render_path_turns(path: &[&Event], editable: bool) -> Vec<RenderedTurn> {
                 let mut last_msg_i = first_msg_i;
                 // Track the cutoff/edit-target uuids alongside the indices.
                 let mut fork_uuid = head_uuid.clone();
+                // Every merged event's uuid, so the UI can find this turn by any.
+                let mut uuids = vec![head_uuid.clone()];
                 let block_has_text =
                     |bs: &[RenderedBlock]| bs.iter().any(|b| matches!(b, RenderedBlock::Text { .. }));
                 let has_text_first = block_has_text(&blocks);
@@ -299,6 +309,7 @@ fn render_path_turns(path: &[&Event], editable: bool) -> Vec<RenderedTurn> {
                             model = next_a.message.model.clone();
                         }
                         last_msg_i = this_msg_i;
+                        uuids.push(this_uuid.clone());
                         fork_uuid = this_uuid;
                         i += 1;
                     } else {
@@ -314,6 +325,7 @@ fn render_path_turns(path: &[&Event], editable: bool) -> Vec<RenderedTurn> {
                     fork_index: last_msg_i,
                     edit_uuid: edit_uuid.unwrap_or(head_uuid),
                     fork_uuid,
+                    uuids,
                     editable,
                 });
             }

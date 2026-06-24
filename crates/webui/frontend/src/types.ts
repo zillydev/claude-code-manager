@@ -76,6 +76,8 @@ export type RenderedTurn =
       fork_index: number;
       edit_uuid: string;
       fork_uuid: string;
+      /** Every event uuid this turn covers (one for a user turn). */
+      uuids: string[];
       editable: boolean;
     }
   | {
@@ -88,6 +90,8 @@ export type RenderedTurn =
       fork_index: number;
       edit_uuid: string;
       fork_uuid: string;
+      /** Every merged assistant event's uuid (head + all merged-in events). */
+      uuids: string[];
       editable: boolean;
     }
   | { type: "system"; timestamp: string | null; content: string }

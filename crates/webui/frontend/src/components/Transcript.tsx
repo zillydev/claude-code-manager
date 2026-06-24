@@ -25,6 +25,10 @@ interface Props {
   onBack: () => void;
   branchPoints?: Map<string, ForkRef[]>;
   onOpenSession?: (s: SessionSummary) => void;
+  /** Open the lineage tree for this session; omitted/null when it has no lineage. */
+  onViewTree?: (() => void) | null;
+  /** Message uuid to center + flash on open (e.g. a fork point); null = jump to bottom. */
+  scrollToMessage?: string | null;
   /** Whether the transcript's tab is currently showing (false when on Terminal). */
   visible?: boolean;
 }
@@ -34,6 +38,8 @@ export default function Transcript({
   onBack,
   branchPoints,
   onOpenSession,
+  onViewTree,
+  scrollToMessage,
   visible = true,
 }: Props) {
   const [statsOpen, setStatsOpen] = usePersistentState("cm.detailsOpen", true);
@@ -97,19 +103,55 @@ export default function Transcript({
     return () => container.removeEventListener("scroll", onScroll);
   }, []);
 
-  // On opening/switching a session, jump to the latest. On a new turn within
-  // the same session (live tail), only follow if the user is at the bottom —
-  // otherwise leave their scroll position alone.
+  // On opening/switching a session, jump to the latest — unless we were asked to
+  // scroll to a specific message (the effect below handles that). On a new turn
+  // within the same session (live tail), only follow if the user is at the bottom.
   useEffect(() => {
     const isNewSession = prevSessionId.current !== session.id;
     prevSessionId.current = session.id;
     if (isNewSession) {
-      atBottomRef.current = true;
-      bottomRef.current?.scrollIntoView();
+      if (scrollToMessage) {
+        atBottomRef.current = false; // the scroll-to-message effect takes over
+      } else {
+        atBottomRef.current = true;
+        bottomRef.current?.scrollIntoView();
+      }
     } else if (atBottomRef.current) {
       bottomRef.current?.scrollIntoView({ behavior: "smooth" });
     }
-  }, [session.id, session.turns.length]);
+  }, [session.id, session.turns.length, scrollToMessage]);
+
+  // Scroll to + flash a specific message (e.g. a fork point opened from the
+  // lineage tree). Keyed on the message too, so it also fires when the target is
+  // the already-open session. Matches against the turn's full uuid list, so a
+  // branch point that is a merged-away assistant event still resolves to its
+  // (merged) turn; a couple of rAFs let heavy turns finish laying out first.
+  useEffect(() => {
+    if (!scrollToMessage) return;
+    let raf2 = 0;
+    const raf1 = requestAnimationFrame(() => {
+      raf2 = requestAnimationFrame(() => {
+        // Match the turn that COVERS this message uuid — `~=` matches one token
+        // in the space-separated uuid list, so a merged assistant turn is found
+        // by any of its constituent event uuids, not just head/fork.
+        const el = turnsRef.current?.querySelector<HTMLElement>(
+          `[data-msg-uuids~="${scrollToMessage}"]`,
+        );
+        if (!el) return;
+        atBottomRef.current = false;
+        el.scrollIntoView({ block: "center" });
+        el.classList.add("ring-2", "ring-[var(--color-accent)]", "rounded");
+        setTimeout(
+          () => el.classList.remove("ring-2", "ring-[var(--color-accent)]", "rounded"),
+          1600,
+        );
+      });
+    });
+    return () => {
+      cancelAnimationFrame(raf1);
+      cancelAnimationFrame(raf2);
+    };
+  }, [session.id, scrollToMessage]);
 
   // When this tab becomes visible again, restore the bottom if we were pinned
   // there: display:none can drift the scroll position, and live turns may have
@@ -159,6 +201,15 @@ export default function Transcript({
           {session.title}
         </span>
         <div className="ml-auto flex gap-2">
+          {onViewTree && (
+            <button
+              onClick={onViewTree}
+              className="text-xs px-2 py-1 rounded border border-[var(--color-border)] text-[var(--color-text-dim)] hover:border-[var(--color-accent)] hover:text-[var(--color-accent)] transition-colors"
+              title="View this session's fork/copy lineage"
+            >
+              ⑂ Tree
+            </button>
+          )}
           <button
             onClick={() => setCompact(!compact)}
             className={`text-xs px-2 py-1 rounded border ${
@@ -430,7 +481,7 @@ const Turn = memo(function Turn({
   switch (turn.type) {
     case "user":
       return (
-        <div className="group">
+        <div className="group" data-msg-uuids={turn.uuids.join(" ")}>
           <div className="flex items-baseline gap-2 mb-1">
             <span className="text-xs text-[var(--color-text-dim)]">{ts}</span>
             <span className="font-medium text-[var(--color-user)]">user</span>
@@ -465,7 +516,7 @@ const Turn = memo(function Turn({
 
     case "assistant":
       return (
-        <div className="group">
+        <div className="group" data-msg-uuids={turn.uuids.join(" ")}>
           <div className="flex items-baseline gap-2 mb-1">
             <span className="text-xs text-[var(--color-text-dim)]">{ts}</span>
             <span className="font-medium text-[var(--color-assistant)]">

@@ -36,6 +36,7 @@ A tool to browse, search, edit, compact, harvest, and resume Claude Code session
 - **Linked / forked sessions** — sidebar badges (`⮌ from …`, `⑂ N`) + a transcript banner, from CC's `forkedFrom`. → `2026-06-14-linked-sessions-design`
 - **Cross-session copy lineage** — inferred from shared message-uuid overlap (handles background-restart / manual-`/compact` copies that split a session across files); bidirectional badges + banner. → `2026-06-17-compaction-lineage-design`
 - **Inline "forked from here" markers** — at the deepest copied message (the real branch point) in the parent session. → `2026-06-17-fork-point-markers-design`
+- **Lineage tree** — on-demand overlay showing a session's whole fork/copy family as an indented tree (`◀ origin` root, `⑂ forked at "…"` / `⧉ copied · N shared` edges, `● you`), opened from the transcript `⑂ Tree` button or the clickable sidebar `⑂ N`/`⧉ N` badges; click a node to open it. A branch label links to the **parent session scrolled to + flashing the branch message** (matched across merged assistant turns); it's plain text with an explanatory tooltip when that point sits on an edited-away branch the transcript doesn't render. → `2026-06-24-lineage-tree-design`
 
 ## Harvest (read-only session mining)
 

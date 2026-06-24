@@ -122,6 +122,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::list_sessions,
             commands::refresh_sessions,
+            commands::resolve_branch_messages,
             commands::open_session,
             commands::stop_watching,
             commands::search_transcripts,

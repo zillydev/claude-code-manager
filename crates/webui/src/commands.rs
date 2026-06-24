@@ -498,6 +498,80 @@ pub fn new_session(cwd: String) -> Result<NewSessionResult, String> {
     Ok(NewSessionResult { session_id: id.to_string(), file_path })
 }
 
+#[derive(serde::Deserialize)]
+pub struct BranchRef {
+    pub file_path: String,
+    pub message_uuid: String,
+}
+
+#[derive(Serialize)]
+pub struct BranchSnippet {
+    pub message_uuid: String,
+    pub snippet: String,
+    /// Whether this message is actually rendered in the parent's transcript.
+    /// A branch point on an edited-away branch resolves a snippet (we scan the
+    /// whole file) but isn't shown, so the UI can't scroll to it.
+    pub on_path: bool,
+}
+
+/// Resolve short previews for fork/copy branch-point messages. Each branch
+/// message lives in a parent session's file; groups by file so each parent is
+/// parsed once. Unresolvable uuids are simply omitted. Off the UI thread.
+#[tauri::command]
+pub async fn resolve_branch_messages(refs: Vec<BranchRef>) -> Result<Vec<BranchSnippet>, String> {
+    tauri::async_runtime::spawn_blocking(move || -> Result<Vec<BranchSnippet>, String> {
+        use std::collections::{HashMap, HashSet};
+        let mut by_file: HashMap<String, HashSet<uuid::Uuid>> = HashMap::new();
+        for r in &refs {
+            if let Ok(id) = uuid::Uuid::parse_str(&r.message_uuid) {
+                by_file.entry(r.file_path.clone()).or_default().insert(id);
+            }
+        }
+        let mut snippets: HashMap<uuid::Uuid, String> = HashMap::new();
+        let mut on_path: HashSet<uuid::Uuid> = HashSet::new();
+        for (file, wanted) in &by_file {
+            let path = std::path::Path::new(file);
+            snippets.extend(store::message_snippets(path, wanted));
+            // A branch point is reachable only if the transcript actually renders
+            // it. Render the parent (same path the UI uses) and collect every
+            // shown turn's uuids; a message on an edited-away branch won't appear.
+            if let Ok(session) = store::open_session(path.to_path_buf(), String::new()) {
+                for t in &render_session(&session).turns {
+                    if let RenderedTurn::User { uuids, .. } | RenderedTurn::Assistant { uuids, .. } =
+                        t
+                    {
+                        for u in uuids {
+                            if let Ok(id) = uuid::Uuid::parse_str(u) {
+                                if wanted.contains(&id) {
+                                    on_path.insert(id);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        let mut out = Vec::new();
+        let mut seen = HashSet::new();
+        for r in &refs {
+            if let Ok(id) = uuid::Uuid::parse_str(&r.message_uuid) {
+                if seen.insert(id) {
+                    if let Some(s) = snippets.get(&id) {
+                        out.push(BranchSnippet {
+                            message_uuid: r.message_uuid.clone(),
+                            snippet: s.clone(),
+                            on_path: on_path.contains(&id),
+                        });
+                    }
+                }
+            }
+        }
+        Ok(out)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 #[tauri::command]
 pub fn terminal_input(session_id: String, data: String, app: AppHandle) -> Result<(), String> {
     app.state::<Mutex<TerminalState>>()
