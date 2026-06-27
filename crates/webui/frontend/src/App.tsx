@@ -147,15 +147,21 @@ export default function App() {
     };
   }, []);
 
-  // Cmd+E toggles Manager ↔ Terminal. Cmd (not Ctrl) so it never collides with
-  // the terminal — Ctrl+E is "move to end of line" in claude/shells. Capture
-  // phase so it beats xterm when the terminal is focused.
+  // Cmd+E toggles Manager ↔ Terminal; Cmd+B toggles the sidebar. Cmd (not Ctrl)
+  // so they never collide with the terminal — Ctrl+E/Ctrl+B are line-editing keys
+  // in claude/shells. Capture phase so it beats xterm when the terminal is focused.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.metaKey && !e.ctrlKey && !e.shiftKey && !e.altKey && e.key.toLowerCase() === "e") {
+      if (!e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+      const k = e.key.toLowerCase();
+      if (k === "e") {
         e.preventDefault();
         e.stopPropagation();
         setActiveTab((t) => (t === "manager" ? "terminal" : "manager"));
+      } else if (k === "b") {
+        e.preventDefault();
+        e.stopPropagation();
+        setCollapsed((c) => !c);
       }
     };
     window.addEventListener("keydown", onKey, true);
