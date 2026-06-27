@@ -4,6 +4,7 @@ import { useSessions, useTranscript } from "./hooks/useSessions";
 import Sidebar from "./components/Sidebar";
 import Transcript from "./components/Transcript";
 import TerminalPane from "./components/TerminalPane";
+import TabToggle from "./components/TabToggle";
 import LineageBanner from "./components/LineageBanner";
 import LineageTree from "./components/LineageTree";
 import Spinner from "./components/Spinner";
@@ -19,7 +20,7 @@ const basename = (p: string) => p.replace(/\/+$/, "").split("/").pop() || p;
 
 export default function App() {
   const { sessions, loading, refresh } = useSessions();
-  const { transcript, loading: txLoading, open, close, updateTitle } = useTranscript();
+  const { transcript, loading: txLoading, open, close } = useTranscript();
   const [sidebarWidth, setSidebarWidth] = useState(DEFAULT_WIDTH);
   const [collapsed, setCollapsed] = useState(false);
   const [activeTab, setActiveTab] = useState<"manager" | "terminal">("manager");
@@ -146,15 +147,21 @@ export default function App() {
     };
   }, []);
 
-  // Cmd+E toggles Manager ↔ Terminal. Cmd (not Ctrl) so it never collides with
-  // the terminal — Ctrl+E is "move to end of line" in claude/shells. Capture
-  // phase so it beats xterm when the terminal is focused.
+  // Cmd+E toggles Manager ↔ Terminal; Cmd+B toggles the sidebar. Cmd (not Ctrl)
+  // so they never collide with the terminal — Ctrl+E/Ctrl+B are line-editing keys
+  // in claude/shells. Capture phase so it beats xterm when the terminal is focused.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.metaKey && !e.ctrlKey && !e.shiftKey && !e.altKey && e.key.toLowerCase() === "e") {
+      if (!e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+      const k = e.key.toLowerCase();
+      if (k === "e") {
         e.preventDefault();
         e.stopPropagation();
         setActiveTab((t) => (t === "manager" ? "terminal" : "manager"));
+      } else if (k === "b") {
+        e.preventDefault();
+        e.stopPropagation();
+        setCollapsed((c) => !c);
       }
     };
     window.addEventListener("keydown", onKey, true);
@@ -167,10 +174,10 @@ export default function App() {
         <div className="flex flex-col border-r border-[var(--color-border)] bg-[var(--color-surface)]">
           <button
             onClick={() => setCollapsed(false)}
-            className="px-2 py-3 text-[var(--color-text-dim)] hover:text-[var(--color-text)] text-sm"
-            title="Expand sidebar"
+            className="px-3 py-3 text-lg leading-none text-[var(--color-text-dim)] hover:text-[var(--color-accent)] hover:bg-[var(--color-surface-hover)]"
+            title="Expand sidebar (⌘B)"
           >
-            ▸
+            »
           </button>
         </div>
       ) : (
@@ -194,19 +201,6 @@ export default function App() {
                   console.error("delete failed:", e);
                 }
               }}
-              onRename={async (s, newTitle) => {
-                try {
-                  await invoke("rename_session", {
-                    filePath: s.file_path,
-                    newTitle,
-                  });
-                  // Patch the open transcript's header too, if it's this session.
-                  if (transcript?.id === s.id) updateTitle(newTitle);
-                  refresh();
-                } catch (e) {
-                  console.error("rename failed:", e);
-                }
-              }}
               onNewSession={newSession}
               onViewTree={(s) => setLineageFor(s.id)}
             />
@@ -219,22 +213,6 @@ export default function App() {
         </>
       )}
       <main className="flex-1 overflow-hidden flex flex-col">
-        <div className="flex items-center gap-1 px-2 py-1 border-b border-[var(--color-border)] bg-[var(--color-surface)] shrink-0">
-          {(["manager", "terminal"] as const).map((t) => (
-            <button
-              key={t}
-              onClick={() => setActiveTab(t)}
-              className={
-                "px-3 py-1 text-sm rounded " +
-                (activeTab === t
-                  ? "bg-[var(--color-accent)] text-white"
-                  : "text-[var(--color-text-dim)] hover:text-[var(--color-text)]")
-              }
-            >
-              {t === "manager" ? "Manager" : "Terminal"}
-            </button>
-          ))}
-        </div>
         <div className="flex-1 overflow-hidden">
           <div className="h-full" style={{ display: activeTab === "manager" ? "block" : "none" }}>
             <div className="flex flex-col h-full">
@@ -280,12 +258,12 @@ export default function App() {
                 <div className="flex-1 overflow-hidden">
                   <Transcript
                     session={transcript}
-                    onBack={close}
                     branchPoints={branchPoints}
                     onOpenSession={(s) => openSession(s)}
                     onViewTree={hasLineage ? () => setLineageFor(transcript.id) : null}
                     scrollToMessage={target?.scrollToMessage ?? null}
                     visible={activeTab === "manager"}
+                    tabs={<TabToggle activeTab={activeTab} onSelect={setActiveTab} />}
                   />
                 </div>
               </>
@@ -310,12 +288,32 @@ export default function App() {
             </div>
           </div>
           <div className="h-full" style={{ display: activeTab === "terminal" ? "block" : "none" }}>
-            <TerminalPane
-              sessionId={target?.sessionId ?? null}
-              filePath={target?.filePath ?? null}
-              cwd={target?.cwd}
-              tabActive={activeTab === "terminal"}
-            />
+            <div className="flex flex-col h-full">
+              {/* Slim header mirrors the transcript's: session title + the toggle. */}
+              <div className="flex items-center gap-3 px-4 py-2.5 border-b border-[var(--color-border)] bg-[var(--color-surface)] shrink-0">
+                {(transcript?.project_label ?? target?.projectLabel) && (
+                  <span className="font-medium text-[var(--color-accent)]">
+                    {transcript?.project_label ?? target?.projectLabel}
+                  </span>
+                )}
+                {transcript?.title && (
+                  <span className="text-[var(--color-text)] font-medium truncate">
+                    {transcript.title}
+                  </span>
+                )}
+                <div className="ml-auto">
+                  <TabToggle activeTab={activeTab} onSelect={setActiveTab} />
+                </div>
+              </div>
+              <div className="flex-1 overflow-hidden">
+                <TerminalPane
+                  sessionId={target?.sessionId ?? null}
+                  filePath={target?.filePath ?? null}
+                  cwd={target?.cwd}
+                  tabActive={activeTab === "terminal"}
+                />
+              </div>
+            </div>
           </div>
         </div>
       </main>

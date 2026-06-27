@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback, memo, Fragment } from "react";
+import { useState, useRef, useEffect, useCallback, memo, Fragment, type ReactNode } from "react";
 import Markdown from "react-markdown";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import type {
@@ -14,6 +14,7 @@ import { useEditor } from "../hooks/useEditor";
 import CommitResultBanner from "./CommitResultBanner";
 import FindBar from "./FindBar";
 import ForkMarker from "./ForkMarker";
+import Dropdown, { menuItemClass, ConfirmMenuItem } from "./Dropdown";
 import Spinner from "./Spinner";
 import { useFind } from "../hooks/useFind";
 import { usePersistentState } from "../hooks/usePersistentState";
@@ -22,7 +23,6 @@ import { isNearBottom } from "../lib/scroll";
 
 interface Props {
   session: RenderedSession;
-  onBack: () => void;
   branchPoints?: Map<string, ForkRef[]>;
   onOpenSession?: (s: SessionSummary) => void;
   /** Open the lineage tree for this session; omitted/null when it has no lineage. */
@@ -31,16 +31,18 @@ interface Props {
   scrollToMessage?: string | null;
   /** Whether the transcript's tab is currently showing (false when on Terminal). */
   visible?: boolean;
+  /** The Manager/Terminal toggle, slotted into the header's right cluster. */
+  tabs?: ReactNode;
 }
 
 export default function Transcript({
   session,
-  onBack,
   branchPoints,
   onOpenSession,
   onViewTree,
   scrollToMessage,
   visible = true,
+  tabs,
 }: Props) {
   const [statsOpen, setStatsOpen] = usePersistentState("cm.detailsOpen", true);
   const [compact, setCompact] = usePersistentState("cm.compact", false);
@@ -60,6 +62,11 @@ export default function Transcript({
 
   const find = useFind(turnsRef, session.turns);
   const { openFind, next: findNext, prev: findPrev } = find;
+
+  // The turns actually rendered. Suspend compact while find is open so every
+  // match is mounted & countable. Declared before the scroll effects because
+  // they key on its length — toggling compact reshapes this (not session.turns).
+  const visibleTurns = compact && !find.open ? filterCompact(session.turns) : session.turns;
 
   // Stable handlers so the memoized <Turn>s don't re-render on every find
   // keystroke. useEditor's methods are useCallback([])-stable, and sourcePath
@@ -104,8 +111,10 @@ export default function Transcript({
   }, []);
 
   // On opening/switching a session, jump to the latest — unless we were asked to
-  // scroll to a specific message (the effect below handles that). On a new turn
-  // within the same session (live tail), only follow if the user is at the bottom.
+  // scroll to a specific message (the effect below handles that). When the
+  // rendered set changes within the same session — a live-tail turn, or a
+  // compact/find toggle that reshapes height — re-pin to the bottom if we were
+  // there (otherwise a toggle leaves scrollTop pointing at now-different content).
   useEffect(() => {
     const isNewSession = prevSessionId.current !== session.id;
     prevSessionId.current = session.id;
@@ -119,7 +128,7 @@ export default function Transcript({
     } else if (atBottomRef.current) {
       bottomRef.current?.scrollIntoView({ behavior: "smooth" });
     }
-  }, [session.id, session.turns.length, scrollToMessage]);
+  }, [session.id, visibleTurns.length, scrollToMessage]);
 
   // Scroll to + flash a specific message (e.g. a fork point opened from the
   // lineage tree). Keyed on the message too, so it also fires when the target is
@@ -179,28 +188,17 @@ export default function Transcript({
 
   const { stats } = session;
 
-  // Suspend compact while find is open so every match is mounted & countable.
-  const visibleTurns = compact && !find.open
-    ? filterCompact(session.turns)
-    : session.turns;
-
   return (
     <div className="flex flex-col h-full">
       {/* Header bar */}
       <div className="flex items-center gap-3 px-4 py-2.5 border-b border-[var(--color-border)] bg-[var(--color-surface)] shrink-0">
-        <button
-          onClick={onBack}
-          className="text-[var(--color-text-dim)] hover:text-[var(--color-text)] text-sm"
-        >
-          ← Back
-        </button>
         <span className="font-medium text-[var(--color-accent)]">
           {session.project_label}
         </span>
         <span className="text-[var(--color-text)] font-medium truncate">
           {session.title}
         </span>
-        <div className="ml-auto flex gap-2">
+        <div className="ml-auto flex gap-2 items-center">
           {onViewTree && (
             <button
               onClick={onViewTree}
@@ -230,6 +228,7 @@ export default function Transcript({
           >
             {statsOpen ? "Hide details" : "Details"}
           </button>
+          {tabs}
         </div>
       </div>
 
@@ -630,51 +629,56 @@ function TurnActions({
   deletePending: boolean;
 }) {
   const [copied, setCopied] = useState(false);
-  const [confirming, setConfirming] = useState(false);
   const btn =
     "text-[10px] px-1.5 py-0.5 rounded border border-[var(--color-border)] text-[var(--color-text-dim)] hover:border-[var(--color-accent)] hover:text-[var(--color-accent)] disabled:opacity-50";
+  const busy = forkPending || deletePending;
+
   return (
-    <span className="opacity-0 group-hover:opacity-100 transition-opacity flex gap-2 ml-2">
-      {canMutate && (
-        <button onClick={onEdit} className={btn}>
-          edit
-        </button>
-      )}
-      <button
-        onClick={onFork}
-        disabled={forkPending || deletePending}
-        className={btn}
-        title="Create a new session ending at this message"
+    <span className="opacity-0 group-hover:opacity-100 transition-opacity flex gap-2 ml-2 items-center">
+      {/* Edit / Fork / Delete live behind a ⋯ menu so they're not fat-fingered. */}
+      <Dropdown
+        trigger={busy ? <Spinner /> : "⋯"}
+        title="Message actions"
+        disabled={busy}
+        triggerClassName={btn}
       >
-        {forkPending ? <Spinner /> : "fork from here"}
-      </button>
-      {canMutate &&
-        (confirming ? (
-          <span className="flex gap-1 items-center">
-            <span className="text-[10px] text-[var(--color-error)]">delete?</span>
+        {(close) => (
+          <>
+            {canMutate && (
+              <button
+                role="menuitem"
+                className={menuItemClass}
+                onClick={() => {
+                  close();
+                  onEdit();
+                }}
+              >
+                Edit
+              </button>
+            )}
             <button
+              role="menuitem"
+              className={menuItemClass}
+              disabled={busy}
+              title="Create a new session ending at this message"
               onClick={() => {
-                setConfirming(false);
-                onDelete();
+                close();
+                onFork();
               }}
-              className="text-[10px] px-1.5 py-0.5 rounded border border-[var(--color-error)] text-[var(--color-error)]"
             >
-              yes
+              Fork from here
             </button>
-            <button onClick={() => setConfirming(false)} className={btn}>
-              no
-            </button>
-          </span>
-        ) : (
-          <button
-            onClick={() => setConfirming(true)}
-            disabled={deletePending}
-            className={btn}
-            title="Delete this message (writes a new session without it)"
-          >
-            {deletePending ? <Spinner /> : "delete"}
-          </button>
-        ))}
+            {canMutate && (
+              <ConfirmMenuItem
+                label="Delete"
+                confirmLabel="Confirm delete"
+                close={close}
+                onConfirm={onDelete}
+              />
+            )}
+          </>
+        )}
+      </Dropdown>
       {messageId && (
         <button
           onClick={() => {

@@ -28,7 +28,6 @@ A tool to browse, search, edit, compact, harvest, and resume Claude Code session
 
 - **Edit a message / fork from here** — copy-on-edit → a new resumable session; resolves targets by stable uuid (incl. pre-compaction turns). → `2026-05-30-session-editor-design`
 - **Delete a session** (trash with restore) / **delete a message**.
-- **Rename a session** — in-place additive `custom-title`; titlebar + sidebar update live. → `2026-06-12-rename-session-design`
 - **`session-surgery` skill + CLI** (`surgery extract` / `rewrite`) — summarize or prune a turn-snapped message range → a new resumable session (timestamps backfilled so `claude --resume` accepts it). `--from/--to` accept a uuid **prefix**. → `2026-05-30-session-surgery-skill-design`, `2026-06-18-surgery-rewrite-parity-design`
 
 ## Lineage
@@ -51,7 +50,7 @@ A tool to browse, search, edit, compact, harvest, and resume Claude Code session
 
 ## Embedded terminal
 
-- **Manager | Terminal tabs** in the session pane (sidebar always visible). The Terminal tab runs the real interactive `claude --resume <open session>` in a PTY (xterm.js + `portable-pty`) — full TUI, exactly like Ghostty. One persistent terminal per session, **spawned lazily** only when a session's terminal first becomes visible; uses the user's bypass alias (`claude-tracked --dangerously-skip-permissions`). **⌘E** toggles tabs. → `2026-06-19-terminal-tab-design`
+- **Manager | Terminal tabs** in the session pane (sidebar always visible). The Terminal tab runs the real interactive `claude --resume <open session>` in a PTY (xterm.js + `portable-pty`) — full TUI, exactly like Ghostty. One persistent terminal per session, **spawned lazily** only when a session's terminal first becomes visible; uses the user's bypass alias (`claude-tracked --dangerously-skip-permissions`). The Manager/Terminal toggle lives in the session header (no separate tab row); **⌘E** toggles tabs, **⌘B** the sidebar. (A bundled-app launch rebuilds `PATH` from a login shell and pins `TERM`/`COLORTERM` so `claude` resolves and renders in color.) → `2026-06-19-terminal-tab-design`
 - **New session** — a `+ New` sidebar popover (paste a directory path, or create in the selected project's directory) spawns a fresh `claude --session-id` in that cwd. Manager and Terminal share one open session, so they never diverge; the new session surfaces in the sidebar/Manager once claude writes the first turn (polled, since the file doesn't exist until then). → `2026-06-21-new-session-design`
 
 ## Live tail & scrolling

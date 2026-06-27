@@ -103,13 +103,6 @@ export function useTranscript() {
     setError(null);
   }, []);
 
-  // Patch the open transcript's title in place (e.g. after a rename) without a
-  // full reload — the transcript header reads `session.title`, and a sidebar
-  // refresh alone does not touch the separately-loaded open transcript.
-  const updateTitle = useCallback((title: string) => {
-    setTranscript((prev) => (prev ? { ...prev, title } : prev));
-  }, []);
-
   // Cleanup on unmount.
   useEffect(() => {
     return () => {
@@ -120,5 +113,5 @@ export function useTranscript() {
     };
   }, []);
 
-  return { transcript, loading, error, open, close, updateTitle };
+  return { transcript, loading, error, open, close };
 }
