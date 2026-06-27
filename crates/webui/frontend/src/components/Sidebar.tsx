@@ -2,6 +2,7 @@ import { useState, useMemo, useCallback, useRef, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import type { SessionSummary, SortField, SortDir, DateRange } from "../types";
 import Spinner from "./Spinner";
+import Dropdown, { menuItemClass, ConfirmMenuItem } from "./Dropdown";
 import { deriveStatus } from "../lib/sessionStatus";
 import type { LiveActivity } from "../hooks/useActivity";
 
@@ -45,7 +46,6 @@ export default function Sidebar({
   const [sortDir, setSortDir] = useState<SortDir>("desc");
   const [searchHits, setSearchHits] = useState<Set<string> | null>(null);
   const [searching, setSearching] = useState(false);
-  const [confirmingId, setConfirmingId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
@@ -551,65 +551,46 @@ export default function Sidebar({
                 </button>
               )}
 
-              {/* Rename + delete affordances (hidden while editing this row) */}
+              {/* Per-row ⋯ menu: Rename + Delete (hidden while editing this row) */}
               {!editing && (
                 <div className={`flex items-center shrink-0 pr-1.5 transition-opacity ${deletingId === s.id ? "opacity-100" : "opacity-0 group-hover:opacity-100"}`}>
-                  {confirmingId === s.id ? (
-                    <span className="flex items-center gap-0.5">
-                      <button
-                        onClick={async (e) => {
-                          e.stopPropagation();
-                          setConfirmingId(null);
-                          setDeletingId(s.id);
-                          try {
-                            await onDelete(s);
-                          } finally {
-                            setDeletingId(null);
-                          }
-                        }}
-                        className="text-[10px] px-1.5 py-0.5 rounded text-[var(--color-error)] border border-[var(--color-error)] hover:bg-[var(--color-error)] hover:text-[var(--color-bg)] transition-colors"
-                        title="Confirm delete"
-                      >
-                        ✓
-                      </button>
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setConfirmingId(null);
-                        }}
-                        className="text-[10px] px-1.5 py-0.5 rounded text-[var(--color-text-dim)] border border-[var(--color-border)] hover:text-[var(--color-text)] hover:bg-[var(--color-surface-hover)] transition-colors"
-                        title="Cancel"
-                      >
-                        ✗
-                      </button>
-                    </span>
-                  ) : (
-                    <>
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setConfirmingId(null);
-                          setDraftTitle(s.title);
-                          setEditingId(s.id);
-                        }}
-                        className="text-[11px] px-1 py-0.5 rounded text-[var(--color-text-dim)] hover:text-[var(--color-accent)] transition-colors"
-                        title="Rename session"
-                      >
-                        ✎
-                      </button>
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setConfirmingId(s.id);
-                        }}
-                        disabled={deletingId === s.id}
-                        className="text-[10px] px-1 py-0.5 rounded text-[var(--color-text-dim)] hover:text-[var(--color-error)] transition-colors disabled:opacity-100"
-                        title="Delete session"
-                      >
-                        {deletingId === s.id ? <Spinner /> : "×"}
-                      </button>
-                    </>
-                  )}
+                  <Dropdown
+                    trigger={deletingId === s.id ? <Spinner /> : "⋯"}
+                    title="Session actions"
+                    align="right"
+                    disabled={deletingId === s.id}
+                    triggerClassName="text-[13px] leading-none px-1.5 py-0.5 rounded text-[var(--color-text-dim)] hover:text-[var(--color-accent)] hover:bg-[var(--color-surface-hover)]"
+                  >
+                    {(close) => (
+                      <>
+                        <button
+                          role="menuitem"
+                          className={menuItemClass}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            close();
+                            setDraftTitle(s.title);
+                            setEditingId(s.id);
+                          }}
+                        >
+                          Rename
+                        </button>
+                        <ConfirmMenuItem
+                          label="Delete"
+                          confirmLabel="Confirm delete"
+                          close={close}
+                          onConfirm={async () => {
+                            setDeletingId(s.id);
+                            try {
+                              await onDelete(s);
+                            } finally {
+                              setDeletingId(null);
+                            }
+                          }}
+                        />
+                      </>
+                    )}
+                  </Dropdown>
                 </div>
               )}
             </div>

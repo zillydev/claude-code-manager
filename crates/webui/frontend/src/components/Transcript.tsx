@@ -14,6 +14,7 @@ import { useEditor } from "../hooks/useEditor";
 import CommitResultBanner from "./CommitResultBanner";
 import FindBar from "./FindBar";
 import ForkMarker from "./ForkMarker";
+import Dropdown, { menuItemClass, ConfirmMenuItem } from "./Dropdown";
 import Spinner from "./Spinner";
 import { useFind } from "../hooks/useFind";
 import { usePersistentState } from "../hooks/usePersistentState";
@@ -628,60 +629,25 @@ function TurnActions({
   deletePending: boolean;
 }) {
   const [copied, setCopied] = useState(false);
-  const [open, setOpen] = useState(false);
-  const [confirming, setConfirming] = useState(false);
-  const menuRef = useRef<HTMLDivElement>(null);
-  const close = useCallback(() => {
-    setOpen(false);
-    setConfirming(false);
-  }, []);
-
-  // Close the menu on click-outside / Esc while it's open.
-  useEffect(() => {
-    if (!open) return;
-    const onDown = (e: MouseEvent) => {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) close();
-    };
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") close();
-    };
-    window.addEventListener("mousedown", onDown);
-    window.addEventListener("keydown", onKey);
-    return () => {
-      window.removeEventListener("mousedown", onDown);
-      window.removeEventListener("keydown", onKey);
-    };
-  }, [open, close]);
-
   const btn =
     "text-[10px] px-1.5 py-0.5 rounded border border-[var(--color-border)] text-[var(--color-text-dim)] hover:border-[var(--color-accent)] hover:text-[var(--color-accent)] disabled:opacity-50";
-  const item =
-    "block w-full text-left text-[11px] px-3 py-1.5 hover:bg-[var(--color-surface-hover)] disabled:opacity-50";
   const busy = forkPending || deletePending;
 
   return (
-    <span className="opacity-0 group-hover:opacity-100 transition-opacity flex gap-2 ml-2">
+    <span className="opacity-0 group-hover:opacity-100 transition-opacity flex gap-2 ml-2 items-center">
       {/* Edit / Fork / Delete live behind a ⋯ menu so they're not fat-fingered. */}
-      <div className="relative" ref={menuRef}>
-        <button
-          onClick={() => setOpen((o) => !o)}
-          disabled={busy}
-          className={btn}
-          title="Message actions"
-          aria-haspopup="menu"
-          aria-expanded={open}
-        >
-          {busy ? <Spinner /> : "⋯"}
-        </button>
-        {open && (
-          <div
-            role="menu"
-            className="absolute left-0 top-full mt-1 z-20 min-w-32 rounded border border-[var(--color-border)] bg-[var(--color-surface)] py-1 shadow-lg"
-          >
+      <Dropdown
+        trigger={busy ? <Spinner /> : "⋯"}
+        title="Message actions"
+        disabled={busy}
+        triggerClassName={btn}
+      >
+        {(close) => (
+          <>
             {canMutate && (
               <button
                 role="menuitem"
-                className={item}
+                className={menuItemClass}
                 onClick={() => {
                   close();
                   onEdit();
@@ -692,7 +658,7 @@ function TurnActions({
             )}
             <button
               role="menuitem"
-              className={item}
+              className={menuItemClass}
               disabled={busy}
               title="Create a new session ending at this message"
               onClick={() => {
@@ -702,31 +668,17 @@ function TurnActions({
             >
               Fork from here
             </button>
-            {canMutate &&
-              (confirming ? (
-                <button
-                  role="menuitem"
-                  className={`${item} text-[var(--color-error)] font-medium`}
-                  onClick={() => {
-                    close();
-                    onDelete();
-                  }}
-                >
-                  Confirm delete
-                </button>
-              ) : (
-                <button
-                  role="menuitem"
-                  className={`${item} text-[var(--color-error)]`}
-                  title="Delete this message (writes a new session without it)"
-                  onClick={() => setConfirming(true)}
-                >
-                  Delete
-                </button>
-              ))}
-          </div>
+            {canMutate && (
+              <ConfirmMenuItem
+                label="Delete"
+                confirmLabel="Confirm delete"
+                close={close}
+                onConfirm={onDelete}
+              />
+            )}
+          </>
         )}
-      </div>
+      </Dropdown>
       {messageId && (
         <button
           onClick={() => {
