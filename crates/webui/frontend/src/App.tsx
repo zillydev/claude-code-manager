@@ -280,7 +280,6 @@ export default function App() {
                 <div className="flex-1 overflow-hidden">
                   <Transcript
                     session={transcript}
-                    onBack={close}
                     branchPoints={branchPoints}
                     onOpenSession={(s) => openSession(s)}
                     onViewTree={hasLineage ? () => setLineageFor(transcript.id) : null}

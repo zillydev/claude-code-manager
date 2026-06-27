@@ -22,7 +22,6 @@ import { isNearBottom } from "../lib/scroll";
 
 interface Props {
   session: RenderedSession;
-  onBack: () => void;
   branchPoints?: Map<string, ForkRef[]>;
   onOpenSession?: (s: SessionSummary) => void;
   /** Open the lineage tree for this session; omitted/null when it has no lineage. */
@@ -35,7 +34,6 @@ interface Props {
 
 export default function Transcript({
   session,
-  onBack,
   branchPoints,
   onOpenSession,
   onViewTree,
@@ -190,12 +188,6 @@ export default function Transcript({
     <div className="flex flex-col h-full">
       {/* Header bar */}
       <div className="flex items-center gap-3 px-4 py-2.5 border-b border-[var(--color-border)] bg-[var(--color-surface)] shrink-0">
-        <button
-          onClick={onBack}
-          className="text-[var(--color-text-dim)] hover:text-[var(--color-text)] text-sm"
-        >
-          ← Back
-        </button>
         <span className="font-medium text-[var(--color-accent)]">
           {session.project_label}
         </span>
