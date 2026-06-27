@@ -1,4 +1,4 @@
-.PHONY: tui webui build test clean
+.PHONY: tui webui build app install test clean
 
 # Vite dev-server port for `make webui` (Tauri's devUrl is overridden to match).
 # Override e.g. `make webui PORT=3000`.
@@ -17,11 +17,30 @@ tui:
 webui:
 	cd crates/webui && CM_PORT=$(PORT) cargo tauri dev --no-watch --config '{"build":{"devUrl":"http://localhost:$(PORT)"}}'
 
-# Build everything (Rust workspace + frontend)
+# Build everything (Rust workspace + frontend) — a compile/CI check, no bundle.
 build:
 	npm --prefix crates/webui/frontend install
 	npm --prefix crates/webui/frontend run build
 	cargo build --release
+
+APP_NAME := claude-manager.app
+APP_BUNDLE := target/release/bundle/macos/$(APP_NAME)
+
+# Build the distributable macOS app: `cargo tauri build` runs the frontend
+# production build (beforeBuildCommand), then compiles + bundles the release
+# binary into target/release/bundle/ (.app + .dmg). npm install first because
+# the before-command only runs `npm run build`, not install.
+app:
+	npm --prefix crates/webui/frontend install
+	cd crates/webui && cargo tauri build
+
+# Build the app and install it into /Applications so the Dock icon updates.
+# ditto replaces the existing copy; a locally-built app carries no quarantine
+# attribute, so Gatekeeper won't prompt on launch.
+install: app
+	rm -rf "/Applications/$(APP_NAME)"
+	ditto "$(APP_BUNDLE)" "/Applications/$(APP_NAME)"
+	@echo "Installed $(APP_NAME) -> /Applications (quit + reopen if it was running)"
 
 # Run all tests
 test:
