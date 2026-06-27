@@ -2,7 +2,7 @@ import { useState, useMemo, useCallback, useRef, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import type { SessionSummary, SortField, SortDir, DateRange } from "../types";
 import Spinner from "./Spinner";
-import Dropdown, { menuItemClass, ConfirmMenuItem } from "./Dropdown";
+import Dropdown, { ConfirmMenuItem } from "./Dropdown";
 import { deriveStatus } from "../lib/sessionStatus";
 import type { LiveActivity } from "../hooks/useActivity";
 
@@ -16,7 +16,6 @@ interface Props {
   onRefresh: () => void;
   onCollapse: () => void;
   onDelete: (s: SessionSummary) => void | Promise<void>;
-  onRename: (s: SessionSummary, newTitle: string) => void | Promise<void>;
   onNewSession: (cwd: string) => Promise<void>;
   onViewTree: (s: SessionSummary) => void;
 }
@@ -31,7 +30,6 @@ export default function Sidebar({
   onRefresh,
   onCollapse,
   onDelete,
-  onRename,
   onNewSession,
   onViewTree,
 }: Props) {
@@ -47,10 +45,7 @@ export default function Sidebar({
   const [searchHits, setSearchHits] = useState<Set<string> | null>(null);
   const [searching, setSearching] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
-  const [renamingId, setRenamingId] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [draftTitle, setDraftTitle] = useState("");
   const [hoveredId, setHoveredId] = useState<string | null>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -380,7 +375,6 @@ export default function Sidebar({
           </div>
         ) : (
           sorted.map((s) => {
-            const editing = editingId === s.id;
             const act = activity.get(s.id);
             const liveEventAt = act?.at ?? s.last_event_at?.secs_since_epoch ?? null;
             const awaiting = act?.awaiting ?? s.awaiting_input;
@@ -417,43 +411,11 @@ export default function Sidebar({
                   }
                 />
               )}
-              {editing ? (
-                /* Inline rename input (an input can't live inside the row button) */
-                <div className="flex-1 px-3 py-2 min-w-0 flex items-center gap-2">
-                  <input
-                    autoFocus
-                    value={draftTitle}
-                    disabled={renamingId === s.id}
-                    onChange={(e) => setDraftTitle(e.target.value)}
-                    onKeyDown={async (e) => {
-                      if (e.key === "Enter") {
-                        e.preventDefault();
-                        const t = draftTitle.trim();
-                        if (t && t !== s.title) {
-                          setRenamingId(s.id);
-                          try {
-                            await onRename(s, t);
-                          } finally {
-                            setRenamingId(null);
-                          }
-                        }
-                        setEditingId(null);
-                      } else if (e.key === "Escape") {
-                        e.preventDefault();
-                        setEditingId(null);
-                      }
-                    }}
-                    onBlur={() => setEditingId(null)}
-                    className="w-full bg-[var(--color-bg)] text-[var(--color-text)] text-sm px-1.5 py-1 rounded border border-[var(--color-accent)] outline-none disabled:opacity-60"
-                  />
-                  {renamingId === s.id && <Spinner />}
-                </div>
-              ) : (
-                /* Main clickable area */
-                <button
-                  onClick={() => onSelect(s)}
-                  className="flex-1 text-left px-3 py-2 min-w-0"
-                >
+              {/* Main clickable area */}
+              <button
+                onClick={() => onSelect(s)}
+                className="flex-1 text-left px-3 py-2 min-w-0"
+              >
                   <div className="flex items-center justify-between">
                     <span className="text-xs font-medium text-[var(--color-accent)] truncate">
                       {s.project_label}
@@ -549,11 +511,9 @@ export default function Sidebar({
                     </div>
                   )}
                 </button>
-              )}
 
-              {/* Per-row ⋯ menu: Rename + Delete (hidden while editing this row) */}
-              {!editing && (
-                <div className={`flex items-center shrink-0 pr-1.5 transition-opacity ${deletingId === s.id ? "opacity-100" : "opacity-0 group-hover:opacity-100"}`}>
+              {/* Per-row ⋯ menu (Delete) */}
+              <div className={`flex items-center shrink-0 pr-1.5 transition-opacity ${deletingId === s.id ? "opacity-100" : "opacity-0 group-hover:opacity-100"}`}>
                   <Dropdown
                     trigger={deletingId === s.id ? <Spinner /> : "⋯"}
                     title="Session actions"
@@ -563,18 +523,6 @@ export default function Sidebar({
                   >
                     {(close) => (
                       <>
-                        <button
-                          role="menuitem"
-                          className={menuItemClass}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            close();
-                            setDraftTitle(s.title);
-                            setEditingId(s.id);
-                          }}
-                        >
-                          Rename
-                        </button>
                         <ConfirmMenuItem
                           label="Delete"
                           confirmLabel="Confirm delete"
@@ -592,7 +540,6 @@ export default function Sidebar({
                     )}
                   </Dropdown>
                 </div>
-              )}
             </div>
             );
           })

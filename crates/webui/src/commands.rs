@@ -301,20 +301,6 @@ pub async fn commit_session(
     .map_err(|e| e.to_string())?
 }
 
-/// Rename a session in place by appending a `custom-title` event (the most-recent
-/// custom-title wins). This is the one place we mutate the original file — a
-/// custom-title is metadata and a rename must keep the same session id.
-#[tauri::command]
-pub async fn rename_session(file_path: String, new_title: String) -> Result<(), String> {
-    tauri::async_runtime::spawn_blocking(move || -> Result<(), String> {
-        let path = PathBuf::from(&file_path);
-        claude_manager_core::session::edit::append_custom_title(&path, &new_title)
-            .map_err(|e| e.to_string())
-    })
-    .await
-    .map_err(|e| e.to_string())?
-}
-
 /// Move a session file to the app trash (recoverable). Returns Ok(()) on success.
 #[tauri::command]
 pub async fn delete_session(file_path: String) -> Result<(), String> {

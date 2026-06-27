@@ -28,7 +28,6 @@ A tool to browse, search, edit, compact, harvest, and resume Claude Code session
 
 - **Edit a message / fork from here** — copy-on-edit → a new resumable session; resolves targets by stable uuid (incl. pre-compaction turns). → `2026-05-30-session-editor-design`
 - **Delete a session** (trash with restore) / **delete a message**.
-- **Rename a session** — in-place additive `custom-title`; titlebar + sidebar update live. → `2026-06-12-rename-session-design`
 - **`session-surgery` skill + CLI** (`surgery extract` / `rewrite`) — summarize or prune a turn-snapped message range → a new resumable session (timestamps backfilled so `claude --resume` accepts it). `--from/--to` accept a uuid **prefix**. → `2026-05-30-session-surgery-skill-design`, `2026-06-18-surgery-rewrite-parity-design`
 
 ## Lineage

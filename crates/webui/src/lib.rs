@@ -130,7 +130,6 @@ pub fn run() {
             commands::commit_session,
             commands::fork_session,
             commands::delete_session,
-            commands::rename_session,
             commands::delete_message,
             commands::new_session,
             commands::path_exists,
