@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback, memo, Fragment } from "react";
+import { useState, useRef, useEffect, useCallback, memo, Fragment, type ReactNode } from "react";
 import Markdown from "react-markdown";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import type {
@@ -30,6 +30,8 @@ interface Props {
   scrollToMessage?: string | null;
   /** Whether the transcript's tab is currently showing (false when on Terminal). */
   visible?: boolean;
+  /** The Manager/Terminal toggle, slotted into the header's right cluster. */
+  tabs?: ReactNode;
 }
 
 export default function Transcript({
@@ -39,6 +41,7 @@ export default function Transcript({
   onViewTree,
   scrollToMessage,
   visible = true,
+  tabs,
 }: Props) {
   const [statsOpen, setStatsOpen] = usePersistentState("cm.detailsOpen", true);
   const [compact, setCompact] = usePersistentState("cm.compact", false);
@@ -194,7 +197,7 @@ export default function Transcript({
         <span className="text-[var(--color-text)] font-medium truncate">
           {session.title}
         </span>
-        <div className="ml-auto flex gap-2">
+        <div className="ml-auto flex gap-2 items-center">
           {onViewTree && (
             <button
               onClick={onViewTree}
@@ -224,6 +227,7 @@ export default function Transcript({
           >
             {statsOpen ? "Hide details" : "Details"}
           </button>
+          {tabs}
         </div>
       </div>
 

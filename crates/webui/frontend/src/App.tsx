@@ -4,6 +4,7 @@ import { useSessions, useTranscript } from "./hooks/useSessions";
 import Sidebar from "./components/Sidebar";
 import Transcript from "./components/Transcript";
 import TerminalPane from "./components/TerminalPane";
+import TabToggle from "./components/TabToggle";
 import LineageBanner from "./components/LineageBanner";
 import LineageTree from "./components/LineageTree";
 import Spinner from "./components/Spinner";
@@ -219,22 +220,6 @@ export default function App() {
         </>
       )}
       <main className="flex-1 overflow-hidden flex flex-col">
-        <div className="flex items-center gap-1 px-2 py-1 border-b border-[var(--color-border)] bg-[var(--color-surface)] shrink-0">
-          {(["manager", "terminal"] as const).map((t) => (
-            <button
-              key={t}
-              onClick={() => setActiveTab(t)}
-              className={
-                "px-3 py-1 text-sm rounded " +
-                (activeTab === t
-                  ? "bg-[var(--color-accent)] text-white"
-                  : "text-[var(--color-text-dim)] hover:text-[var(--color-text)]")
-              }
-            >
-              {t === "manager" ? "Manager" : "Terminal"}
-            </button>
-          ))}
-        </div>
         <div className="flex-1 overflow-hidden">
           <div className="h-full" style={{ display: activeTab === "manager" ? "block" : "none" }}>
             <div className="flex flex-col h-full">
@@ -285,6 +270,7 @@ export default function App() {
                     onViewTree={hasLineage ? () => setLineageFor(transcript.id) : null}
                     scrollToMessage={target?.scrollToMessage ?? null}
                     visible={activeTab === "manager"}
+                    tabs={<TabToggle activeTab={activeTab} onSelect={setActiveTab} />}
                   />
                 </div>
               </>
@@ -309,12 +295,32 @@ export default function App() {
             </div>
           </div>
           <div className="h-full" style={{ display: activeTab === "terminal" ? "block" : "none" }}>
-            <TerminalPane
-              sessionId={target?.sessionId ?? null}
-              filePath={target?.filePath ?? null}
-              cwd={target?.cwd}
-              tabActive={activeTab === "terminal"}
-            />
+            <div className="flex flex-col h-full">
+              {/* Slim header mirrors the transcript's: session title + the toggle. */}
+              <div className="flex items-center gap-3 px-4 py-2.5 border-b border-[var(--color-border)] bg-[var(--color-surface)] shrink-0">
+                {(transcript?.project_label ?? target?.projectLabel) && (
+                  <span className="font-medium text-[var(--color-accent)]">
+                    {transcript?.project_label ?? target?.projectLabel}
+                  </span>
+                )}
+                {transcript?.title && (
+                  <span className="text-[var(--color-text)] font-medium truncate">
+                    {transcript.title}
+                  </span>
+                )}
+                <div className="ml-auto">
+                  <TabToggle activeTab={activeTab} onSelect={setActiveTab} />
+                </div>
+              </div>
+              <div className="flex-1 overflow-hidden">
+                <TerminalPane
+                  sessionId={target?.sessionId ?? null}
+                  filePath={target?.filePath ?? null}
+                  cwd={target?.cwd}
+                  tabActive={activeTab === "terminal"}
+                />
+              </div>
+            </div>
           </div>
         </div>
       </main>
