@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::io::{Read, Write};
+use std::sync::OnceLock;
 
 use base64::Engine;
 use portable_pty::{native_pty_system, Child, CommandBuilder, MasterPty, PtySize};
@@ -32,6 +33,32 @@ pub fn terminal_argv(session_id: &str, fresh: bool) -> Vec<String> {
     let mut v = vec![claude_program()];
     v.extend(claude_args(session_id, fresh));
     v
+}
+
+/// The user's real login PATH. A GUI app launched from Finder/Dock inherits
+/// launchd's minimal PATH (`/usr/bin:/bin:/usr/sbin:/sbin`), which omits
+/// `/opt/homebrew/bin` etc. — so the spawned `claude` (and the wrapper's
+/// `yabai`/`jq`) isn't found, even though the same app launched from a terminal
+/// works. Reconstruct PATH from a login shell once and apply it to spawned
+/// terminals. `-l` sources the login profile (where Homebrew's `shellenv` lives)
+/// but not the interactive rc, avoiding interactive-only hangs. Cached; `None`
+/// (leave the inherited PATH alone) if capture fails or isn't a Unix shell.
+fn login_path() -> Option<String> {
+    static CACHE: OnceLock<Option<String>> = OnceLock::new();
+    CACHE
+        .get_or_init(|| {
+            let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
+            // A \x01 sentinel brackets the value so any login-profile chatter on
+            // stdout is ignored; printf's octal escape emits the raw byte.
+            let out = std::process::Command::new(shell)
+                .args(["-lc", r#"printf '\001%s\001' "$PATH""#])
+                .output()
+                .ok()?;
+            let s = String::from_utf8_lossy(&out.stdout);
+            let path = s.split('\u{1}').nth(1)?.to_string();
+            (!path.is_empty()).then_some(path)
+        })
+        .clone()
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -137,6 +164,16 @@ pub fn spawn_terminal(
         cmd.arg(a);
     }
     cmd.cwd(&cwd);
+    // Repair PATH for Finder/Dock launches (see `login_path`); overrides only
+    // PATH, leaving HOME and the rest of the inherited env intact.
+    if let Some(path) = login_path() {
+        cmd.env("PATH", path);
+    }
+    // Pin TERM/COLORTERM to the frontend emulator (xterm.js). A Finder/Dock launch
+    // inherits neither, so CLIs fall back to little/no color; xterm-256color
+    // terminfo is universally present and xterm.js renders 24-bit truecolor.
+    cmd.env("TERM", "xterm-256color");
+    cmd.env("COLORTERM", "truecolor");
 
     let child =
         pair.slave.spawn_command(cmd).map_err(|e| std::io::Error::other(e.to_string()))?;
