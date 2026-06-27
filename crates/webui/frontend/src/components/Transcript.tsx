@@ -61,6 +61,11 @@ export default function Transcript({
   const find = useFind(turnsRef, session.turns);
   const { openFind, next: findNext, prev: findPrev } = find;
 
+  // The turns actually rendered. Suspend compact while find is open so every
+  // match is mounted & countable. Declared before the scroll effects because
+  // they key on its length — toggling compact reshapes this (not session.turns).
+  const visibleTurns = compact && !find.open ? filterCompact(session.turns) : session.turns;
+
   // Stable handlers so the memoized <Turn>s don't re-render on every find
   // keystroke. useEditor's methods are useCallback([])-stable, and sourcePath
   // is stable, so these identities only change when `draft` does (during an
@@ -104,8 +109,10 @@ export default function Transcript({
   }, []);
 
   // On opening/switching a session, jump to the latest — unless we were asked to
-  // scroll to a specific message (the effect below handles that). On a new turn
-  // within the same session (live tail), only follow if the user is at the bottom.
+  // scroll to a specific message (the effect below handles that). When the
+  // rendered set changes within the same session — a live-tail turn, or a
+  // compact/find toggle that reshapes height — re-pin to the bottom if we were
+  // there (otherwise a toggle leaves scrollTop pointing at now-different content).
   useEffect(() => {
     const isNewSession = prevSessionId.current !== session.id;
     prevSessionId.current = session.id;
@@ -119,7 +126,7 @@ export default function Transcript({
     } else if (atBottomRef.current) {
       bottomRef.current?.scrollIntoView({ behavior: "smooth" });
     }
-  }, [session.id, session.turns.length, scrollToMessage]);
+  }, [session.id, visibleTurns.length, scrollToMessage]);
 
   // Scroll to + flash a specific message (e.g. a fork point opened from the
   // lineage tree). Keyed on the message too, so it also fires when the target is
@@ -178,11 +185,6 @@ export default function Transcript({
   }, [openFind, findNext, findPrev]);
 
   const { stats } = session;
-
-  // Suspend compact while find is open so every match is mounted & countable.
-  const visibleTurns = compact && !find.open
-    ? filterCompact(session.turns)
-    : session.turns;
 
   return (
     <div className="flex flex-col h-full">
