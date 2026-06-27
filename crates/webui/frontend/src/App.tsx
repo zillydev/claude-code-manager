@@ -174,10 +174,10 @@ export default function App() {
         <div className="flex flex-col border-r border-[var(--color-border)] bg-[var(--color-surface)]">
           <button
             onClick={() => setCollapsed(false)}
-            className="px-2 py-3 text-[var(--color-text-dim)] hover:text-[var(--color-text)] text-sm"
-            title="Expand sidebar"
+            className="px-3 py-3 text-lg leading-none text-[var(--color-text-dim)] hover:text-[var(--color-accent)] hover:bg-[var(--color-surface-hover)]"
+            title="Expand sidebar (⌘B)"
           >
-            ▸
+            »
           </button>
         </div>
       ) : (

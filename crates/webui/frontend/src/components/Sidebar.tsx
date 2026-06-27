@@ -256,10 +256,10 @@ export default function Sidebar({
           </button>
           <button
             onClick={onCollapse}
-            className="text-[var(--color-text-dim)] hover:text-[var(--color-text)] text-xs px-1"
-            title="Collapse sidebar"
+            className="text-base leading-none px-1.5 py-1 rounded text-[var(--color-text-dim)] hover:text-[var(--color-accent)] hover:bg-[var(--color-surface-hover)]"
+            title="Collapse sidebar (⌘B)"
           >
-            ◂
+            «
           </button>
         </div>
 
