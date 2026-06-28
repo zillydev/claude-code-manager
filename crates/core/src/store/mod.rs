@@ -5,6 +5,7 @@ pub mod watcher;
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::{Mutex, OnceLock};
 use std::time::SystemTime;
 
 use anyhow::{Context, Result};
@@ -21,6 +22,23 @@ use crate::session::{tree, Session};
 pub struct Discovery {
     pub sessions: Vec<SessionSummary>,
     pub warnings: Vec<String>,
+}
+
+/// Cached per-file parse result, invalidated by mtime. `discover` re-runs every
+/// time anything in the tree changes; without this it re-parsed every session
+/// (seconds for hundreds of files) just to pick up the one that changed. Holds
+/// the BASE summary (before the per-directory copy-lineage stamp) + the lineage
+/// uuids, both of which depend only on the file's own contents.
+#[derive(Clone)]
+struct CachedFile {
+    mtime: SystemTime,
+    summary: SessionSummary,
+    uuids: lineage::SessionUuids,
+}
+
+fn discover_cache() -> &'static Mutex<HashMap<PathBuf, CachedFile>> {
+    static C: OnceLock<Mutex<HashMap<PathBuf, CachedFile>>> = OnceLock::new();
+    C.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
 pub fn discover(root: &Path) -> Result<Discovery> {
@@ -92,32 +110,44 @@ pub fn discover(root: &Path) -> Result<Discovery> {
                 .and_then(|m| m.modified())
                 .unwrap_or(std::time::SystemTime::UNIX_EPOCH);
 
-            match parse_file(&child_path) {
-                Ok(ParseOutcome { events, .. }) => {
-                    let project_label = events
-                        .iter()
-                        .find_map(|e| e.cwd().map(paths::label_from_cwd))
-                        .unwrap_or_else(|| fallback_label.clone());
-                    let summary = summarize(
-                        &events,
-                        id,
-                        child_path.clone(),
-                        project_label,
-                        mtime,
-                    );
-                    let su = lineage::SessionUuids {
-                        id,
-                        head: events.iter().find_map(|e| e.uuid()),
-                        uuids: events.iter().filter_map(|e| e.uuid()).collect(),
-                        forked: summary.forked_from.is_some(),
-                    };
-                    dir_summaries.push(summary);
-                    dir_uuids.push(su);
-                }
-                Err(e) => {
-                    warnings.push(format!("parse {}: {}", child_path.display(), e));
-                }
-            }
+            // Reuse the cached parse when this file is unchanged (mtime match),
+            // so a poll re-discover only re-parses the file(s) that actually grew.
+            let cached = discover_cache()
+                .lock()
+                .unwrap()
+                .get(&child_path)
+                .filter(|c| c.mtime == mtime)
+                .cloned();
+            let (summary, su) = match cached {
+                Some(c) => (c.summary, c.uuids),
+                None => match parse_file(&child_path) {
+                    Ok(ParseOutcome { events, .. }) => {
+                        let project_label = events
+                            .iter()
+                            .find_map(|e| e.cwd().map(paths::label_from_cwd))
+                            .unwrap_or_else(|| fallback_label.clone());
+                        let summary =
+                            summarize(&events, id, child_path.clone(), project_label, mtime);
+                        let su = lineage::SessionUuids {
+                            id,
+                            head: events.iter().find_map(|e| e.uuid()),
+                            uuids: events.iter().filter_map(|e| e.uuid()).collect(),
+                            forked: summary.forked_from.is_some(),
+                        };
+                        discover_cache().lock().unwrap().insert(
+                            child_path.clone(),
+                            CachedFile { mtime, summary: summary.clone(), uuids: su.clone() },
+                        );
+                        (summary, su)
+                    }
+                    Err(e) => {
+                        warnings.push(format!("parse {}: {}", child_path.display(), e));
+                        continue;
+                    }
+                },
+            };
+            dir_summaries.push(summary);
+            dir_uuids.push(su);
         }
 
         // Resolve copy-lineage within this directory and stamp the summaries.
