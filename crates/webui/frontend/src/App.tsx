@@ -7,6 +7,7 @@ import TerminalPane from "./components/TerminalPane";
 import TabToggle from "./components/TabToggle";
 import LineageBanner from "./components/LineageBanner";
 import LineageTree from "./components/LineageTree";
+import Settings from "./components/Settings";
 import Spinner from "./components/Spinner";
 import { usePersistentState } from "./hooks/usePersistentState";
 import { useActivity } from "./hooks/useActivity";
@@ -27,6 +28,7 @@ export default function App() {
   const collapsed = config.ui.sidebarCollapsed;
   const [sidebarWidth, setSidebarWidth] = useState(config.ui.sidebarWidth);
   const [activeTab, setActiveTab] = useState<"manager" | "terminal">("manager");
+  const [settingsOpen, setSettingsOpen] = useState(false);
   // The single open session, shared by BOTH tabs: Manager renders its transcript,
   // Terminal runs its `claude` process. `cwd` set ⇒ a freshly-created session whose
   // file doesn't exist until the first turn — the effect below polls for it.
@@ -228,6 +230,7 @@ export default function App() {
               }}
               onNewSession={newSession}
               onViewTree={(s) => setLineageFor(s.id)}
+              onOpenSettings={() => setSettingsOpen(true)}
             />
           </div>
           {/* Drag handle */}
@@ -353,6 +356,7 @@ export default function App() {
           onClose={() => setLineageFor(null)}
         />
       )}
+      {settingsOpen && <Settings onClose={() => setSettingsOpen(false)} />}
     </div>
   );
 }
