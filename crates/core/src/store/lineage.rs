@@ -9,6 +9,7 @@ use std::collections::{HashMap, HashSet};
 use uuid::Uuid;
 
 /// Per-session inputs for lineage detection.
+#[derive(Clone)]
 pub struct SessionUuids {
     /// The session id (the `.jsonl` file stem).
     pub id: Uuid,
