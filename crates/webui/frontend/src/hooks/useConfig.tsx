@@ -1,5 +1,6 @@
 import {
   createContext,
+  useCallback,
   useContext,
   useEffect,
   useRef,
@@ -24,11 +25,17 @@ function mergeConfig(base: Config, p: DeepPartial<Config>): Config {
 
 interface ConfigCtx {
   config: Config;
+  /** True once the real config has loaded from disk (vs the initial default). */
+  loaded: boolean;
   /** Merge a partial change → apply live → persist (broadcasts to other windows). */
   setConfig: (partial: DeepPartial<Config>) => void;
 }
 
-const Ctx = createContext<ConfigCtx>({ config: DEFAULT_CONFIG, setConfig: () => {} });
+const Ctx = createContext<ConfigCtx>({
+  config: DEFAULT_CONFIG,
+  loaded: false,
+  setConfig: () => {},
+});
 
 export function useConfig() {
   return useContext(Ctx);
@@ -36,6 +43,7 @@ export function useConfig() {
 
 export function ConfigProvider({ children }: { children: ReactNode }) {
   const [config, setConfigState] = useState<Config>(DEFAULT_CONFIG);
+  const [loaded, setLoaded] = useState(false);
   const configRef = useRef(config);
   configRef.current = config;
   // JSON of our last write, so we ignore the config-changed echo of our own save.
@@ -49,7 +57,10 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
         setConfigState(cfg);
         applyConfig(cfg);
       })
-      .catch(() => applyConfig(DEFAULT_CONFIG));
+      .catch(() => applyConfig(DEFAULT_CONFIG))
+      .finally(() => {
+        if (alive) setLoaded(true);
+      });
     return () => {
       alive = false;
     };
@@ -66,13 +77,13 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
-  const setConfig = (partial: DeepPartial<Config>) => {
+  const setConfig = useCallback((partial: DeepPartial<Config>) => {
     const next = mergeConfig(configRef.current, partial);
     setConfigState(next);
     applyConfig(next);
     lastWritten.current = JSON.stringify(next);
     invoke("set_config", { config: next }).catch(() => {});
-  };
+  }, []);
 
-  return <Ctx.Provider value={{ config, setConfig }}>{children}</Ctx.Provider>;
+  return <Ctx.Provider value={{ config, loaded, setConfig }}>{children}</Ctx.Provider>;
 }

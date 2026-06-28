@@ -4,6 +4,8 @@ import { FitAddon } from "@xterm/addon-fit";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import Spinner from "./Spinner";
+import { useConfig } from "../hooks/useConfig";
+import { resolveFont } from "../lib/config";
 
 function b64ToBytes(b64: string): Uint8Array {
   const s = atob(b64);
@@ -31,6 +33,12 @@ export default function TerminalView({
   const [blocked, setBlocked] = useState<{ owner: string | null } | null>(null);
   const blockedRef = useRef(false);
   blockedRef.current = blocked !== null;
+  // Configurable mono font. Read via a ref at terminal creation (so a font change
+  // doesn't recreate/kill the terminal); a separate effect updates it live.
+  const { config } = useConfig();
+  const monoFont = resolveFont(config.typography.monoFont, "mono");
+  const monoRef = useRef(monoFont);
+  monoRef.current = monoFont;
   // Resolves once the terminal-output/exit listeners are attached. terminal_open
   // (which spawns claude) awaits this so claude's first paint can't be emitted
   // before we're listening — otherwise it's lost and the pane sticks on "Starting".
@@ -42,7 +50,7 @@ export default function TerminalView({
     if (!host) return;
     const term = new Terminal({
       fontSize: 13,
-      fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
+      fontFamily: monoRef.current,
       theme: { background: "#0a0a0a", foreground: "#e6e6e6" },
     });
     const fit = new FitAddon();
@@ -153,6 +161,19 @@ export default function TerminalView({
       term.dispose();
     };
   }, [sessionId, filePath]);
+
+  // Apply a mono-font change to the live terminal (cell size changes → refit + resize).
+  useEffect(() => {
+    const t = termRef.current;
+    if (!t) return;
+    t.options.fontFamily = monoFont;
+    try {
+      fitRef.current?.fit();
+      invoke("terminal_resize", { sessionId, rows: t.rows, cols: t.cols }).catch(() => {});
+    } catch {
+      /* ignore */
+    }
+  }, [monoFont, sessionId]);
 
   const openedRef = useRef(false);
   // On first activation (pane visible): open the xterm into the now-laid-out

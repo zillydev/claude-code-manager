@@ -17,7 +17,7 @@ import ForkMarker from "./ForkMarker";
 import Dropdown, { menuItemClass, ConfirmMenuItem } from "./Dropdown";
 import Spinner from "./Spinner";
 import { useFind } from "../hooks/useFind";
-import { usePersistentState } from "../hooks/usePersistentState";
+import { useConfig } from "../hooks/useConfig";
 import { makeSegId } from "../lib/segments";
 import { isNearBottom } from "../lib/scroll";
 
@@ -44,8 +44,10 @@ export default function Transcript({
   visible = true,
   tabs,
 }: Props) {
-  const [statsOpen, setStatsOpen] = usePersistentState("cm.detailsOpen", true);
-  const [compact, setCompact] = usePersistentState("cm.compact", false);
+  // compact / details are now config-backed (global + persisted), set-and-stick.
+  const { config, setConfig } = useConfig();
+  const compact = config.ui.compact;
+  const statsOpen = config.ui.detailsOpen;
   const bottomRef = useRef<HTMLDivElement>(null);
   const turnsRef = useRef<HTMLDivElement>(null);
   // Tail-follow state: whether the user is currently pinned to the bottom.
@@ -209,7 +211,7 @@ export default function Transcript({
             </button>
           )}
           <button
-            onClick={() => setCompact(!compact)}
+            onClick={() => setConfig({ ui: { compact: !compact } })}
             className={`text-xs px-2 py-1 rounded border ${
               compact
                 ? "border-[var(--color-accent)] text-[var(--color-accent)]"
@@ -219,7 +221,7 @@ export default function Transcript({
             {compact ? "Show all" : "Compact"}
           </button>
           <button
-            onClick={() => setStatsOpen(!statsOpen)}
+            onClick={() => setConfig({ ui: { detailsOpen: !statsOpen } })}
             className={`text-xs px-2 py-1 rounded border ${
               statsOpen
                 ? "border-[var(--color-accent)] text-[var(--color-accent)]"
