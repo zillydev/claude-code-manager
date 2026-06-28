@@ -5,6 +5,7 @@ export type SegField =
   | "user-text"
   | "assistant-text"
   | "system"
+  | "command"
   | "summary"
   | "tool-name"
   | "tool-input"
@@ -68,6 +69,9 @@ export function exactMatches(turns: RenderedTurn[], find: (t: string) => Span[])
         break;
       case "system":
         push(ti, null, "system", turn.content);
+        break;
+      case "command":
+        push(ti, null, "command", turn.command);
         break;
       case "summary":
         push(ti, null, "summary", turn.content);

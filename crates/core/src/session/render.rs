@@ -98,6 +98,14 @@ pub enum RenderedTurn {
         timestamp: Option<DateTime<Utc>>,
         content: String,
     },
+    /// A slash-command invocation (`/deploy-gateway args`) — display-only. The
+    /// raw `<command-…>` echo is machinery; we surface just the command the user
+    /// ran (the injected skill body and `<local-command-…>` noise stay hidden).
+    #[serde(rename = "command")]
+    Command {
+        timestamp: Option<DateTime<Utc>>,
+        command: String,
+    },
     #[serde(rename = "summary")]
     Summary {
         timestamp: Option<DateTime<Utc>>,
@@ -236,6 +244,17 @@ fn render_path_turns(path: &[&Event], editable: bool) -> Vec<RenderedTurn> {
                         .join("\n"),
                 };
                 if text.starts_with("<command-") || text.starts_with("<local-command-") {
+                    // Slash-command machinery. Surface a real command invocation as
+                    // a compact turn (matching the terminal); drop the rest —
+                    // `<local-command-…>` caveat/stdout, or a nameless echo.
+                    if !text.starts_with("<local-command-") {
+                        if let Some(command) = crate::session::display::command_label(&text) {
+                            turns.push(RenderedTurn::Command {
+                                timestamp: ev.timestamp(),
+                                command,
+                            });
+                        }
+                    }
                     i += 1;
                     continue;
                 }
@@ -668,6 +687,58 @@ mod render_tests {
             }
             _ => panic!("expected user turn"),
         }
+    }
+
+    #[test]
+    fn slash_command_invocation_renders_as_command_turn() {
+        // A slash-command-started session: the <command-…> echo + the isMeta skill
+        // injection precede the assistant's first reply. The command surfaces as a
+        // compact Command turn; the injection and <local-command-…> machinery drop.
+        let cmd = "00000000-0000-0000-0000-0000000000a1";
+        let meta = "00000000-0000-0000-0000-0000000000b2";
+        let local = "00000000-0000-0000-0000-0000000000c3";
+        let asst = "00000000-0000-0000-0000-0000000000d4";
+        let meta_ev = Event::User(UserEvent {
+            uuid: Some(meta.parse().unwrap()),
+            parent_uuid: Some(cmd.parse().unwrap()),
+            timestamp: Some(Utc::now()),
+            is_sidechain: false,
+            is_meta: Some(true),
+            message: Message {
+                role: Some("user".into()),
+                content: MessageContent::Text(
+                    "Base directory for this skill: /x/y/skills/deploy-gateway\nbody".into(),
+                ),
+            },
+            tool_use_result: None,
+            cwd: None,
+            git_branch: None,
+            forked_from: None,
+        });
+        let r = render_session(&sess(vec![
+            uev(
+                cmd,
+                None,
+                "<command-message>deploy-gateway</command-message>\n<command-name>/deploy-gateway</command-name>\n<command-args>dev</command-args>",
+            ),
+            meta_ev,
+            uev(local, Some(meta), "<local-command-stdout>noise</local-command-stdout>"),
+            aev(asst, Some(local), "I'll deploy the gateway"),
+        ]));
+        let cmds: Vec<&String> = r
+            .turns
+            .iter()
+            .filter_map(|t| match t {
+                RenderedTurn::Command { command, .. } => Some(command),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(cmds, vec![&"/deploy-gateway dev".to_string()]);
+        // The skill-injection (meta) and <local-command-…> turns are not rendered.
+        let users = r.turns.iter().filter(|t| matches!(t, RenderedTurn::User { .. })).count();
+        assert_eq!(users, 0, "no raw user/meta/machinery turns");
+        let assts = r.turns.iter().filter(|t| matches!(t, RenderedTurn::Assistant { .. })).count();
+        assert_eq!(assts, 1, "assistant reply still renders");
     }
 
     fn sess(events: Vec<Event>) -> Session {

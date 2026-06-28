@@ -323,9 +323,10 @@ export default function Transcript({
 }
 
 function filterCompact(turns: RenderedTurn[]): RenderedTurn[] {
+  // User prompts AND slash-command invocations anchor the compact view.
   const userIndices: number[] = [];
   for (let i = 0; i < turns.length; i++) {
-    if (turns[i].type === "user") userIndices.push(i);
+    if (turns[i].type === "user" || turns[i].type === "command") userIndices.push(i);
   }
   const visible = new Set<number>();
   // Always keep compaction dividers so the boundary stays marked in compact view.
@@ -570,6 +571,20 @@ const Turn = memo(function Turn({
         <div className="text-[var(--color-system)] text-sm opacity-70">
           <span className="text-xs">{ts}</span> system:{" "}
           <span data-seg-id={makeSegId(turnIndex, null, "system")}>{turn.content}</span>
+        </div>
+      );
+
+    case "command":
+      return (
+        <div className="flex items-baseline gap-2">
+          <span className="text-xs text-[var(--color-text-dim)]">{ts}</span>
+          <span className="text-[var(--color-accent)]">›</span>
+          <code
+            data-seg-id={makeSegId(turnIndex, null, "command")}
+            className="text-sm font-medium text-[var(--color-accent)] break-all"
+          >
+            {turn.command}
+          </code>
         </div>
       );
 
