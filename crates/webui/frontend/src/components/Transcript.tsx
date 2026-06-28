@@ -806,7 +806,7 @@ const BlockRenderer = memo(function BlockRenderer({
       return (
         <div
           data-seg-id={makeSegId(turnIndex, blockIndex, "assistant-text")}
-          className="prose prose-sm prose-invert max-w-none mb-2"
+          className="prose prose-sm max-w-none mb-2"
         >
           <MarkdownBlock text={block.text} />
         </div>
