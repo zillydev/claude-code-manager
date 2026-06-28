@@ -71,7 +71,23 @@ export const THEMES: Record<string, Record<string, string>> = {
 export const THEME_LIST: { key: string; label: string }[] = [
   { key: "github-dark", label: "GitHub Dark" },
   { key: "light", label: "Light" },
+  { key: "system", label: "System" },
 ];
+
+/** Whether the OS currently prefers a dark appearance (defaults to dark when
+ *  matchMedia is unavailable, e.g. in node tests). */
+export function prefersDark(): boolean {
+  return typeof window !== "undefined" && typeof window.matchMedia === "function"
+    ? window.matchMedia("(prefers-color-scheme: dark)").matches
+    : true;
+}
+
+/** Resolve a theme value to a concrete palette, mapping "system" to dark/light
+ *  by the OS preference and unknown values to github-dark. */
+export function themePalette(theme: string): Record<string, string> {
+  const key = theme === "system" ? (prefersDark() ? "github-dark" : "light") : theme;
+  return THEMES[key] ?? THEMES["github-dark"];
+}
 
 const SANS_DEFAULT = `-apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif`;
 const MONO_DEFAULT = `ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace`;

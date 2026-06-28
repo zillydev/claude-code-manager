@@ -77,6 +77,15 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
+  // While the theme is "system", re-apply when the OS light/dark preference flips.
+  useEffect(() => {
+    if (config.theme !== "system" || typeof window === "undefined" || !window.matchMedia) return;
+    const mq = window.matchMedia("(prefers-color-scheme: dark)");
+    const onChange = () => applyConfig(configRef.current);
+    mq.addEventListener("change", onChange);
+    return () => mq.removeEventListener("change", onChange);
+  }, [config.theme]);
+
   const setConfig = useCallback((partial: DeepPartial<Config>) => {
     const next = mergeConfig(configRef.current, partial);
     setConfigState(next);

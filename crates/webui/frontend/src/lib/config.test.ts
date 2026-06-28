@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { THEMES, resolveFont, DEFAULT_CONFIG, type Config } from "./config";
+import { THEMES, resolveFont, themePalette, DEFAULT_CONFIG, type Config } from "./config";
 import { applyConfig } from "./applyConfig";
 
 describe("themes", () => {
@@ -9,6 +9,15 @@ describe("themes", () => {
     for (const [name, palette] of Object.entries(THEMES)) {
       expect(Object.keys(palette).sort(), `theme ${name}`).toEqual(keys);
     }
+  });
+});
+
+describe("themePalette", () => {
+  it("maps 'system' to a concrete palette (dark when matchMedia is absent)", () => {
+    expect(themePalette("system")).toEqual(THEMES["github-dark"]);
+  });
+  it("falls back to github-dark for an unknown theme", () => {
+    expect(themePalette("nope")).toEqual(THEMES["github-dark"]);
   });
 });
 

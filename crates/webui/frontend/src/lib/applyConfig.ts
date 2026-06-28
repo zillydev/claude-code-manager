@@ -1,11 +1,11 @@
-import { THEMES, resolveFont, type Config } from "./config";
+import { themePalette, resolveFont, type Config } from "./config";
 
 /** Apply a config to the live DOM: theme palette, font size, density, and fonts
  *  on the root element (default `document.documentElement`; injectable for tests).
  *  (The terminal's mono font is applied separately by TerminalView, since
  *  xterm.js doesn't read CSS variables.) */
 export function applyConfig(cfg: Config, root: HTMLElement = document.documentElement) {
-  const palette = THEMES[cfg.theme] ?? THEMES["github-dark"];
+  const palette = themePalette(cfg.theme);
   for (const [k, v] of Object.entries(palette)) root.style.setProperty(k, v);
 
   root.style.fontSize = `${cfg.typography.fontSize}px`;
