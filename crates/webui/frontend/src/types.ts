@@ -95,6 +95,7 @@ export type RenderedTurn =
       editable: boolean;
     }
   | { type: "system"; timestamp: string | null; content: string }
+  | { type: "command"; timestamp: string | null; command: string }
   | { type: "summary"; timestamp: string | null; content: string }
   | {
       type: "task_notification";
