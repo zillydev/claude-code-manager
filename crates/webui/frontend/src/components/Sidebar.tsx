@@ -18,6 +18,7 @@ interface Props {
   onDelete: (s: SessionSummary) => void | Promise<void>;
   onNewSession: (cwd: string) => Promise<void>;
   onViewTree: (s: SessionSummary) => void;
+  onOpenSettings: () => void;
 }
 
 export default function Sidebar({
@@ -32,6 +33,7 @@ export default function Sidebar({
   onDelete,
   onNewSession,
   onViewTree,
+  onOpenSettings,
 }: Props) {
   const [textFilter, setTextFilter] = useState("");
   // One project/directory filter: "" | "name:<basename>" | "dir:<cwd>".
@@ -248,6 +250,13 @@ export default function Sidebar({
             title={loading ? "Refreshing…" : "Refresh"}
           >
             ↻
+          </button>
+          <button
+            onClick={onOpenSettings}
+            className="text-sm leading-none px-1.5 py-1 rounded text-[var(--color-text-dim)] hover:text-[var(--color-accent)] hover:bg-[var(--color-surface-hover)]"
+            title="Settings"
+          >
+            ⚙
           </button>
           <button
             onClick={onCollapse}

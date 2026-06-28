@@ -7,23 +7,28 @@ import TerminalPane from "./components/TerminalPane";
 import TabToggle from "./components/TabToggle";
 import LineageBanner from "./components/LineageBanner";
 import LineageTree from "./components/LineageTree";
+import Settings from "./components/Settings";
 import Spinner from "./components/Spinner";
 import { usePersistentState } from "./hooks/usePersistentState";
 import { useActivity } from "./hooks/useActivity";
+import { useConfig } from "./hooks/useConfig";
 import type { ForkRef } from "./types";
 
 const MIN_WIDTH = 200;
 const MAX_WIDTH = 600;
-const DEFAULT_WIDTH = 320;
 
 const basename = (p: string) => p.replace(/\/+$/, "").split("/").pop() || p;
 
 export default function App() {
   const { sessions, loading, refresh } = useSessions();
   const { transcript, loading: txLoading, open, close } = useTranscript();
-  const [sidebarWidth, setSidebarWidth] = useState(DEFAULT_WIDTH);
-  const [collapsed, setCollapsed] = useState(false);
+  // Sidebar width/collapsed + the launch default tab are config-backed. Width is
+  // mirrored locally for smooth dragging (synced from config except mid-drag).
+  const { config, setConfig, loaded: configLoaded } = useConfig();
+  const collapsed = config.ui.sidebarCollapsed;
+  const [sidebarWidth, setSidebarWidth] = useState(config.ui.sidebarWidth);
   const [activeTab, setActiveTab] = useState<"manager" | "terminal">("manager");
+  const [settingsOpen, setSettingsOpen] = useState(false);
   // The single open session, shared by BOTH tabs: Manager renders its transcript,
   // Terminal runs its `claude` process. `cwd` set ⇒ a freshly-created session whose
   // file doesn't exist until the first turn — the effect below polls for it.
@@ -118,6 +123,7 @@ export default function App() {
   const dragging = useRef(false);
   const startX = useRef(0);
   const startW = useRef(0);
+  const widthRef = useRef(sidebarWidth);
 
   const onMouseDown = useCallback(
     (e: React.MouseEvent) => {
@@ -134,10 +140,14 @@ export default function App() {
       if (!dragging.current) return;
       const delta = e.clientX - startX.current;
       const next = Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, startW.current + delta));
+      widthRef.current = next;
       setSidebarWidth(next);
     };
     const onMouseUp = () => {
+      if (!dragging.current) return;
       dragging.current = false;
+      // Persist the final width once (not on every mousemove).
+      setConfig({ ui: { sidebarWidth: widthRef.current } });
     };
     window.addEventListener("mousemove", onMouseMove);
     window.addEventListener("mouseup", onMouseUp);
@@ -145,7 +155,24 @@ export default function App() {
       window.removeEventListener("mousemove", onMouseMove);
       window.removeEventListener("mouseup", onMouseUp);
     };
-  }, []);
+  }, [setConfig]);
+
+  // Mirror config width locally (initial load + cross-window), except mid-drag.
+  useEffect(() => {
+    if (!dragging.current) {
+      setSidebarWidth(config.ui.sidebarWidth);
+      widthRef.current = config.ui.sidebarWidth;
+    }
+  }, [config.ui.sidebarWidth]);
+
+  // Apply the launch-only default tab once the real config has loaded.
+  const didInitTab = useRef(false);
+  useEffect(() => {
+    if (configLoaded && !didInitTab.current) {
+      didInitTab.current = true;
+      setActiveTab(config.ui.defaultTab);
+    }
+  }, [configLoaded, config.ui.defaultTab]);
 
   // Cmd+E toggles Manager ↔ Terminal; Cmd+B toggles the sidebar. Cmd (not Ctrl)
   // so they never collide with the terminal — Ctrl+E/Ctrl+B are line-editing keys
@@ -161,19 +188,19 @@ export default function App() {
       } else if (k === "b") {
         e.preventDefault();
         e.stopPropagation();
-        setCollapsed((c) => !c);
+        setConfig({ ui: { sidebarCollapsed: !collapsed } });
       }
     };
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
-  }, []);
+  }, [collapsed, setConfig]);
 
   return (
     <div className="flex h-screen overflow-hidden">
       {collapsed ? (
         <div className="flex flex-col border-r border-[var(--color-border)] bg-[var(--color-surface)]">
           <button
-            onClick={() => setCollapsed(false)}
+            onClick={() => setConfig({ ui: { sidebarCollapsed: false } })}
             className="px-3 py-3 text-lg leading-none text-[var(--color-text-dim)] hover:text-[var(--color-accent)] hover:bg-[var(--color-surface-hover)]"
             title="Expand sidebar (⌘B)"
           >
@@ -191,7 +218,7 @@ export default function App() {
               lastViewed={lastViewed}
               onSelect={(s) => openSession(s)}
               onRefresh={refresh}
-              onCollapse={() => setCollapsed(true)}
+              onCollapse={() => setConfig({ ui: { sidebarCollapsed: true } })}
               onDelete={async (s) => {
                 try {
                   await invoke("delete_session", { filePath: s.file_path });
@@ -203,6 +230,7 @@ export default function App() {
               }}
               onNewSession={newSession}
               onViewTree={(s) => setLineageFor(s.id)}
+              onOpenSettings={() => setSettingsOpen(true)}
             />
           </div>
           {/* Drag handle */}
@@ -328,6 +356,7 @@ export default function App() {
           onClose={() => setLineageFor(null)}
         />
       )}
+      {settingsOpen && <Settings onClose={() => setSettingsOpen(false)} />}
     </div>
   );
 }

@@ -1,4 +1,5 @@
 mod commands;
+mod config;
 mod shared;
 mod terminal;
 mod window;
@@ -133,6 +134,8 @@ pub fn run() {
             commands::delete_message,
             commands::new_session,
             commands::path_exists,
+            commands::get_config,
+            commands::set_config,
             commands::session_activity,
             commands::focus_window,
             commands::terminal_open,
