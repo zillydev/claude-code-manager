@@ -445,6 +445,21 @@ pub fn path_exists(path: String) -> bool {
     std::path::Path::new(&path).is_file()
 }
 
+/// Load the user config (creating it with defaults on first run).
+#[tauri::command]
+pub fn get_config() -> crate::config::Config {
+    crate::config::load()
+}
+
+/// Persist the user config and broadcast it to every window so they re-apply
+/// the new theme/typography/behavior live.
+#[tauri::command]
+pub fn set_config(config: crate::config::Config, app: AppHandle) -> Result<(), String> {
+    crate::config::save(&config).map_err(|e| e.to_string())?;
+    let _ = app.emit("config-changed", &config);
+    Ok(())
+}
+
 #[derive(Serialize, Clone)]
 pub struct SessionActivity {
     pub id: String,
