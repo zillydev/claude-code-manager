@@ -15,6 +15,7 @@ import CommitResultBanner from "./CommitResultBanner";
 import FindBar from "./FindBar";
 import ForkMarker from "./ForkMarker";
 import Dropdown, { menuItemClass, ConfirmMenuItem } from "./Dropdown";
+import { splitInsights } from "../lib/insights";
 import Spinner from "./Spinner";
 import { useFind } from "../hooks/useFind";
 import { useConfig } from "../hooks/useConfig";
@@ -761,8 +762,43 @@ function EditBox({
 // find keystroke). `MD_COMPONENTS` is module-level so its identity is stable.
 const MD_COMPONENTS = { a: ExternalLink };
 
+// An Explanatory-style insight, rendered like the terminal: an accent "★ Insight"
+// header rule + the points as markdown + a closing rule (CSS borders fill the
+// width crisply, unlike literal ─ characters which would wrap).
+function InsightBlock({ content }: { content: string }) {
+  return (
+    <div className="my-3">
+      <div className="flex items-center gap-2 text-xs font-semibold text-[var(--color-accent)]">
+        <span className="whitespace-nowrap">★ Insight</span>
+        <span className="flex-1 border-t border-[var(--color-accent)] opacity-50" />
+      </div>
+      <div className="py-1">
+        <Markdown components={MD_COMPONENTS}>{content}</Markdown>
+      </div>
+      <div className="border-t border-[var(--color-accent)] opacity-50" />
+    </div>
+  );
+}
+
 const MarkdownBlock = memo(function MarkdownBlock({ text }: { text: string }) {
-  return <Markdown components={MD_COMPONENTS}>{text}</Markdown>;
+  const segs = splitInsights(text);
+  // Fast path: no insight block → one Markdown render (unchanged behavior).
+  if (segs.length === 1 && segs[0].kind === "md") {
+    return <Markdown components={MD_COMPONENTS}>{text}</Markdown>;
+  }
+  return (
+    <>
+      {segs.map((s, i) =>
+        s.kind === "insight" ? (
+          <InsightBlock key={i} content={s.content} />
+        ) : (
+          <Markdown key={i} components={MD_COMPONENTS}>
+            {s.text}
+          </Markdown>
+        ),
+      )}
+    </>
+  );
 });
 
 const TaskNotificationBlock = memo(function TaskNotificationBlock({
