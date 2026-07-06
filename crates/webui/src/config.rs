@@ -128,7 +128,7 @@ fn resolve_dir(cm: Option<String>, xdg: Option<String>, home: Option<String>) ->
         .join("claude-manager")
 }
 
-fn config_dir() -> PathBuf {
+pub(crate) fn config_dir() -> PathBuf {
     resolve_dir(
         std::env::var("CLAUDE_MANAGER_CONFIG_DIR").ok(),
         std::env::var("XDG_CONFIG_HOME").ok(),
