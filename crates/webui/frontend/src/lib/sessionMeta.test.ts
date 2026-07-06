@@ -10,6 +10,7 @@ import {
   setSessionTagsIn,
   upsertTagIn,
   removeTagIn,
+  addSessionTagIn,
   nextPaletteColor,
   type SessionMeta,
 } from "./sessionMeta";
@@ -90,6 +91,33 @@ describe("removeTagIn", () => {
       sessions: { z: { tags: ["wip"] } },
     };
     expect(removeTagIn(only, "wip").sessions["z"]).toBeUndefined();
+  });
+});
+
+describe("addSessionTagIn", () => {
+  it("creates the registry entry AND adds to the session in ONE meta", () => {
+    // Regression: doing these as two separate writes raced — one half was lost.
+    const m = addSessionTagIn(DEFAULT_META, "x", "wip");
+    expect(m.tags).toEqual([{ name: "wip", color: TAG_PALETTE[0] }]);
+    expect(entryTags(m.sessions["x"])).toEqual(["wip"]);
+  });
+  it("reuses an existing registry tag (no duplicate, color kept)", () => {
+    const m = addSessionTagIn(base, "x", "wip");
+    expect(m.tags).toEqual([{ name: "wip", color: "#e5534b" }]);
+    expect(entryTags(m.sessions["x"])).toEqual(["wip"]);
+  });
+  it("heals a dangling tag: session already has it, registry gets created", () => {
+    const dangling: SessionMeta = {
+      version: 1,
+      tags: [],
+      sessions: { z: { tags: ["ghost"] } },
+    };
+    const m = addSessionTagIn(dangling, "z", "ghost");
+    expect(m.tags).toEqual([{ name: "ghost", color: TAG_PALETTE[0] }]);
+    expect(entryTags(m.sessions["z"])).toEqual(["ghost"]); // no duplicate
+  });
+  it("ignores empty names", () => {
+    expect(addSessionTagIn(base, "x", "   ")).toEqual(base);
   });
 });
 

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import TagChip from "./TagChip";
 import { useSessionMeta } from "../hooks/useSessionMeta";
-import { entryTags, nextPaletteColor, tagColor } from "../lib/sessionMeta";
+import { entryTags, tagColor } from "../lib/sessionMeta";
 
 /** Edit a session's tags: current tags as removable chips + an input that
  *  autocompletes registry tags; a new name is created with the next palette
@@ -15,7 +15,7 @@ export default function TagEditor({
   title: string;
   onClose: () => void;
 }) {
-  const { meta, setSessionTags, upsertTag } = useSessionMeta();
+  const { meta, setSessionTags, addSessionTag } = useSessionMeta();
   const [input, setInput] = useState("");
   const current = entryTags(meta.sessions[sessionId]);
 
@@ -36,12 +36,10 @@ export default function TagEditor({
   }, [meta.tags, current, input]);
 
   const addTag = (name: string) => {
-    const n = name.trim();
-    if (!n || current.includes(n)) return;
-    if (!meta.tags.some((t) => t.name === n)) {
-      upsertTag(n, nextPaletteColor(meta));
-    }
-    setSessionTags(sessionId, [...current, n]);
+    // ONE atomic mutation (registry-ensure + session-add): doing these as two
+    // separate writes raced, losing whichever half landed first. Empty and
+    // duplicate names are no-ops inside; re-adding a dangling name heals it.
+    addSessionTag(sessionId, name);
     setInput("");
   };
 

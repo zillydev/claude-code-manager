@@ -107,6 +107,24 @@ export function upsertTagIn(meta: SessionMeta, name: string, color: string): Ses
   return { ...meta, tags };
 }
 
+/** Add a tag to a session ATOMICALLY: ensure the registry entry exists (created
+ *  with the next palette color) and add the name to the session, in ONE returned
+ *  meta. Doing these as two separate persisted writes raced — whichever write
+ *  landed last erased the other half (dangling session tags / orphan registry
+ *  entries). Registry-ensure runs even if the session already has the name, so
+ *  re-adding a dangling tag self-heals it. */
+export function addSessionTagIn(meta: SessionMeta, id: string, name: string): SessionMeta {
+  const n = name.trim();
+  if (!n) return meta;
+  let next = meta;
+  if (!next.tags.some((t) => t.name === n)) {
+    next = upsertTagIn(next, n, nextPaletteColor(next));
+  }
+  const cur = entryTags(next.sessions[id]);
+  if (cur.includes(n)) return next;
+  return setSessionTagsIn(next, id, [...cur, n]);
+}
+
 /** Delete a tag from the registry and strip it from every session (pruning). */
 export function removeTagIn(meta: SessionMeta, name: string): SessionMeta {
   let next: SessionMeta = { ...meta, tags: meta.tags.filter((t) => t.name !== name) };

@@ -16,6 +16,7 @@ import {
   setSessionTagsIn,
   upsertTagIn,
   removeTagIn,
+  addSessionTagIn,
   type SessionMeta,
 } from "../lib/sessionMeta";
 
@@ -24,6 +25,8 @@ interface SessionMetaCtx {
   setAlias: (id: string, alias: string | null) => void;
   setNote: (id: string, note: string | null) => void;
   setSessionTags: (id: string, names: string[]) => void;
+  /** Atomic create-if-missing + add-to-session (one write; see addSessionTagIn). */
+  addSessionTag: (id: string, name: string) => void;
   upsertTag: (name: string, color: string) => void;
   removeTag: (name: string) => void;
 }
@@ -33,6 +36,7 @@ const Ctx = createContext<SessionMetaCtx>({
   setAlias: () => {},
   setNote: () => {},
   setSessionTags: () => {},
+  addSessionTag: () => {},
   upsertTag: () => {},
   removeTag: () => {},
 });
@@ -45,8 +49,9 @@ export function SessionMetaProvider({ children }: { children: ReactNode }) {
   const [meta, setMeta] = useState<SessionMeta>(DEFAULT_META);
   const metaRef = useRef(meta);
   metaRef.current = meta;
-  // JSON of our last write, so we ignore the broadcast echo of our own save.
-  const lastWritten = useRef<string>("");
+  // JSONs of our in-flight writes, so we ignore the broadcast echo of each of
+  // our own saves (a Set, not a single string: rapid writes each echo back).
+  const inFlight = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     let alive = true;
@@ -62,7 +67,11 @@ export function SessionMetaProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     const un = listen<SessionMeta>("session-meta-changed", (e) => {
-      if (JSON.stringify(e.payload) === lastWritten.current) return; // our own echo
+      const json = JSON.stringify(e.payload);
+      if (inFlight.current.has(json)) {
+        inFlight.current.delete(json); // our own echo
+        return;
+      }
       setMeta(e.payload);
     });
     return () => {
@@ -71,10 +80,14 @@ export function SessionMetaProvider({ children }: { children: ReactNode }) {
   }, []);
 
   // Apply a pure mutation, set optimistically, persist (broadcasts to others).
+  // metaRef is updated HERE (not just on render) so two apply() calls in the
+  // same event handler chain correctly instead of the second clobbering the
+  // first — the cause of the lost-registry-entry tag bug.
   const apply = useCallback((fn: (m: SessionMeta) => SessionMeta) => {
     const next = fn(metaRef.current);
+    metaRef.current = next;
     setMeta(next);
-    lastWritten.current = JSON.stringify(next);
+    inFlight.current.add(JSON.stringify(next));
     invoke("set_session_meta", { meta: next }).catch(() => {});
   }, []);
 
@@ -83,6 +96,7 @@ export function SessionMetaProvider({ children }: { children: ReactNode }) {
     setAlias: (id, alias) => apply((m) => setAliasIn(m, id, alias)),
     setNote: (id, note) => apply((m) => setNoteIn(m, id, note)),
     setSessionTags: (id, names) => apply((m) => setSessionTagsIn(m, id, names)),
+    addSessionTag: (id, name) => apply((m) => addSessionTagIn(m, id, name)),
     upsertTag: (name, color) => apply((m) => upsertTagIn(m, name, color)),
     removeTag: (name) => apply((m) => removeTagIn(m, name)),
   };
