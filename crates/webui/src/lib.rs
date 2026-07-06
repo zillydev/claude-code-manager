@@ -1,5 +1,6 @@
 mod commands;
 mod config;
+mod session_meta;
 mod shared;
 mod terminal;
 mod window;
@@ -136,6 +137,8 @@ pub fn run() {
             commands::path_exists,
             commands::get_config,
             commands::set_config,
+            commands::get_session_meta,
+            commands::set_session_meta,
             commands::session_activity,
             commands::focus_window,
             commands::terminal_open,

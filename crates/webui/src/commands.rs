@@ -460,6 +460,23 @@ pub fn set_config(config: crate::config::Config, app: AppHandle) -> Result<(), S
     Ok(())
 }
 
+/// Load the session-organization metadata (creating the file on first run).
+#[tauri::command]
+pub fn get_session_meta() -> crate::session_meta::SessionMeta {
+    crate::session_meta::load()
+}
+
+/// Persist session-organization metadata and broadcast it to every window.
+#[tauri::command]
+pub fn set_session_meta(
+    meta: crate::session_meta::SessionMeta,
+    app: AppHandle,
+) -> Result<(), String> {
+    crate::session_meta::save(&meta).map_err(|e| e.to_string())?;
+    let _ = app.emit("session-meta-changed", &meta);
+    Ok(())
+}
+
 #[derive(Serialize, Clone)]
 pub struct SessionActivity {
     pub id: String,

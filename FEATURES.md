@@ -24,6 +24,10 @@ A tool to browse, search, edit, compact, harvest, and resume Claude Code session
 - **In-session find** (⌘F) — case / word / regex toggles, highlight-all + active match via the CSS Custom Highlight API, next/prev wrap, editable jump-to-match counter. Memoized (`React.memo`) so large sessions don't lag. → `2026-06-05-in-session-find-design`
 - Cross-transcript search by content (sidebar search box).
 
+## Organization
+
+- **Session organization** — claude-manager-local metadata over sessions, in a separate `session-meta.json` (same dir/env as the config; claude's `.jsonl` is never touched). Global **tags** (a `name+color` registry; colored chips on rows; a per-session Tags… editor with autocomplete; a sidebar any-of **tag filter**; a **Manage tags…** window to recolor/rename/delete), a **local alias** (a rename that is NOT claude's `custom-title` — so no live-terminal desync; shown as the row's primary title with claude's auto-name dim beneath), and a per-session **note** (`✎` on rows, full text under the details panel). Live + broadcast across windows; dangling tags self-heal on load. → `2026-07-06-session-organization-design`
+
 ## Editing & surgery
 
 - **Edit a message / fork from here** — copy-on-edit → a new resumable session; resolves targets by stable uuid (incl. pre-compaction turns). → `2026-05-30-session-editor-design`

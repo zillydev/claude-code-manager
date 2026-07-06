@@ -2,7 +2,13 @@ import { useState, useMemo, useCallback, useRef, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import type { SessionSummary, SortField, SortDir, DateRange } from "../types";
 import Spinner from "./Spinner";
-import Dropdown, { ConfirmMenuItem } from "./Dropdown";
+import Dropdown, { menuItemClass, ConfirmMenuItem } from "./Dropdown";
+import TagChip from "./TagChip";
+import TagEditor from "./TagEditor";
+import NoteEditor from "./NoteEditor";
+import TagManager from "./TagManager";
+import { useSessionMeta } from "../hooks/useSessionMeta";
+import { entryTags, matchesTagFilter, tagColor } from "../lib/sessionMeta";
 import { deriveStatus } from "../lib/sessionStatus";
 import type { LiveActivity } from "../hooks/useActivity";
 
@@ -35,6 +41,12 @@ export default function Sidebar({
   onViewTree,
   onOpenSettings,
 }: Props) {
+  const { meta, setAlias } = useSessionMeta();
+  const [renamingId, setRenamingId] = useState<string | null>(null);
+  const [draftAlias, setDraftAlias] = useState("");
+  const [tagsFor, setTagsFor] = useState<SessionSummary | null>(null);
+  const [noteFor, setNoteFor] = useState<SessionSummary | null>(null);
+  const [manageTags, setManageTags] = useState(false);
   const [textFilter, setTextFilter] = useState("");
   // One project/directory filter: "" | "name:<basename>" | "dir:<cwd>".
   const [filter, setFilter] = useState<string>("");
@@ -42,6 +54,7 @@ export default function Sidebar({
   const [newPath, setNewPath] = useState("");
   const [newErr, setNewErr] = useState<string | null>(null);
   const [dateRange, setDateRange] = useState<DateRange>("all");
+  const [tagFilter, setTagFilter] = useState<Set<string>>(new Set());
   const [sortField, setSortField] = useState<SortField>("updated");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
   const [searchHits, setSearchHits] = useState<Set<string> | null>(null);
@@ -174,6 +187,8 @@ export default function Sidebar({
       // Project / directory filter (one selector).
       if (filter.startsWith("name:") && s.project_label !== filter.slice(5)) return false;
       if (filter.startsWith("dir:") && s.cwd !== filter.slice(4)) return false;
+      // Tag filter (any-of): only sessions carrying at least one selected tag.
+      if (!matchesTagFilter(meta.sessions[s.id], tagFilter)) return false;
       // Date range
       const epoch = s.mtime.secs_since_epoch;
       if (dateRange === "today" && now - epoch > 86400) return false;
@@ -190,7 +205,7 @@ export default function Sidebar({
       }
       return true;
     });
-  }, [sessions, filter, dateRange, textFilter, searchHits, now]);
+  }, [sessions, filter, dateRange, textFilter, searchHits, now, meta, tagFilter]);
 
   const sorted = useMemo(() => {
     const items = [...filtered];
@@ -344,6 +359,68 @@ export default function Sidebar({
             <option value="week">This week</option>
             <option value="month">This month</option>
           </select>
+
+          {meta.tags.length > 0 && (
+            <Dropdown
+              trigger={tagFilter.size > 0 ? `tags · ${tagFilter.size}` : "tags"}
+              title="Filter by tag"
+              triggerClassName={`text-xs px-1.5 py-1 rounded border outline-none ${
+                tagFilter.size > 0
+                  ? "border-[var(--color-accent)] text-[var(--color-accent)]"
+                  : "border-[var(--color-border)] text-[var(--color-text)] bg-[var(--color-bg)]"
+              }`}
+            >
+              {(close) => (
+                <>
+                  {meta.tags.map((t) => {
+                    const on = tagFilter.has(t.name);
+                    return (
+                      <button
+                        key={t.name}
+                        role="menuitem"
+                        className={`${menuItemClass} flex items-center gap-2`}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setTagFilter((prev) => {
+                            const next = new Set(prev);
+                            if (next.has(t.name)) next.delete(t.name);
+                            else next.add(t.name);
+                            return next;
+                          });
+                        }}
+                      >
+                        <span className={on ? "" : "opacity-0"}>✓</span>
+                        <TagChip name={t.name} color={t.color} />
+                      </button>
+                    );
+                  })}
+                  {tagFilter.size > 0 && (
+                    <button
+                      role="menuitem"
+                      className={`${menuItemClass} text-[var(--color-text-dim)]`}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setTagFilter(new Set());
+                      }}
+                    >
+                      Clear filter
+                    </button>
+                  )}
+                  <button
+                    role="menuitem"
+                    className={`${menuItemClass} mt-1 border-t border-[var(--color-border)] pt-1.5 text-[var(--color-accent)]`}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      close();
+                      setManageTags(true);
+                    }}
+                  >
+                    Manage tags…
+                  </button>
+                </>
+              )}
+            </Dropdown>
+          )}
         </div>
       </div>
 
@@ -384,6 +461,8 @@ export default function Sidebar({
           </div>
         ) : (
           sorted.map((s) => {
+            const entry = meta.sessions[s.id];
+            const renaming = renamingId === s.id;
             const act = activity.get(s.id);
             const liveEventAt = act?.at ?? s.last_event_at?.secs_since_epoch ?? null;
             const awaiting = act?.awaiting ?? s.awaiting_input;
@@ -420,7 +499,30 @@ export default function Sidebar({
                   }
                 />
               )}
-              {/* Main clickable area */}
+              {renaming ? (
+                /* Inline alias input (an input can't live inside the row button) */
+                <div className="flex-1 px-3 py-2 min-w-0 flex items-center gap-2">
+                  <input
+                    autoFocus
+                    value={draftAlias}
+                    onChange={(e) => setDraftAlias(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        setAlias(s.id, draftAlias); // trimmed-empty clears
+                        setRenamingId(null);
+                      } else if (e.key === "Escape") {
+                        e.preventDefault();
+                        setRenamingId(null);
+                      }
+                    }}
+                    onBlur={() => setRenamingId(null)}
+                    placeholder="Alias (leave empty to clear)"
+                    className="w-full bg-[var(--color-bg)] text-[var(--color-text)] text-sm px-1.5 py-1 rounded border border-[var(--color-accent)] outline-none"
+                  />
+                </div>
+              ) : (
+              /* Main clickable area */
               <button
                 onClick={() => onSelect(s)}
                 className="flex-1 text-left px-3 py-2 min-w-0"
@@ -433,13 +535,28 @@ export default function Sidebar({
                       {relativeTime(s.mtime.secs_since_epoch)}
                     </span>
                   </div>
-                  <div
-                    className={`text-sm text-[var(--color-text)] truncate mt-0.5 ${
-                      unread ? "font-semibold" : ""
-                    }`}
-                  >
-                    {s.title}
-                  </div>
+                  {entry?.alias ? (
+                    <>
+                      <div
+                        className={`text-sm text-[var(--color-text)] truncate mt-0.5 ${
+                          unread ? "font-semibold" : ""
+                        }`}
+                      >
+                        {entry.alias}
+                      </div>
+                      <div className="text-[11px] text-[var(--color-text-dim)] truncate">
+                        {s.title}
+                      </div>
+                    </>
+                  ) : (
+                    <div
+                      className={`text-sm text-[var(--color-text)] truncate mt-0.5 ${
+                        unread ? "font-semibold" : ""
+                      }`}
+                    >
+                      {s.title}
+                    </div>
+                  )}
                   <div className="flex items-center gap-2 text-[10px] text-[var(--color-text-dim)] mt-0.5">
                     <span>{compactTokens(s.total_tokens)}</span>
                     {s.git_branch && (
@@ -471,7 +588,19 @@ export default function Sidebar({
                         ⧉ {copiedChildrenBySource.get(s.id)!.length}
                       </span>
                     )}
+                    {entry?.note && (
+                      <span title={entry.note} className="shrink-0">
+                        ✎
+                      </span>
+                    )}
                   </div>
+                  {entryTags(entry).length > 0 && (
+                    <div className="mt-1 flex flex-wrap gap-1">
+                      {entryTags(entry).map((name) => (
+                        <TagChip key={name} name={name} color={tagColor(meta, name)} />
+                      ))}
+                    </div>
+                  )}
                   {s.forked_from && (
                     <div className="mt-1">
                       <span
@@ -520,8 +649,10 @@ export default function Sidebar({
                     </div>
                   )}
                 </button>
+              )}
 
-              {/* Per-row ⋯ menu (Delete) */}
+              {/* Per-row ⋯ menu: Rename / Tags / Note / Delete */}
+              {!renaming && (
               <div className={`flex items-center shrink-0 pr-1.5 transition-opacity ${deletingId === s.id ? "opacity-100" : "opacity-0 group-hover:opacity-100"}`}>
                   <Dropdown
                     trigger={deletingId === s.id ? <Spinner /> : "⋯"}
@@ -532,6 +663,40 @@ export default function Sidebar({
                   >
                     {(close) => (
                       <>
+                        <button
+                          role="menuitem"
+                          className={menuItemClass}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            close();
+                            setDraftAlias(entry?.alias ?? "");
+                            setRenamingId(s.id);
+                          }}
+                        >
+                          Rename
+                        </button>
+                        <button
+                          role="menuitem"
+                          className={menuItemClass}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            close();
+                            setTagsFor(s);
+                          }}
+                        >
+                          Tags…
+                        </button>
+                        <button
+                          role="menuitem"
+                          className={menuItemClass}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            close();
+                            setNoteFor(s);
+                          }}
+                        >
+                          Note…
+                        </button>
                         <ConfirmMenuItem
                           label="Delete"
                           confirmLabel="Confirm delete"
@@ -549,6 +714,7 @@ export default function Sidebar({
                     )}
                   </Dropdown>
                 </div>
+              )}
             </div>
             );
           })
@@ -564,6 +730,22 @@ export default function Sidebar({
           </span>
         )}
       </div>
+
+      {tagsFor && (
+        <TagEditor
+          sessionId={tagsFor.id}
+          title={meta.sessions[tagsFor.id]?.alias ?? tagsFor.title}
+          onClose={() => setTagsFor(null)}
+        />
+      )}
+      {noteFor && (
+        <NoteEditor
+          sessionId={noteFor.id}
+          title={meta.sessions[noteFor.id]?.alias ?? noteFor.title}
+          onClose={() => setNoteFor(null)}
+        />
+      )}
+      {manageTags && <TagManager onClose={() => setManageTags(false)} />}
     </aside>
   );
 }
