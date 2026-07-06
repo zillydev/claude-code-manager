@@ -20,6 +20,7 @@ import { splitInsights } from "../lib/insights";
 import Spinner from "./Spinner";
 import { useFind } from "../hooks/useFind";
 import { useConfig } from "../hooks/useConfig";
+import { useSessionMeta } from "../hooks/useSessionMeta";
 import { makeSegId } from "../lib/segments";
 import { isNearBottom } from "../lib/scroll";
 
@@ -50,6 +51,9 @@ export default function Transcript({
   const { config, setConfig } = useConfig();
   const compact = config.ui.compact;
   const statsOpen = config.ui.detailsOpen;
+  // Local alias/note for this session (claude-manager metadata, not the .jsonl).
+  const { meta } = useSessionMeta();
+  const metaEntry = meta.sessions[session.id];
   const bottomRef = useRef<HTMLDivElement>(null);
   const turnsRef = useRef<HTMLDivElement>(null);
   // Tail-follow state: whether the user is currently pinned to the bottom.
@@ -200,8 +204,13 @@ export default function Transcript({
           {session.project_label}
         </span>
         <span className="text-[var(--color-text)] font-medium truncate">
-          {session.title}
+          {metaEntry?.alias ?? session.title}
         </span>
+        {metaEntry?.alias && (
+          <span className="text-xs text-[var(--color-text-dim)] truncate">
+            {session.title}
+          </span>
+        )}
         <div className="ml-auto flex gap-2 items-center">
           {onViewTree && (
             <button
@@ -238,11 +247,19 @@ export default function Transcript({
 
       {/* Session detail panel */}
       {statsOpen && (
-        <StatsPanel
-          stats={stats}
-          eventCount={session.event_count}
-          sessionId={session.id}
-        />
+        <>
+          <StatsPanel
+            stats={stats}
+            eventCount={session.event_count}
+            sessionId={session.id}
+          />
+          {metaEntry?.note && (
+            <div className="border-b border-[var(--color-border)] bg-[var(--color-surface)] px-4 py-2 text-xs text-[var(--color-text-dim)] whitespace-pre-wrap break-words">
+              <span className="text-[var(--color-text)] font-medium">Note:</span>{" "}
+              {metaEntry.note}
+            </div>
+          )}
+        </>
       )}
 
       {/* Turns */}

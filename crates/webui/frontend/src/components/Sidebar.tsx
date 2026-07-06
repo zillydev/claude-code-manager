@@ -3,6 +3,9 @@ import { invoke } from "@tauri-apps/api/core";
 import type { SessionSummary, SortField, SortDir, DateRange } from "../types";
 import Spinner from "./Spinner";
 import Dropdown, { ConfirmMenuItem } from "./Dropdown";
+import TagChip from "./TagChip";
+import { useSessionMeta } from "../hooks/useSessionMeta";
+import { entryTags, tagColor } from "../lib/sessionMeta";
 import { deriveStatus } from "../lib/sessionStatus";
 import type { LiveActivity } from "../hooks/useActivity";
 
@@ -35,6 +38,7 @@ export default function Sidebar({
   onViewTree,
   onOpenSettings,
 }: Props) {
+  const { meta } = useSessionMeta();
   const [textFilter, setTextFilter] = useState("");
   // One project/directory filter: "" | "name:<basename>" | "dir:<cwd>".
   const [filter, setFilter] = useState<string>("");
@@ -384,6 +388,7 @@ export default function Sidebar({
           </div>
         ) : (
           sorted.map((s) => {
+            const entry = meta.sessions[s.id];
             const act = activity.get(s.id);
             const liveEventAt = act?.at ?? s.last_event_at?.secs_since_epoch ?? null;
             const awaiting = act?.awaiting ?? s.awaiting_input;
@@ -433,13 +438,28 @@ export default function Sidebar({
                       {relativeTime(s.mtime.secs_since_epoch)}
                     </span>
                   </div>
-                  <div
-                    className={`text-sm text-[var(--color-text)] truncate mt-0.5 ${
-                      unread ? "font-semibold" : ""
-                    }`}
-                  >
-                    {s.title}
-                  </div>
+                  {entry?.alias ? (
+                    <>
+                      <div
+                        className={`text-sm text-[var(--color-text)] truncate mt-0.5 ${
+                          unread ? "font-semibold" : ""
+                        }`}
+                      >
+                        {entry.alias}
+                      </div>
+                      <div className="text-[11px] text-[var(--color-text-dim)] truncate">
+                        {s.title}
+                      </div>
+                    </>
+                  ) : (
+                    <div
+                      className={`text-sm text-[var(--color-text)] truncate mt-0.5 ${
+                        unread ? "font-semibold" : ""
+                      }`}
+                    >
+                      {s.title}
+                    </div>
+                  )}
                   <div className="flex items-center gap-2 text-[10px] text-[var(--color-text-dim)] mt-0.5">
                     <span>{compactTokens(s.total_tokens)}</span>
                     {s.git_branch && (
@@ -471,7 +491,19 @@ export default function Sidebar({
                         ⧉ {copiedChildrenBySource.get(s.id)!.length}
                       </span>
                     )}
+                    {entry?.note && (
+                      <span title={entry.note} className="shrink-0">
+                        ✎
+                      </span>
+                    )}
                   </div>
+                  {entryTags(entry).length > 0 && (
+                    <div className="mt-1 flex flex-wrap gap-1">
+                      {entryTags(entry).map((name) => (
+                        <TagChip key={name} name={name} color={tagColor(meta, name)} />
+                      ))}
+                    </div>
+                  )}
                   {s.forked_from && (
                     <div className="mt-1">
                       <span
