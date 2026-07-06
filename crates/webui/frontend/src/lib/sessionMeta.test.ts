@@ -11,6 +11,7 @@ import {
   upsertTagIn,
   removeTagIn,
   addSessionTagIn,
+  renameTagIn,
   reconcileMeta,
   nextPaletteColor,
   type SessionMeta,
@@ -119,6 +120,33 @@ describe("addSessionTagIn", () => {
   });
   it("ignores empty names", () => {
     expect(addSessionTagIn(base, "x", "   ")).toEqual(base);
+  });
+});
+
+describe("renameTagIn", () => {
+  it("renames the registry entry (keeping color) and updates sessions", () => {
+    const m = renameTagIn(base, "wip", "todo");
+    expect(m.tags).toEqual([{ name: "todo", color: "#e5534b" }]);
+    expect(m.sessions["abc"]).toEqual({ alias: "auth", tags: ["todo"], note: "n" });
+  });
+  it("merges into an existing target (drops the old entry, dedups sessions)", () => {
+    const m: SessionMeta = {
+      version: 1,
+      tags: [
+        { name: "a", color: "#e5534b" },
+        { name: "b", color: "#f0883e" },
+      ],
+      sessions: { s1: { tags: ["a"] }, s2: { tags: ["a", "b"] } },
+    };
+    const r = renameTagIn(m, "a", "b");
+    expect(r.tags).toEqual([{ name: "b", color: "#f0883e" }]);
+    expect(entryTags(r.sessions["s1"])).toEqual(["b"]);
+    expect(entryTags(r.sessions["s2"])).toEqual(["b"]);
+  });
+  it("no-ops on empty, unchanged, or unknown name", () => {
+    expect(renameTagIn(base, "wip", "  ")).toBe(base);
+    expect(renameTagIn(base, "wip", "wip")).toBe(base);
+    expect(renameTagIn(base, "ghost", "x")).toBe(base);
   });
 });
 

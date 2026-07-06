@@ -16,6 +16,7 @@ import {
   setSessionTagsIn,
   upsertTagIn,
   removeTagIn,
+  renameTagIn,
   addSessionTagIn,
   reconcileMeta,
   type SessionMeta,
@@ -29,6 +30,7 @@ interface SessionMetaCtx {
   /** Atomic create-if-missing + add-to-session (one write; see addSessionTagIn). */
   addSessionTag: (id: string, name: string) => void;
   upsertTag: (name: string, color: string) => void;
+  renameTag: (oldName: string, newName: string) => void;
   removeTag: (name: string) => void;
 }
 
@@ -39,6 +41,7 @@ const Ctx = createContext<SessionMetaCtx>({
   setSessionTags: () => {},
   addSessionTag: () => {},
   upsertTag: () => {},
+  renameTag: () => {},
   removeTag: () => {},
 });
 
@@ -108,6 +111,7 @@ export function SessionMetaProvider({ children }: { children: ReactNode }) {
     setSessionTags: (id, names) => apply((m) => setSessionTagsIn(m, id, names)),
     addSessionTag: (id, name) => apply((m) => addSessionTagIn(m, id, name)),
     upsertTag: (name, color) => apply((m) => upsertTagIn(m, name, color)),
+    renameTag: (oldName, newName) => apply((m) => renameTagIn(m, oldName, newName)),
     removeTag: (name) => apply((m) => removeTagIn(m, name)),
   };
 

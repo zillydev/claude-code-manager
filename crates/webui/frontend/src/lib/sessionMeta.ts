@@ -151,6 +151,27 @@ export function reconcileMeta(meta: SessionMeta): SessionMeta {
   return next;
 }
 
+/** Rename a registry tag and update every session that references it. Renaming
+ *  onto an EXISTING tag name merges: the old registry entry is dropped (the
+ *  target's color wins) and sessions carrying both are deduped. No-op on an
+ *  empty/unchanged/unknown name. */
+export function renameTagIn(meta: SessionMeta, oldName: string, newName: string): SessionMeta {
+  const nn = newName.trim();
+  if (!nn || nn === oldName || !meta.tags.some((t) => t.name === oldName)) return meta;
+  const targetExists = meta.tags.some((t) => t.name === nn);
+  const tags = targetExists
+    ? meta.tags.filter((t) => t.name !== oldName)
+    : meta.tags.map((t) => (t.name === oldName ? { ...t, name: nn } : t));
+  let next: SessionMeta = { ...meta, tags };
+  for (const [id, e] of Object.entries(meta.sessions)) {
+    if (e.tags?.includes(oldName)) {
+      const replaced = [...new Set((e.tags ?? []).map((t) => (t === oldName ? nn : t)))];
+      next = setSessionTagsIn(next, id, replaced);
+    }
+  }
+  return next;
+}
+
 /** Delete a tag from the registry and strip it from every session (pruning). */
 export function removeTagIn(meta: SessionMeta, name: string): SessionMeta {
   let next: SessionMeta = { ...meta, tags: meta.tags.filter((t) => t.name !== name) };

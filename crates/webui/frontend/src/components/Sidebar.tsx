@@ -6,6 +6,7 @@ import Dropdown, { menuItemClass, ConfirmMenuItem } from "./Dropdown";
 import TagChip from "./TagChip";
 import TagEditor from "./TagEditor";
 import NoteEditor from "./NoteEditor";
+import TagManager from "./TagManager";
 import { useSessionMeta } from "../hooks/useSessionMeta";
 import { entryTags, matchesTagFilter, tagColor } from "../lib/sessionMeta";
 import { deriveStatus } from "../lib/sessionStatus";
@@ -45,6 +46,7 @@ export default function Sidebar({
   const [draftAlias, setDraftAlias] = useState("");
   const [tagsFor, setTagsFor] = useState<SessionSummary | null>(null);
   const [noteFor, setNoteFor] = useState<SessionSummary | null>(null);
+  const [manageTags, setManageTags] = useState(false);
   const [textFilter, setTextFilter] = useState("");
   // One project/directory filter: "" | "name:<basename>" | "dir:<cwd>".
   const [filter, setFilter] = useState<string>("");
@@ -368,7 +370,7 @@ export default function Sidebar({
                   : "border-[var(--color-border)] text-[var(--color-text)] bg-[var(--color-bg)]"
               }`}
             >
-              {() => (
+              {(close) => (
                 <>
                   {meta.tags.map((t) => {
                     const on = tagFilter.has(t.name);
@@ -404,6 +406,17 @@ export default function Sidebar({
                       Clear filter
                     </button>
                   )}
+                  <button
+                    role="menuitem"
+                    className={`${menuItemClass} mt-1 border-t border-[var(--color-border)] pt-1.5 text-[var(--color-accent)]`}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      close();
+                      setManageTags(true);
+                    }}
+                  >
+                    Manage tags…
+                  </button>
                 </>
               )}
             </Dropdown>
@@ -732,6 +745,7 @@ export default function Sidebar({
           onClose={() => setNoteFor(null)}
         />
       )}
+      {manageTags && <TagManager onClose={() => setManageTags(false)} />}
     </aside>
   );
 }
