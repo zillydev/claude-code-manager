@@ -11,6 +11,7 @@ import {
   upsertTagIn,
   removeTagIn,
   addSessionTagIn,
+  reconcileMeta,
   nextPaletteColor,
   type SessionMeta,
 } from "./sessionMeta";
@@ -118,6 +119,38 @@ describe("addSessionTagIn", () => {
   });
   it("ignores empty names", () => {
     expect(addSessionTagIn(base, "x", "   ")).toEqual(base);
+  });
+});
+
+describe("reconcileMeta", () => {
+  it("registers session tags missing from the registry, with palette colors", () => {
+    // Legacy data from the old tag-write race: `ghost`/`orphan` sit on sessions
+    // but aren't in the registry, so they never appeared in the tag selector.
+    const m: SessionMeta = {
+      version: 1,
+      tags: [{ name: "wip", color: TAG_PALETTE[0] }],
+      sessions: { a: { tags: ["wip", "ghost"] }, b: { tags: ["orphan"] } },
+    };
+    const r = reconcileMeta(m);
+    expect(r.tags.map((t) => t.name).sort()).toEqual(["ghost", "orphan", "wip"]);
+    expect(r.tags.every((t) => !!t.color)).toBe(true); // every registered tag colored
+    expect(r.tags.find((t) => t.name === "wip")!.color).toBe(TAG_PALETTE[0]); // kept
+  });
+  it("returns the SAME object when nothing is missing (no needless write)", () => {
+    const m: SessionMeta = {
+      version: 1,
+      tags: [{ name: "wip", color: TAG_PALETTE[0] }],
+      sessions: { a: { tags: ["wip"] } },
+    };
+    expect(reconcileMeta(m)).toBe(m);
+  });
+  it("leaves orphan registry tags (used by no session) alone", () => {
+    const m: SessionMeta = {
+      version: 1,
+      tags: [{ name: "unused", color: TAG_PALETTE[0] }],
+      sessions: {},
+    };
+    expect(reconcileMeta(m)).toBe(m);
   });
 });
 

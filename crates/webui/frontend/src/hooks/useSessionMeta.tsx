@@ -17,6 +17,7 @@ import {
   upsertTagIn,
   removeTagIn,
   addSessionTagIn,
+  reconcileMeta,
   type SessionMeta,
 } from "../lib/sessionMeta";
 
@@ -57,7 +58,16 @@ export function SessionMetaProvider({ children }: { children: ReactNode }) {
     let alive = true;
     invoke<SessionMeta>("get_session_meta")
       .then((m) => {
-        if (alive) setMeta(m);
+        if (!alive) return;
+        // Self-heal legacy data: register any session tag missing from the
+        // registry (else it never shows in the selector) and persist once.
+        const healed = reconcileMeta(m);
+        metaRef.current = healed;
+        setMeta(healed);
+        if (healed !== m) {
+          inFlight.current.add(JSON.stringify(healed));
+          invoke("set_session_meta", { meta: healed }).catch(() => {});
+        }
       })
       .catch(() => {});
     return () => {

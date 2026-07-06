@@ -125,6 +125,32 @@ export function addSessionTagIn(meta: SessionMeta, id: string, name: string): Se
   return setSessionTagsIn(next, id, [...cur, n]);
 }
 
+/** Heal a store where sessions reference tags absent from the registry (legacy
+ *  data from the old tag-write race — such tags rendered with a fallback color
+ *  and never appeared in the tag selector). Adds each missing name to the
+ *  registry with a spread palette color. Orphan registry tags (used by no
+ *  session) are left alone — an unused tag is valid. Returns the SAME object
+ *  when nothing is missing, so callers can skip a needless persist. */
+export function reconcileMeta(meta: SessionMeta): SessionMeta {
+  const registered = new Set(meta.tags.map((t) => t.name));
+  const missing: string[] = [];
+  const seen = new Set<string>();
+  for (const e of Object.values(meta.sessions)) {
+    for (const name of e.tags ?? []) {
+      if (!registered.has(name) && !seen.has(name)) {
+        seen.add(name);
+        missing.push(name);
+      }
+    }
+  }
+  if (missing.length === 0) return meta;
+  let next = meta;
+  for (const name of missing) {
+    next = upsertTagIn(next, name, nextPaletteColor(next));
+  }
+  return next;
+}
+
 /** Delete a tag from the registry and strip it from every session (pruning). */
 export function removeTagIn(meta: SessionMeta, name: string): SessionMeta {
   let next: SessionMeta = { ...meta, tags: meta.tags.filter((t) => t.name !== name) };
