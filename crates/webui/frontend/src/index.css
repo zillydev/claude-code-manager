@@ -62,6 +62,12 @@ html, body, #root {
   font-size: 0.85em;
 }
 
+/* @tailwindcss/typography wraps inline code in literal backticks via
+   code::before/after content — drop them (the gray pill is enough). */
+.prose code::before, .prose code::after {
+  content: none;
+}
+
 /* Code uses the configurable mono font (also applied to the terminal in JS). */
 .prose code, .prose pre {
   font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace);
