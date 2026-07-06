@@ -7,7 +7,7 @@ import TagChip from "./TagChip";
 import TagEditor from "./TagEditor";
 import NoteEditor from "./NoteEditor";
 import { useSessionMeta } from "../hooks/useSessionMeta";
-import { entryTags, tagColor } from "../lib/sessionMeta";
+import { entryTags, matchesTagFilter, tagColor } from "../lib/sessionMeta";
 import { deriveStatus } from "../lib/sessionStatus";
 import type { LiveActivity } from "../hooks/useActivity";
 
@@ -52,6 +52,7 @@ export default function Sidebar({
   const [newPath, setNewPath] = useState("");
   const [newErr, setNewErr] = useState<string | null>(null);
   const [dateRange, setDateRange] = useState<DateRange>("all");
+  const [tagFilter, setTagFilter] = useState<Set<string>>(new Set());
   const [sortField, setSortField] = useState<SortField>("updated");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
   const [searchHits, setSearchHits] = useState<Set<string> | null>(null);
@@ -184,6 +185,8 @@ export default function Sidebar({
       // Project / directory filter (one selector).
       if (filter.startsWith("name:") && s.project_label !== filter.slice(5)) return false;
       if (filter.startsWith("dir:") && s.cwd !== filter.slice(4)) return false;
+      // Tag filter (any-of): only sessions carrying at least one selected tag.
+      if (!matchesTagFilter(meta.sessions[s.id], tagFilter)) return false;
       // Date range
       const epoch = s.mtime.secs_since_epoch;
       if (dateRange === "today" && now - epoch > 86400) return false;
@@ -200,7 +203,7 @@ export default function Sidebar({
       }
       return true;
     });
-  }, [sessions, filter, dateRange, textFilter, searchHits, now]);
+  }, [sessions, filter, dateRange, textFilter, searchHits, now, meta, tagFilter]);
 
   const sorted = useMemo(() => {
     const items = [...filtered];
@@ -354,6 +357,57 @@ export default function Sidebar({
             <option value="week">This week</option>
             <option value="month">This month</option>
           </select>
+
+          {meta.tags.length > 0 && (
+            <Dropdown
+              trigger={tagFilter.size > 0 ? `tags · ${tagFilter.size}` : "tags"}
+              title="Filter by tag"
+              triggerClassName={`text-xs px-1.5 py-1 rounded border outline-none ${
+                tagFilter.size > 0
+                  ? "border-[var(--color-accent)] text-[var(--color-accent)]"
+                  : "border-[var(--color-border)] text-[var(--color-text)] bg-[var(--color-bg)]"
+              }`}
+            >
+              {() => (
+                <>
+                  {meta.tags.map((t) => {
+                    const on = tagFilter.has(t.name);
+                    return (
+                      <button
+                        key={t.name}
+                        role="menuitem"
+                        className={`${menuItemClass} flex items-center gap-2`}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setTagFilter((prev) => {
+                            const next = new Set(prev);
+                            if (next.has(t.name)) next.delete(t.name);
+                            else next.add(t.name);
+                            return next;
+                          });
+                        }}
+                      >
+                        <span className={on ? "" : "opacity-0"}>✓</span>
+                        <TagChip name={t.name} color={t.color} />
+                      </button>
+                    );
+                  })}
+                  {tagFilter.size > 0 && (
+                    <button
+                      role="menuitem"
+                      className={`${menuItemClass} text-[var(--color-text-dim)]`}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setTagFilter(new Set());
+                      }}
+                    >
+                      Clear filter
+                    </button>
+                  )}
+                </>
+              )}
+            </Dropdown>
+          )}
         </div>
       </div>
 
