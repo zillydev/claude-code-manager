@@ -2,8 +2,10 @@ import { useState, useMemo, useCallback, useRef, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import type { SessionSummary, SortField, SortDir, DateRange } from "../types";
 import Spinner from "./Spinner";
-import Dropdown, { ConfirmMenuItem } from "./Dropdown";
+import Dropdown, { menuItemClass, ConfirmMenuItem } from "./Dropdown";
 import TagChip from "./TagChip";
+import TagEditor from "./TagEditor";
+import NoteEditor from "./NoteEditor";
 import { useSessionMeta } from "../hooks/useSessionMeta";
 import { entryTags, tagColor } from "../lib/sessionMeta";
 import { deriveStatus } from "../lib/sessionStatus";
@@ -38,7 +40,11 @@ export default function Sidebar({
   onViewTree,
   onOpenSettings,
 }: Props) {
-  const { meta } = useSessionMeta();
+  const { meta, setAlias } = useSessionMeta();
+  const [renamingId, setRenamingId] = useState<string | null>(null);
+  const [draftAlias, setDraftAlias] = useState("");
+  const [tagsFor, setTagsFor] = useState<SessionSummary | null>(null);
+  const [noteFor, setNoteFor] = useState<SessionSummary | null>(null);
   const [textFilter, setTextFilter] = useState("");
   // One project/directory filter: "" | "name:<basename>" | "dir:<cwd>".
   const [filter, setFilter] = useState<string>("");
@@ -389,6 +395,7 @@ export default function Sidebar({
         ) : (
           sorted.map((s) => {
             const entry = meta.sessions[s.id];
+            const renaming = renamingId === s.id;
             const act = activity.get(s.id);
             const liveEventAt = act?.at ?? s.last_event_at?.secs_since_epoch ?? null;
             const awaiting = act?.awaiting ?? s.awaiting_input;
@@ -425,7 +432,30 @@ export default function Sidebar({
                   }
                 />
               )}
-              {/* Main clickable area */}
+              {renaming ? (
+                /* Inline alias input (an input can't live inside the row button) */
+                <div className="flex-1 px-3 py-2 min-w-0 flex items-center gap-2">
+                  <input
+                    autoFocus
+                    value={draftAlias}
+                    onChange={(e) => setDraftAlias(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        setAlias(s.id, draftAlias); // trimmed-empty clears
+                        setRenamingId(null);
+                      } else if (e.key === "Escape") {
+                        e.preventDefault();
+                        setRenamingId(null);
+                      }
+                    }}
+                    onBlur={() => setRenamingId(null)}
+                    placeholder="Alias (leave empty to clear)"
+                    className="w-full bg-[var(--color-bg)] text-[var(--color-text)] text-sm px-1.5 py-1 rounded border border-[var(--color-accent)] outline-none"
+                  />
+                </div>
+              ) : (
+              /* Main clickable area */
               <button
                 onClick={() => onSelect(s)}
                 className="flex-1 text-left px-3 py-2 min-w-0"
@@ -552,8 +582,10 @@ export default function Sidebar({
                     </div>
                   )}
                 </button>
+              )}
 
-              {/* Per-row ⋯ menu (Delete) */}
+              {/* Per-row ⋯ menu: Rename / Tags / Note / Delete */}
+              {!renaming && (
               <div className={`flex items-center shrink-0 pr-1.5 transition-opacity ${deletingId === s.id ? "opacity-100" : "opacity-0 group-hover:opacity-100"}`}>
                   <Dropdown
                     trigger={deletingId === s.id ? <Spinner /> : "⋯"}
@@ -564,6 +596,40 @@ export default function Sidebar({
                   >
                     {(close) => (
                       <>
+                        <button
+                          role="menuitem"
+                          className={menuItemClass}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            close();
+                            setDraftAlias(entry?.alias ?? "");
+                            setRenamingId(s.id);
+                          }}
+                        >
+                          Rename
+                        </button>
+                        <button
+                          role="menuitem"
+                          className={menuItemClass}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            close();
+                            setTagsFor(s);
+                          }}
+                        >
+                          Tags…
+                        </button>
+                        <button
+                          role="menuitem"
+                          className={menuItemClass}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            close();
+                            setNoteFor(s);
+                          }}
+                        >
+                          Note…
+                        </button>
                         <ConfirmMenuItem
                           label="Delete"
                           confirmLabel="Confirm delete"
@@ -581,6 +647,7 @@ export default function Sidebar({
                     )}
                   </Dropdown>
                 </div>
+              )}
             </div>
             );
           })
@@ -596,6 +663,21 @@ export default function Sidebar({
           </span>
         )}
       </div>
+
+      {tagsFor && (
+        <TagEditor
+          sessionId={tagsFor.id}
+          title={meta.sessions[tagsFor.id]?.alias ?? tagsFor.title}
+          onClose={() => setTagsFor(null)}
+        />
+      )}
+      {noteFor && (
+        <NoteEditor
+          sessionId={noteFor.id}
+          title={meta.sessions[noteFor.id]?.alias ?? noteFor.title}
+          onClose={() => setNoteFor(null)}
+        />
+      )}
     </aside>
   );
 }
