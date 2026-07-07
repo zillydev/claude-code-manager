@@ -43,6 +43,20 @@ export function entryTags(entry: SessionEntry | undefined): string[] {
   return entry?.tags ?? [];
 }
 
+/**
+ * The name the sidebar shows for a session: its local alias if set, else
+ * claude's auto-generated title. Sorting and text-filtering by "title" must use
+ * this so a renamed session orders and matches by what the user actually sees.
+ * A blank/whitespace alias falls back to claude's title.
+ */
+export function sessionTitle(
+  meta: SessionMeta,
+  id: string,
+  claudeTitle: string,
+): string {
+  return meta.sessions[id]?.alias?.trim() || claudeTitle;
+}
+
 /** Sidebar tag filter: empty selection matches all; else ANY-of semantics. */
 export function matchesTagFilter(
   entry: SessionEntry | undefined,

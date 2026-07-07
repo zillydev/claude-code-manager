@@ -14,6 +14,7 @@ import {
   renameTagIn,
   reconcileMeta,
   nextPaletteColor,
+  sessionTitle,
   type SessionMeta,
 } from "./sessionMeta";
 
@@ -22,6 +23,25 @@ const base: SessionMeta = {
   tags: [{ name: "wip", color: "#e5534b" }],
   sessions: { abc: { alias: "auth", tags: ["wip"], note: "n" } },
 };
+
+describe("sessionTitle", () => {
+  it("uses the alias when one is set (what the row shows)", () => {
+    expect(sessionTitle(base, "abc", "claude auto name")).toBe("auth");
+  });
+  it("falls back to claude's title when there is no entry", () => {
+    expect(sessionTitle(base, "unknown", "claude auto name")).toBe(
+      "claude auto name",
+    );
+  });
+  it("falls back when the entry has no alias", () => {
+    const m: SessionMeta = { ...base, sessions: { abc: { tags: ["wip"] } } };
+    expect(sessionTitle(m, "abc", "claude auto name")).toBe("claude auto name");
+  });
+  it("treats a blank/whitespace alias as unset", () => {
+    const m: SessionMeta = { ...base, sessions: { abc: { alias: "   " } } };
+    expect(sessionTitle(m, "abc", "claude auto name")).toBe("claude auto name");
+  });
+});
 
 describe("tagColor", () => {
   it("resolves a registered tag's color", () => {
