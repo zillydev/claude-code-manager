@@ -30,7 +30,7 @@ A tool to browse, search, edit, compact, harvest, and resume Claude Code session
 
 ## Editing & surgery
 
-- **Edit a message / fork from here** — copy-on-edit → a new resumable session; resolves targets by stable uuid (incl. pre-compaction turns). → `2026-05-30-session-editor-design`
+- **Edit a message / fork from here** — copy-on-edit → a new resumable session; resolves targets by stable uuid (incl. pre-compaction turns). Forking a session that has been auto-compacted trims the copy to claude's current context segment (detected from per-turn `usage` drops), so the fork doesn't replay the discarded pre-compaction history and overflow the window ("Prompt is too long") on resume. → `2026-05-30-session-editor-design`
 - **Delete a session** (trash with restore) / **delete a message**.
 - **`session-surgery` skill + CLI** (`surgery extract` / `rewrite`) — summarize or prune a turn-snapped message range → a new resumable session (timestamps backfilled so `claude --resume` accepts it). `--from/--to` accept a uuid **prefix**. → `2026-05-30-session-surgery-skill-design`, `2026-06-18-surgery-rewrite-parity-design`
 

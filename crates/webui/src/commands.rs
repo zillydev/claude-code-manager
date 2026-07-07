@@ -335,10 +335,19 @@ pub async fn fork_session(
     // pre-compaction message yields the full raw history up to that point.
     let fork_target = uuid::Uuid::parse_str(&fork_uuid)
         .map_err(|e| format!("invalid fork uuid: {e}"))?;
-    let prefix = claude_manager_core::session::raw::path_to(&lines, fork_target);
-    if prefix.is_empty() {
+    let full = claude_manager_core::session::raw::path_to(&lines, fork_target);
+    if full.is_empty() {
         return Err(format!("fork point {fork_uuid} not found in session"));
     }
+    // Trim to claude's current context segment. A compacted/near-limit source
+    // shrinks its live context (auto-compaction/rewind) without leaving a summary
+    // on the parentUuid chain, so replaying the raw prefix would feed the model
+    // the full discarded history and overflow the window on resume ("Prompt is
+    // too long") — forcing an immediate compaction. Starting from the last
+    // context reset makes the fork replay ≈ what claude actually holds. A no-op
+    // (returns 0) for an uncompacted session.
+    let start = claude_manager_core::session::raw::context_segment_start(&full);
+    let prefix = &full[start..];
     // Launch cwd (first cwd in file order) so the fork lands in the same project
     // dir as the source and stays resumable — not the active-path prefix's cwd,
     // which for a compacted session begins post-compaction in a cd'd directory.
@@ -347,7 +356,7 @@ pub async fn fork_session(
         .iter()
         .find_map(|l| l.value.get("gitBranch").and_then(|v| v.as_str()).map(|s| s.to_string()));
     let opts = CommitOpts { target_cwd: cwd, git_branch, custom_title };
-    commit(&root, &prefix, &opts).map_err(|e| e.to_string())
+    commit(&root, prefix, &opts).map_err(|e| e.to_string())
     })
     .await
     .map_err(|e| e.to_string())?
