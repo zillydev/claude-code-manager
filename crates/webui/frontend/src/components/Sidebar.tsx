@@ -8,7 +8,12 @@ import TagEditor from "./TagEditor";
 import NoteEditor from "./NoteEditor";
 import TagManager from "./TagManager";
 import { useSessionMeta } from "../hooks/useSessionMeta";
-import { entryTags, matchesTagFilter, tagColor } from "../lib/sessionMeta";
+import {
+  entryTags,
+  matchesTagFilter,
+  sessionTitle,
+  tagColor,
+} from "../lib/sessionMeta";
 import { deriveStatus } from "../lib/sessionStatus";
 import type { LiveActivity } from "../hooks/useActivity";
 
@@ -194,12 +199,13 @@ export default function Sidebar({
       if (dateRange === "today" && now - epoch > 86400) return false;
       if (dateRange === "week" && now - epoch > 604800) return false;
       if (dateRange === "month" && now - epoch > 2592000) return false;
-      // Text filter: match title/project locally, plus deep search hits
+      // Text filter: match shown title (alias or claude's)/project locally,
+      // plus deep search hits.
       if (textFilter.trim()) {
         const q = textFilter.toLowerCase();
         const localMatch =
           s.project_label.toLowerCase().includes(q) ||
-          s.title.toLowerCase().includes(q);
+          sessionTitle(meta, s.id, s.title).toLowerCase().includes(q);
         const deepMatch = searchHits ? searchHits.has(s.id) : false;
         if (!localMatch && !deepMatch) return false;
       }
@@ -219,7 +225,10 @@ export default function Sidebar({
           cmp = a.project_label.localeCompare(b.project_label);
           break;
         case "title":
-          cmp = a.title.localeCompare(b.title);
+          // Sort by the name the row shows: local alias if set, else claude's.
+          cmp = sessionTitle(meta, a.id, a.title).localeCompare(
+            sessionTitle(meta, b.id, b.title),
+          );
           break;
         case "tokens":
           cmp = a.total_tokens - b.total_tokens;
@@ -228,7 +237,7 @@ export default function Sidebar({
       return sortDir === "desc" ? -cmp : cmp;
     });
     return items;
-  }, [filtered, sortField, sortDir]);
+  }, [filtered, sortField, sortDir, meta]);
 
   const toggleSort = (field: SortField) => {
     if (sortField === field) {
