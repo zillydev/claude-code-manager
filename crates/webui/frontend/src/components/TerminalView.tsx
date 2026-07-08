@@ -19,11 +19,13 @@ export default function TerminalView({
   filePath,
   active,
   cwd,
+  onStatus,
 }: {
   sessionId: string;
   filePath: string;
   active: boolean;
   cwd?: string;
+  onStatus?: (s: "live" | "exited" | "busy") => void;
 }) {
   const hostRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<Terminal | null>(null);
@@ -33,6 +35,9 @@ export default function TerminalView({
   const [blocked, setBlocked] = useState<{ owner: string | null } | null>(null);
   const blockedRef = useRef(false);
   blockedRef.current = blocked !== null;
+  // Latest onStatus without re-subscribing the terminal-exit listener/effects.
+  const onStatusRef = useRef(onStatus);
+  onStatusRef.current = onStatus;
   // Configurable mono font. Read via a ref at terminal creation (so a font change
   // doesn't recreate/kill the terminal); a separate effect updates it live.
   const { config } = useConfig();
@@ -117,6 +122,7 @@ export default function TerminalView({
           if (e.payload.sessionId === sessionId) {
             term.write("\r\n\x1b[2m[process exited]\x1b[0m\r\n");
             setExited(true);
+            onStatusRef.current?.("exited");
           }
         }),
       );
@@ -205,7 +211,12 @@ export default function TerminalView({
           newCwd: cwd ?? null,
         })
           .then((res) => {
-            if (res.status === "busy") setBlocked({ owner: res.owner });
+            if (res.status === "busy") {
+              setBlocked({ owner: res.owner });
+              onStatusRef.current?.("busy");
+            } else {
+              onStatusRef.current?.("live");
+            }
           })
           .catch((err) => t.write(`\r\n\x1b[31m[failed to start: ${err}]\x1b[0m\r\n`));
       } else {
@@ -229,7 +240,10 @@ export default function TerminalView({
     setStarted(false);
     setBlocked(null);
     invoke("terminal_open", { sessionId, filePath, rows: t.rows, cols: t.cols })
-      .then(() => setExited(false))
+      .then(() => {
+        setExited(false);
+        onStatusRef.current?.("live");
+      })
       .catch(() => {});
   };
 
