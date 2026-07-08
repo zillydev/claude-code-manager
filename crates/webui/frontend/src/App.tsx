@@ -29,6 +29,11 @@ export default function App() {
   const [sidebarWidth, setSidebarWidth] = useState(config.ui.sidebarWidth);
   const [activeTab, setActiveTab] = useState<"manager" | "terminal">("manager");
   const [settingsOpen, setSettingsOpen] = useState(false);
+  // Per-session terminal liveness for THIS window: drives the Terminal tab dot
+  // and enables the close-✕. Fed by TerminalView via TerminalPane's onStatus.
+  const [terminalStatus, setTerminalStatus] = useState<
+    Record<string, "live" | "exited" | "busy">
+  >({});
   // The single open session, shared by BOTH tabs: Manager renders its transcript,
   // Terminal runs its `claude` process. `cwd` set ⇒ a freshly-created session whose
   // file doesn't exist until the first turn — the effect below polls for it.
@@ -65,6 +70,18 @@ export default function App() {
     },
     [],
   );
+
+  const onTerminalStatus = useCallback(
+    (sid: string, status: "live" | "exited" | "busy") =>
+      setTerminalStatus((m) => (m[sid] === status ? m : { ...m, [sid]: status })),
+    [],
+  );
+
+  // Close = kill the PTY; the resulting terminal-exit drives status back to
+  // "exited" (clearing the dot) and the pane into its [process exited]+Restart state.
+  const closeTerminal = useCallback(() => {
+    if (target) invoke("terminal_close", { sessionId: target.sessionId }).catch(() => {});
+  }, [target]);
 
   // Create a new session in `cwd`: a fresh `claude --session-id` in the terminal.
   const newSession = useCallback(async (cwd: string) => {
@@ -195,6 +212,8 @@ export default function App() {
     return () => window.removeEventListener("keydown", onKey, true);
   }, [collapsed, setConfig]);
 
+  const terminalLive = !!target && terminalStatus[target.sessionId] === "live";
+
   return (
     <div className="flex h-screen overflow-hidden">
       {collapsed ? (
@@ -291,7 +310,14 @@ export default function App() {
                     onViewTree={hasLineage ? () => setLineageFor(transcript.id) : null}
                     scrollToMessage={target?.scrollToMessage ?? null}
                     visible={activeTab === "manager"}
-                    tabs={<TabToggle activeTab={activeTab} onSelect={setActiveTab} />}
+                    tabs={
+                      <TabToggle
+                        activeTab={activeTab}
+                        onSelect={setActiveTab}
+                        terminalLive={terminalLive}
+                        onClose={closeTerminal}
+                      />
+                    }
                   />
                 </div>
               </>
@@ -330,7 +356,12 @@ export default function App() {
                   </span>
                 )}
                 <div className="ml-auto">
-                  <TabToggle activeTab={activeTab} onSelect={setActiveTab} />
+                  <TabToggle
+                    activeTab={activeTab}
+                    onSelect={setActiveTab}
+                    terminalLive={terminalLive}
+                    onClose={closeTerminal}
+                  />
                 </div>
               </div>
               <div className="flex-1 overflow-hidden">
@@ -339,6 +370,7 @@ export default function App() {
                   filePath={target?.filePath ?? null}
                   cwd={target?.cwd}
                   tabActive={activeTab === "terminal"}
+                  onStatus={onTerminalStatus}
                 />
               </div>
             </div>
