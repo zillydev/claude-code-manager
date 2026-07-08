@@ -210,6 +210,13 @@ pub fn spawn_terminal(
                 g.remove_key(&cleanup_id);
             }
         }
+        // Broadcast to ALL windows that this session's PTY is gone. A window
+        // blocked on "open in another window" listens for this and retries its
+        // open now that the session is free (the map entry is already removed
+        // above, so the retry spawns). Fires for every teardown path — explicit
+        // close, window-close, app-exit, and claude self-exit — since all kill
+        // the child, ending the read loop here.
+        let _ = app.emit("terminal-released", json!({ "sessionId": session_id }));
     });
 
     Ok(PtyHandle { master: pair.master, writer, child, owner })
