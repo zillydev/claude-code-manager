@@ -8,11 +8,13 @@ export default function TerminalPane({
   filePath,
   cwd,
   tabActive,
+  onStatus,
 }: {
   sessionId: string | null;
   filePath: string | null;
   cwd?: string;
   tabActive: boolean;
+  onStatus?: (sessionId: string, s: "live" | "exited" | "busy") => void;
 }) {
   // sessionId -> { filePath, cwd? } for every session a terminal was opened for.
   const [opened, setOpened] = useState<Record<string, { filePath: string; cwd?: string }>>({});
@@ -40,6 +42,7 @@ export default function TerminalPane({
           filePath={v.filePath}
           cwd={v.cwd}
           active={tabActive && sid === sessionId}
+          onStatus={onStatus ? (s) => onStatus(sid, s) : undefined}
         />
       ))}
     </div>
