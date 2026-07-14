@@ -22,7 +22,7 @@ A tool to browse, search, edit, compact, harvest, and resume Claude Code session
 ## Search
 
 - **In-session find** (⌘F) — case / word / regex toggles, highlight-all + active match via the CSS Custom Highlight API, next/prev wrap, editable jump-to-match counter. Memoized (`React.memo`) so large sessions don't lag. → `2026-06-05-in-session-find-design`
-- Cross-transcript search by content (sidebar search box).
+- Cross-transcript search by content (sidebar search box). The same box also matches a session's project and **both** its names — the local alias and claude's auto-title, since a renamed row shows both. (Sorting by Title uses the alias when set.)
 
 ## Organization
 
