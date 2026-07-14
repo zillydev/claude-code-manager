@@ -10,6 +10,7 @@ import TagManager from "./TagManager";
 import { useSessionMeta } from "../hooks/useSessionMeta";
 import {
   entryTags,
+  matchesSessionName,
   matchesTagFilter,
   sessionTitle,
   tagColor,
@@ -199,13 +200,13 @@ export default function Sidebar({
       if (dateRange === "today" && now - epoch > 86400) return false;
       if (dateRange === "week" && now - epoch > 604800) return false;
       if (dateRange === "month" && now - epoch > 2592000) return false;
-      // Text filter: match shown title (alias or claude's)/project locally,
-      // plus deep search hits.
+      // Text filter: match either name the row shows (alias AND claude's) or the
+      // project locally, plus deep search hits.
       if (textFilter.trim()) {
         const q = textFilter.toLowerCase();
         const localMatch =
           s.project_label.toLowerCase().includes(q) ||
-          sessionTitle(meta, s.id, s.title).toLowerCase().includes(q);
+          matchesSessionName(meta, s.id, s.title, textFilter);
         const deepMatch = searchHits ? searchHits.has(s.id) : false;
         if (!localMatch && !deepMatch) return false;
       }
@@ -256,13 +257,26 @@ export default function Sidebar({
       {/* Search */}
       <div className="p-2 border-b border-[var(--color-border)] space-y-1.5">
         <div className="flex gap-1.5">
-          <input
-            type="text"
-            value={textFilter}
-            onChange={(e) => handleTextChange(e.target.value)}
-            placeholder="Search sessions…"
-            className="flex-1 bg-[var(--color-bg)] text-[var(--color-text)] px-2 py-1 rounded text-xs border border-[var(--color-border)] outline-none focus:border-[var(--color-accent)]"
-          />
+          {/* relative: hosts the clear-✕ inside the field's right edge. */}
+          <div className="relative flex-1">
+            <input
+              type="text"
+              value={textFilter}
+              onChange={(e) => handleTextChange(e.target.value)}
+              placeholder="Search sessions…"
+              className="w-full bg-[var(--color-bg)] text-[var(--color-text)] pl-2 pr-6 py-1 rounded text-xs border border-[var(--color-border)] outline-none focus:border-[var(--color-accent)]"
+            />
+            {textFilter && (
+              <button
+                // Same path as typing: also clears the deep-search hits/spinner.
+                onClick={() => handleTextChange("")}
+                title="Clear search"
+                className="absolute right-1 top-1/2 -translate-y-1/2 text-xs leading-none px-1 text-[var(--color-text-dim)] hover:text-[var(--color-text)]"
+              >
+                ✕
+              </button>
+            )}
+          </div>
           <button
             onClick={onRefresh}
             disabled={loading}

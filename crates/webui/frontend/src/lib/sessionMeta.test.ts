@@ -15,6 +15,7 @@ import {
   reconcileMeta,
   nextPaletteColor,
   sessionTitle,
+  matchesSessionName,
   type SessionMeta,
 } from "./sessionMeta";
 
@@ -40,6 +41,29 @@ describe("sessionTitle", () => {
   it("treats a blank/whitespace alias as unset", () => {
     const m: SessionMeta = { ...base, sessions: { abc: { alias: "   " } } };
     expect(sessionTitle(m, "abc", "claude auto name")).toBe("claude auto name");
+  });
+});
+
+describe("matchesSessionName", () => {
+  // base: sessions.abc has alias "auth"; claude's own title is passed in.
+  it("matches the local alias", () => {
+    expect(matchesSessionName(base, "abc", "claude auto name", "AUT")).toBe(true);
+  });
+  it("still matches claude's title when an alias is set", () => {
+    // The row shows claude's name dim beneath the alias, so it must stay findable.
+    expect(matchesSessionName(base, "abc", "refactor login", "refactor")).toBe(true);
+  });
+  it("matches claude's title when there is no alias", () => {
+    expect(matchesSessionName(base, "nope", "refactor login", "login")).toBe(true);
+  });
+  it("does not match an unrelated query", () => {
+    expect(matchesSessionName(base, "abc", "refactor login", "zzz")).toBe(false);
+  });
+  it("does not match across the alias/title boundary", () => {
+    expect(matchesSessionName(base, "abc", "refactor", "authrefactor")).toBe(false);
+  });
+  it("an empty query matches everything", () => {
+    expect(matchesSessionName(base, "abc", "anything", "   ")).toBe(true);
   });
 });
 

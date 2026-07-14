@@ -57,6 +57,27 @@ export function sessionTitle(
   return meta.sessions[id]?.alias?.trim() || claudeTitle;
 }
 
+/**
+ * Whether `query` matches a name the session is shown under — its local alias
+ * (if set) OR claude's auto-title. A renamed row displays BOTH (alias prominent,
+ * claude's name dim beneath), so search must find either: matching only the
+ * effective title (`sessionTitle`) would hide a session from its own visible
+ * claude name. An empty query matches everything.
+ */
+export function matchesSessionName(
+  meta: SessionMeta,
+  id: string,
+  claudeTitle: string,
+  query: string,
+): boolean {
+  const q = query.trim().toLowerCase();
+  if (!q) return true;
+  const alias = meta.sessions[id]?.alias?.trim();
+  // "\n" joins the two names so a query can't match across their boundary.
+  const hay = (alias ? `${alias}\n${claudeTitle}` : claudeTitle).toLowerCase();
+  return hay.includes(q);
+}
+
 /** Sidebar tag filter: empty selection matches all; else ANY-of semantics. */
 export function matchesTagFilter(
   entry: SessionEntry | undefined,
