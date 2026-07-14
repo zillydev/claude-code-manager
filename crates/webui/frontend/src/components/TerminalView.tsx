@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { invoke } from "@tauri-apps/api/core";
@@ -19,11 +19,13 @@ export default function TerminalView({
   filePath,
   active,
   cwd,
+  onStatus,
 }: {
   sessionId: string;
   filePath: string;
   active: boolean;
   cwd?: string;
+  onStatus?: (s: "live" | "exited" | "busy") => void;
 }) {
   const hostRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<Terminal | null>(null);
@@ -33,6 +35,37 @@ export default function TerminalView({
   const [blocked, setBlocked] = useState<{ owner: string | null } | null>(null);
   const blockedRef = useRef(false);
   blockedRef.current = blocked !== null;
+  // Latest onStatus without re-subscribing the terminal-exit listener/effects.
+  const onStatusRef = useRef(onStatus);
+  onStatusRef.current = onStatus;
+
+  // (Re)attempt to take the session's PTY: spawn if free, show the blocked
+  // overlay if another window owns it. Shared by first activation, Restart, and
+  // the "terminal-released" retry (when the owning window closes/exits).
+  const openPty = useCallback(() => {
+    const t = termRef.current;
+    if (!t) return;
+    invoke<{ status: string; owner: string | null }>("terminal_open", {
+      sessionId,
+      filePath,
+      rows: t.rows,
+      cols: t.cols,
+      newCwd: cwd ?? null,
+    })
+      .then((res) => {
+        if (res.status === "busy") {
+          setBlocked({ owner: res.owner });
+          onStatusRef.current?.("busy");
+        } else {
+          setBlocked(null);
+          setExited(false);
+          onStatusRef.current?.("live");
+        }
+      })
+      .catch((err) => t.write(`\r\n\x1b[31m[failed to start: ${err}]\x1b[0m\r\n`));
+  }, [sessionId, filePath, cwd]);
+  const openPtyRef = useRef(openPty);
+  openPtyRef.current = openPty;
   // Configurable mono font. Read via a ref at terminal creation (so a font change
   // doesn't recreate/kill the terminal); a separate effect updates it live.
   const { config } = useConfig();
@@ -117,6 +150,14 @@ export default function TerminalView({
           if (e.payload.sessionId === sessionId) {
             term.write("\r\n\x1b[2m[process exited]\x1b[0m\r\n");
             setExited(true);
+            onStatusRef.current?.("exited");
+          }
+        }),
+        // The owning window closed/exited this session's PTY — it's free now.
+        // If we're blocked on it, retry the open to take it over.
+        await w.listen<{ sessionId: string }>("terminal-released", (e) => {
+          if (e.payload.sessionId === sessionId && blockedRef.current) {
+            openPtyRef.current();
           }
         }),
       );
@@ -197,17 +238,7 @@ export default function TerminalView({
         // Wait until the output/exit listeners are attached before spawning, so
         // claude's first paint is never emitted into the void.
         await listenersReady.current;
-        invoke<{ status: string; owner: string | null }>("terminal_open", {
-          sessionId,
-          filePath,
-          rows: t.rows,
-          cols: t.cols,
-          newCwd: cwd ?? null,
-        })
-          .then((res) => {
-            if (res.status === "busy") setBlocked({ owner: res.owner });
-          })
-          .catch((err) => t.write(`\r\n\x1b[31m[failed to start: ${err}]\x1b[0m\r\n`));
+        openPtyRef.current();
       } else {
         try {
           f.fit();
@@ -227,10 +258,7 @@ export default function TerminalView({
     if (!t) return;
     t.clear();
     setStarted(false);
-    setBlocked(null);
-    invoke("terminal_open", { sessionId, filePath, rows: t.rows, cols: t.cols })
-      .then(() => setExited(false))
-      .catch(() => {});
+    openPty();
   };
 
   return (
