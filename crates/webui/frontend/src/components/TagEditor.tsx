@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import TagChip from "./TagChip";
 import { useSessionMeta } from "../hooks/useSessionMeta";
-import { entryTags, tagColor } from "../lib/sessionMeta";
+import { entryTags, tagColor, tagSuggestions } from "../lib/sessionMeta";
 
 /** Edit a session's tags: current tags as removable chips + an input that
  *  autocompletes registry tags; a new name is created with the next palette
@@ -27,13 +27,12 @@ export default function TagEditor({
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
 
-  const suggestions = useMemo(() => {
-    const q = input.trim().toLowerCase();
-    return meta.tags
-      .filter((t) => !current.includes(t.name))
-      .filter((t) => !q || t.name.toLowerCase().includes(q))
-      .slice(0, 8);
-  }, [meta.tags, current, input]);
+  // Every registry tag not already on the session (narrowed by the input) — the
+  // list scrolls rather than truncating, so no tag is unreachable here.
+  const suggestions = useMemo(
+    () => tagSuggestions(meta, current, input),
+    [meta, current, input],
+  );
 
   const addTag = (name: string) => {
     // ONE atomic mutation (registry-ensure + session-add): doing these as two
@@ -98,7 +97,7 @@ export default function TagEditor({
         />
 
         {suggestions.length > 0 && (
-          <div className="flex flex-wrap gap-1">
+          <div className="flex flex-wrap gap-1 max-h-32 overflow-y-auto">
             {suggestions.map((t) => (
               <button key={t.name} onClick={() => addTag(t.name)} title="Add this tag">
                 <TagChip name={t.name} color={t.color} />
