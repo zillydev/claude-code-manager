@@ -84,7 +84,9 @@ export default function App() {
   }, [target]);
 
   // Create a new session in `cwd`: a fresh `claude --session-id` in the terminal.
-  const newSession = useCallback(async (cwd: string) => {
+  // Returns the new session's id so the caller can attach metadata to it (the
+  // sidebar tags it with any active tag filter).
+  const newSession = useCallback(async (cwd: string): Promise<string> => {
     const res = await invoke<{ session_id: string; file_path: string }>("new_session", { cwd });
     setTarget({
       sessionId: res.session_id,
@@ -93,6 +95,7 @@ export default function App() {
       cwd,
     });
     setActiveTab("terminal");
+    return res.session_id;
   }, []);
 
   // Load `target` into the Manager. An existing session's file is there immediately;

@@ -28,7 +28,8 @@ interface Props {
   onRefresh: () => void;
   onCollapse: () => void;
   onDelete: (s: SessionSummary) => void | Promise<void>;
-  onNewSession: (cwd: string) => Promise<void>;
+  /** Creates the session and resolves with its new id (so we can tag it). */
+  onNewSession: (cwd: string) => Promise<string>;
   onViewTree: (s: SessionSummary) => void;
   onOpenSettings: () => void;
 }
@@ -47,7 +48,7 @@ export default function Sidebar({
   onViewTree,
   onOpenSettings,
 }: Props) {
-  const { meta, setAlias } = useSessionMeta();
+  const { meta, setAlias, setSessionTags } = useSessionMeta();
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [draftAlias, setDraftAlias] = useState("");
   const [tagsFor, setTagsFor] = useState<SessionSummary | null>(null);
@@ -140,7 +141,12 @@ export default function Sidebar({
     if (!c) return;
     setCreating(true);
     try {
-      await onNewSession(c);
+      const id = await onNewSession(c);
+      // Inherit the active tag filter. Without this a session created while
+      // filtering is instantly invisible — it carries no tags, so it can't match
+      // the filter you're looking at. Safe before claude writes the file: the
+      // meta store is keyed by session id, separate from the `.jsonl`.
+      if (tagFilter.size > 0) setSessionTags(id, [...tagFilter]);
       setNewOpen(false);
       setNewPath("");
       setNewErr(null);
