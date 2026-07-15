@@ -16,6 +16,7 @@ import {
   nextPaletteColor,
   sessionTitle,
   matchesSessionName,
+  tagSuggestions,
   type SessionMeta,
 } from "./sessionMeta";
 
@@ -41,6 +42,32 @@ describe("sessionTitle", () => {
   it("treats a blank/whitespace alias as unset", () => {
     const m: SessionMeta = { ...base, sessions: { abc: { alias: "   " } } };
     expect(sessionTitle(m, "abc", "claude auto name")).toBe("claude auto name");
+  });
+});
+
+describe("tagSuggestions", () => {
+  const many: SessionMeta = {
+    version: 1,
+    tags: Array.from({ length: 12 }, (_, i) => ({
+      name: `tag-${i}`,
+      color: TAG_PALETTE[i % TAG_PALETTE.length],
+    })),
+    sessions: {},
+  };
+
+  it("returns EVERY match, with no cap", () => {
+    // Regression: a fixed .slice(0, 8) hid the tail of the registry once it grew
+    // past 8, so tags existed in the filter but were unreachable in the editor.
+    expect(tagSuggestions(many, [], "")).toHaveLength(12);
+  });
+  it("excludes tags the session already has", () => {
+    const s = tagSuggestions(many, ["tag-0", "tag-1"], "");
+    expect(s).toHaveLength(10);
+    expect(s.map((t) => t.name)).not.toContain("tag-0");
+  });
+  it("narrows by a case-insensitive query", () => {
+    expect(tagSuggestions(base, [], "WI").map((t) => t.name)).toEqual(["wip"]);
+    expect(tagSuggestions(base, [], "zzz")).toEqual([]);
   });
 });
 

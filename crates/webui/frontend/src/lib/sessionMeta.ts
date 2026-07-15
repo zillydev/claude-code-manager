@@ -87,6 +87,25 @@ export function matchesTagFilter(
   return entryTags(entry).some((t) => selected.has(t));
 }
 
+/**
+ * Registry tags offerable for a session: those it doesn't already carry,
+ * narrowed by `query` (case-insensitive substring; empty = all).
+ *
+ * Deliberately NOT capped. A fixed cap silently hid tags once the registry grew
+ * past it — the editor is where you pick an existing tag, so every one must stay
+ * reachable. Callers scroll the list instead of truncating it.
+ */
+export function tagSuggestions(
+  meta: SessionMeta,
+  current: string[],
+  query: string,
+): Tag[] {
+  const q = query.trim().toLowerCase();
+  return meta.tags
+    .filter((t) => !current.includes(t.name))
+    .filter((t) => !q || t.name.toLowerCase().includes(q));
+}
+
 /** Least-used palette color, so new tags spread across the palette. */
 export function nextPaletteColor(meta: SessionMeta): string {
   const counts = new Map(TAG_PALETTE.map((c) => [c, 0]));
