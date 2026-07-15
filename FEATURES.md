@@ -26,7 +26,7 @@ A tool to browse, search, edit, compact, harvest, and resume Claude Code session
 
 ## Organization
 
-- **Session organization** — claude-manager-local metadata over sessions, in a separate `session-meta.json` (same dir/env as the config; claude's `.jsonl` is never touched). Global **tags** (a `name+color` registry; colored chips on rows; a per-session Tags… editor with autocomplete; a sidebar any-of **tag filter**; a **Manage tags…** window to recolor/rename/delete), a **local alias** (a rename that is NOT claude's `custom-title` — so no live-terminal desync; shown as the row's primary title with claude's auto-name dim beneath), and a per-session **note** (`✎` on rows, full text under the details panel). Live + broadcast across windows; dangling tags self-heal on load. → `2026-07-06-session-organization-design`
+- **Session organization** — claude-manager-local metadata over sessions, in a separate `session-meta.json` (same dir/env as the config; claude's `.jsonl` is never touched). Global **tags** (a `name+color` registry; colored chips on rows; a per-session Tags… editor with autocomplete; a sidebar any-of **tag filter**, which a newly created session inherits — so it isn't instantly filtered out of the list you're looking at; a **Manage tags…** window to recolor/rename/delete), a **local alias** (a rename that is NOT claude's `custom-title` — so no live-terminal desync; shown as the row's primary title with claude's auto-name dim beneath), and a per-session **note** (`✎` on rows, full text under the details panel). Live + broadcast across windows; dangling tags self-heal on load. → `2026-07-06-session-organization-design`
 
 ## Editing & surgery
 
