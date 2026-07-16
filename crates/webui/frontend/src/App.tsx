@@ -239,7 +239,6 @@ export default function App() {
               activity={activity}
               lastViewed={lastViewed}
               onSelect={(s) => openSession(s)}
-              onRefresh={refresh}
               onCollapse={() => setConfig({ ui: { sidebarCollapsed: true } })}
               onDelete={async (s) => {
                 try {

@@ -25,7 +25,6 @@ interface Props {
   activity: Map<string, LiveActivity>;
   lastViewed: Record<string, number>;
   onSelect: (s: SessionSummary) => void;
-  onRefresh: () => void;
   onCollapse: () => void;
   onDelete: (s: SessionSummary) => void | Promise<void>;
   /** Creates the session and resolves with its new id (so we can tag it). */
@@ -41,7 +40,6 @@ export default function Sidebar({
   activity,
   lastViewed,
   onSelect,
-  onRefresh,
   onCollapse,
   onDelete,
   onNewSession,
@@ -283,18 +281,6 @@ export default function Sidebar({
               </button>
             )}
           </div>
-          <button
-            onClick={onRefresh}
-            disabled={loading}
-            className={`text-xs px-1 ${
-              loading
-                ? "animate-spin text-[var(--color-accent)]"
-                : "text-[var(--color-text-dim)] hover:text-[var(--color-text)]"
-            }`}
-            title={loading ? "Refreshing…" : "Refresh"}
-          >
-            ↻
-          </button>
           <button
             onClick={onOpenSettings}
             className="text-sm leading-none px-1.5 py-1 rounded text-[var(--color-text-dim)] hover:text-[var(--color-accent)] hover:bg-[var(--color-surface-hover)]"
