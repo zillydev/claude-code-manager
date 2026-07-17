@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import type { SessionSummary, RenderedSession, RenderedTurn } from "../types";
+import { patchToolResults, type ToolResultUpdate } from "../lib/toolResults";
 
 export function useSessions() {
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
@@ -72,7 +73,8 @@ export function useTranscript() {
       // Subscribe to live tail events for THIS window only. The backend emits
       // with emit_to(<this window's label>), so each window receives only the
       // turns for the session it opened — no cross-window cross-feed.
-      const unlisten = await getCurrentWebviewWindow().listen<RenderedTurn[]>(
+      const win = getCurrentWebviewWindow();
+      const unlistenTurns = await win.listen<RenderedTurn[]>(
         "session-updated",
         (event) => {
           setTranscript((prev) => {
@@ -85,7 +87,23 @@ export function useTranscript() {
           });
         }
       );
-      unlistenRef.current = unlisten;
+      // Back-fill: a slow tool's result lands in a LATER tail batch than its
+      // call, so the already-appended tool_call turn would stay "(no result)"
+      // forever. Patch it in by tool_use_id (no-op if already paired).
+      const unlistenResults = await win.listen<ToolResultUpdate[]>(
+        "session-tool-results",
+        (event) => {
+          setTranscript((prev) => {
+            if (!prev) return prev;
+            const turns = patchToolResults(prev.turns, event.payload);
+            return turns === prev.turns ? prev : { ...prev, turns };
+          });
+        }
+      );
+      unlistenRef.current = () => {
+        unlistenTurns();
+        unlistenResults();
+      };
     } catch (e) {
       setError(String(e));
     } finally {
