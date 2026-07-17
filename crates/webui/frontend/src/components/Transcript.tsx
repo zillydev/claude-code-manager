@@ -21,6 +21,7 @@ import Spinner from "./Spinner";
 import { useFind } from "../hooks/useFind";
 import { useConfig } from "../hooks/useConfig";
 import { useSessionMeta } from "../hooks/useSessionMeta";
+import { entryTags } from "../lib/sessionMeta";
 import { makeSegId } from "../lib/segments";
 import { isNearBottom } from "../lib/scroll";
 
@@ -52,7 +53,7 @@ export default function Transcript({
   const compact = config.ui.compact;
   const statsOpen = config.ui.detailsOpen;
   // Local alias/note for this session (claude-manager metadata, not the .jsonl).
-  const { meta } = useSessionMeta();
+  const { meta, setSessionTags } = useSessionMeta();
   const metaEntry = meta.sessions[session.id];
   const bottomRef = useRef<HTMLDivElement>(null);
   const turnsRef = useRef<HTMLDivElement>(null);
@@ -85,24 +86,42 @@ export default function Transcript({
     setDraft(text);
   }, []);
   const handleCancelEdit = useCallback(() => setEditingUuid(null), []);
+  // Every copy-on-edit op (fork / edit / delete) mints a derived session — the
+  // same work, continued — so it inherits the source's tags. Tags only: an alias
+  // would give two sessions one name, and a note is about THAT session. A failed
+  // op returns null, and an untagged source writes nothing.
+  // Read the source via a ref so inheritTags — and thus the handlers below,
+  // which are props of memoized Turns (see the identity note above) — stay
+  // identity-stable: `meta` changes on any tag edit, and the context's
+  // setSessionTags is rebuilt on every provider render.
+  const tagSrcRef = useRef({ meta, id: session.id, setSessionTags });
+  tagSrcRef.current = { meta, id: session.id, setSessionTags };
+  const inheritTags = useCallback((newId: string | undefined) => {
+    const { meta: m, id, setSessionTags: set } = tagSrcRef.current;
+    const tags = entryTags(m.sessions[id]);
+    if (newId && tags.length > 0) set(newId, tags);
+  }, []);
   const handleSaveEdit = useCallback(
     async (uuid: string) => {
-      await editor.commitEdit(sourcePath, uuid, draft);
+      const res = await editor.commitEdit(sourcePath, uuid, draft);
+      inheritTags(res?.new_session_id);
       setEditingUuid(null);
     },
-    [editor.commitEdit, sourcePath, draft],
+    [editor.commitEdit, sourcePath, draft, inheritTags],
   );
   const handleFork = useCallback(
-    (forkUuid: string) => {
-      editor.fork(sourcePath, forkUuid);
+    async (forkUuid: string) => {
+      const res = await editor.fork(sourcePath, forkUuid);
+      inheritTags(res?.new_session_id);
     },
-    [editor.fork, sourcePath],
+    [editor.fork, sourcePath, inheritTags],
   );
   const handleDelete = useCallback(
-    (uuid: string) => {
-      editor.deleteMessage(sourcePath, uuid);
+    async (uuid: string) => {
+      const res = await editor.deleteMessage(sourcePath, uuid);
+      inheritTags(res?.new_session_id);
     },
-    [editor.deleteMessage, sourcePath],
+    [editor.deleteMessage, sourcePath, inheritTags],
   );
 
   // Track whether the user is pinned to the bottom, so live-tail appends only
