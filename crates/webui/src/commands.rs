@@ -178,6 +178,19 @@ fn tail_loop(
         let rendered = render_session(&mini);
         let new_turns: Vec<RenderedTurn> = rendered.turns;
 
+        // Back-fill results for tool calls rendered in an EARLIER batch: a slow
+        // tool's result arrives minutes after its call, in its own tail read, so
+        // the mini-render above can't pair it (its tool_use isn't in this batch)
+        // — the transcript's already-appended call would stay "(no result)"
+        // forever. Same-batch pairs are already embedded in the turns; the
+        // frontend only patches calls still missing a result. Emitted even when
+        // no turns rendered — a pure tool-result message is suppressed
+        // machinery, producing exactly the turnless batch that needs this.
+        let updates = claude_manager_core::session::render::tool_result_updates(&mini.events);
+        if !updates.is_empty() {
+            let _ = app.emit_to(label.as_str(), "session-tool-results", &updates);
+        }
+
         if !new_turns.is_empty() {
             let _ = app.emit_to(label.as_str(), "session-updated", &new_turns);
         }

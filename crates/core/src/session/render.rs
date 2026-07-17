@@ -543,6 +543,27 @@ struct ToolResultEntry {
     is_error: bool,
 }
 
+/// A tool_result observed in a batch of events. Used by the live tail to
+/// back-fill a tool_call rendered in an EARLIER batch: a slow tool's result
+/// lands minutes after its call, in a separate tail read, so the mini-render
+/// of that batch alone can never pair it (the cause of a permanent
+/// "(no result)" on long-running calls in a watched session).
+#[derive(Debug, Clone, Serialize)]
+pub struct ToolResultUpdate {
+    pub tool_use_id: String,
+    pub text: String,
+    pub is_error: bool,
+}
+
+/// Extract every tool_result in `events` (a tail batch), keyed for back-fill.
+pub fn tool_result_updates(events: &[Event]) -> Vec<ToolResultUpdate> {
+    let refs: Vec<&Event> = events.iter().collect();
+    collect_tool_results(&refs)
+        .into_iter()
+        .map(|(id, e)| ToolResultUpdate { tool_use_id: id, text: e.text, is_error: e.is_error })
+        .collect()
+}
+
 fn collect_tool_results(path: &[&Event]) -> HashMap<String, ToolResultEntry> {
     let mut out = HashMap::new();
     for ev in path {
@@ -603,7 +624,7 @@ mod render_tests {
     use super::*;
     use crate::session::event::{
         AssistantEvent, AssistantMessage, Block, CustomTitleEvent, Message, MessageContent,
-        UserEvent,
+        ToolResultContent, UserBlock, UserEvent,
     };
     use crate::session::Session;
     use chrono::Utc;
@@ -645,6 +666,53 @@ mod render_tests {
             git_branch: None,
             forked_from: None,
         })
+    }
+
+    /// A user event that is a pure tool_result container (what claude appends
+    /// when a tool finishes).
+    fn trev(uuid: &str, parent: Option<&str>, tool_use_id: &str, text: &str, is_error: bool) -> Event {
+        Event::User(UserEvent {
+            uuid: Some(uuid.parse().unwrap()),
+            parent_uuid: parent.map(|p| p.parse().unwrap()),
+            timestamp: Some(Utc::now()),
+            is_sidechain: false,
+            is_meta: None,
+            message: Message {
+                role: Some("user".into()),
+                content: MessageContent::Blocks(vec![UserBlock::ToolResult {
+                    tool_use_id: tool_use_id.into(),
+                    content: ToolResultContent::Text(text.into()),
+                    is_error,
+                }]),
+            },
+            tool_use_result: None,
+            cwd: None,
+            git_branch: None,
+            forked_from: None,
+        })
+    }
+
+    #[test]
+    fn tool_result_updates_extracts_results_from_a_batch() {
+        // A tail batch holding ONLY the late result of a slow tool call (its
+        // tool_use streamed in an earlier batch) must surface it for back-fill.
+        let a = "00000000-0000-0000-0000-0000000000a1";
+        let b = "00000000-0000-0000-0000-0000000000b2";
+        let events = vec![
+            trev(a, None, "toolu_slow", "== output ==", false),
+            aev(b, Some(a), "done"),
+        ];
+        let ups = tool_result_updates(&events);
+        assert_eq!(ups.len(), 1);
+        assert_eq!(ups[0].tool_use_id, "toolu_slow");
+        assert_eq!(ups[0].text, "== output ==");
+        assert!(!ups[0].is_error);
+    }
+
+    #[test]
+    fn tool_result_updates_empty_for_plain_turns() {
+        let a = "00000000-0000-0000-0000-0000000000a1";
+        assert!(tool_result_updates(&[uev(a, None, "hi")]).is_empty());
     }
 
     #[test]
