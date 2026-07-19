@@ -87,6 +87,31 @@ pub struct PtyHandle {
     owner: String,
 }
 
+/// Tear down a PTY child AND its whole process group, then reap it.
+///
+/// `claude` spawns its tools and MCP servers (bash, `npm exec …`, mcp servers)
+/// into ITS OWN process group — portable-pty `setsid`s the child, so the child
+/// is the group leader and every descendant shares its pgid. `Child::kill()`
+/// signals only the leader, orphaning that tree; the orphans keep the session's
+/// lock fd (inherited from claude) open until they each notice stdin EOF and
+/// exit a moment later. In that window a `claude --resume <same id>` — e.g. the
+/// Restart button right after a close — is refused: "Session ID is already in
+/// use." Killing the whole group drops the tree at once; `wait()` reaps the
+/// leader so it can't linger as a zombie either.
+fn kill_tree(child: &mut Box<dyn Child + Send + Sync>) {
+    #[cfg(unix)]
+    if let Some(pid) = child.process_id() {
+        // Group leader ⇒ pgid == pid, so `kill(-pid)` signals the whole group.
+        unsafe {
+            libc::kill(-(pid as i32), libc::SIGKILL);
+        }
+    }
+    // Also signal the leader directly (covers non-unix / a missing pid) and reap
+    // so no zombie is left behind.
+    let _ = child.kill();
+    let _ = child.wait();
+}
+
 #[derive(Default)]
 pub struct TerminalState {
     ptys: HashMap<String, PtyHandle>,
@@ -113,7 +138,7 @@ impl TerminalState {
     }
     pub fn close(&mut self, session_id: &str) {
         if let Some(mut h) = self.ptys.remove(session_id) {
-            let _ = h.child.kill();
+            kill_tree(&mut h.child);
         }
     }
     /// Kill+drop every PTY owned by a window (window-close cleanup).
@@ -126,14 +151,14 @@ impl TerminalState {
             .collect();
         for id in ids {
             if let Some(mut h) = self.ptys.remove(&id) {
-                let _ = h.child.kill();
+                kill_tree(&mut h.child);
             }
         }
     }
     /// Kill every terminal (used as an app-exit backstop).
     pub fn close_all(&mut self) {
         for (_id, mut h) in self.ptys.drain() {
-            let _ = h.child.kill();
+            kill_tree(&mut h.child);
         }
     }
     fn remove_key(&mut self, session_id: &str) {
@@ -250,5 +275,37 @@ mod tests {
         assert_eq!(open_decision(None, "main"), OpenDecision::Spawn);
         assert_eq!(open_decision(Some("main"), "main"), OpenDecision::Reuse);
         assert_eq!(open_decision(Some("main"), "win-1"), OpenDecision::Busy);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn kill_tree_kills_the_whole_process_group() {
+        // A leader (`sh`) with a backgrounded child in the SAME group, spawned
+        // under a PTY exactly like claude. `Child::kill()` alone would leave the
+        // backgrounded `sleep` running (the bug); kill_tree must take the group.
+        let pair = native_pty_system()
+            .openpty(PtySize { rows: 24, cols: 80, pixel_width: 0, pixel_height: 0 })
+            .unwrap();
+        let mut cmd = CommandBuilder::new("sh");
+        cmd.arg("-c");
+        cmd.arg("sleep 300 & sleep 300"); // group = {sh, sleep, sleep}
+        let mut child = pair.slave.spawn_command(cmd).unwrap();
+        drop(pair.slave);
+        let pid = child.process_id().expect("a pid") as i32;
+
+        // The group is alive (signal 0 = existence probe on the whole group).
+        assert_eq!(unsafe { libc::kill(-pid, 0) }, 0, "group should start alive");
+
+        kill_tree(&mut child);
+        std::thread::sleep(std::time::Duration::from_millis(300));
+
+        // The entire group is gone — ESRCH (-1), not just the leader.
+        assert_eq!(
+            unsafe { libc::kill(-pid, 0) },
+            -1,
+            "kill_tree must leave no process in the group",
+        );
+        // Keep the master alive until here so the slave isn't torn down early.
+        drop(pair.master);
     }
 }

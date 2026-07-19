@@ -22,5 +22,8 @@ uuid = { version = "1", features = ["serde", "v4"] }
 portable-pty = "0.8"
 base64 = "0.22"
 
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
