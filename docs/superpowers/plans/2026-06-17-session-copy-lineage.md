@@ -11,7 +11,7 @@
 ## Global Constraints
 
 - No new dependencies (runtime or dev).
-- No changes to `claude-manager-core`'s public behavior beyond the additive `SessionSummary` fields and the new `lineage` module.
+- No changes to `claude-code-manager-core`'s public behavior beyond the additive `SessionSummary` fields and the new `lineage` module.
 - Lineage detection is scoped **per project directory** (a copy keeps the same cwd → same encoded dir). No global/cross-directory index.
 - `copied_from` is distinct from `forked_from`; when a session already has an explicit `forked_from`, it is **not** also given a `copied_from` (no double-link).
 - Field names are snake_case to match existing `SessionSummary` serialization (`forked_from`, `total_tokens`).
@@ -193,7 +193,7 @@ pub mod lineage;
 
 These tests exercise the implementation written in Step 1 (the function is included with the tests since it is small and pure). Run:
 
-Run: `cargo test -p claude-manager-core lineage`
+Run: `cargo test -p claude-code-manager-core lineage`
 Expected: PASS — `descendant_links_to_ancestor_containing_its_head`, `no_overlap_no_link`, `explicit_fork_is_skipped`, `shared_start_is_not_a_link`, `descendant_larger_than_ancestor_still_links`.
 
 (If you prefer strict red-first TDD: temporarily replace the `copy_lineage` body with `HashMap::new()`, run to see the four positive tests fail, then restore the body.)
@@ -243,7 +243,7 @@ And in the `SessionSummary { … }` constructor returned by `summarize` (line ~1
 
 - [ ] **Step 2: Verify existing core tests still compile/pass**
 
-Run: `cargo test -p claude-manager-core summary`
+Run: `cargo test -p claude-code-manager-core summary`
 Expected: PASS — all existing `summary::tests::*` still pass (they call `summarize`, which now sets the two new fields to `None`).
 
 - [ ] **Step 3: Write the failing discover test**
@@ -310,7 +310,7 @@ mod lineage_discovery_tests {
 
 - [ ] **Step 4: Run the test to verify it fails**
 
-Run: `cargo test -p claude-manager-core discover_sets_copied_from_via_shared_uuid`
+Run: `cargo test -p claude-code-manager-core discover_sets_copied_from_via_shared_uuid`
 Expected: FAIL — `copied_from` is `None` (discover does not yet resolve lineage).
 
 - [ ] **Step 5: Wire lineage resolution into `discover`**
@@ -388,7 +388,7 @@ In `crates/core/src/store/mod.rs`, replace the inner per-file loop body so each 
 
 - [ ] **Step 6: Run the discover test + full core suite**
 
-Run: `cargo test -p claude-manager-core`
+Run: `cargo test -p claude-code-manager-core`
 Expected: PASS — `discover_sets_copied_from_via_shared_uuid` now passes; all existing core tests (61) + Task 1 lineage tests still pass.
 
 - [ ] **Step 7: Commit**

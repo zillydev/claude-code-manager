@@ -131,7 +131,7 @@ window closed
 - Possibly `crates/webui/tauri.conf.json` — only if a menu/window setting needs
   declaring; menu is built in Rust, so likely no change.
 
-No `claude-manager-core` changes expected.
+No `claude-code-manager-core` changes expected.
 
 ## Testing & verification
 

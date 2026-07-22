@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Add a `claude-manager surgery` CLI (extract + rewrite) and a `session-surgery` skill that summarize or prune a range of messages in a session's history, writing a NEW resumable session and leaving the original untouched.
+**Goal:** Add a `claude-code-manager surgery` CLI (extract + rewrite) and a `session-surgery` skill that summarize or prune a range of messages in a session's history, writing a NEW resumable session and leaving the original untouched.
 
 **Architecture:** A new `core::session::surgery` module does all structural work — resolve the two message uuids on the active path, snap the range to whole-turn boundaries, render the range as text (for summarization), and splice (prune or insert-summary) then commit via the existing `core::session::edit::commit` (copy-on-edit, flatten, regenerate uuids, repair tool pairing). The TUI binary gains `surgery extract`/`surgery rewrite` clap subcommands that are a thin shell over `surgery`. The `session-surgery` SKILL.md orchestrates: extract → the running Claude writes a handoff-quality summary → rewrite.
 
@@ -194,10 +194,10 @@ mod tests {
 
 - [ ] **Step 4: Run the tests**
 
-Run: `source "$HOME/.cargo/env" && cargo test -p claude-manager-core surgery:: 2>&1 | tail -20`
+Run: `source "$HOME/.cargo/env" && cargo test -p claude-code-manager-core surgery:: 2>&1 | tail -20`
 Expected: `snap_expands_assistant_turn_to_include_tool_result`, `snap_real_user_is_single_line_turn`, `snap_rejects_reversed_and_offpath` all PASS.
 
-Run: `source "$HOME/.cargo/env" && cargo test -p claude-manager-core 2>&1 | tail -3`
+Run: `source "$HOME/.cargo/env" && cargo test -p claude-code-manager-core 2>&1 | tail -3`
 Expected: whole crate green.
 
 - [ ] **Step 5: Commit**
@@ -371,7 +371,7 @@ Add these tests inside the existing `#[cfg(test)] mod tests` block in `surgery.r
 
 - [ ] **Step 3: Run tests**
 
-Run: `source "$HOME/.cargo/env" && cargo test -p claude-manager-core surgery:: 2>&1 | tail -20`
+Run: `source "$HOME/.cargo/env" && cargo test -p claude-code-manager-core surgery:: 2>&1 | tail -20`
 Expected: all surgery tests pass (6 total now).
 
 - [ ] **Step 4: Commit**
@@ -557,10 +557,10 @@ Then add:
 
 - [ ] **Step 3: Run tests**
 
-Run: `source "$HOME/.cargo/env" && cargo test -p claude-manager-core surgery:: 2>&1 | tail -25`
+Run: `source "$HOME/.cargo/env" && cargo test -p claude-code-manager-core surgery:: 2>&1 | tail -25`
 Expected: all surgery tests pass (`prune_drops_the_range_and_revalidates_clean`, `summary_inserts_one_message`, `summary_requires_text` + the earlier ones).
 
-Run: `source "$HOME/.cargo/env" && cargo test -p claude-manager-core 2>&1 | tail -3` — whole crate green.
+Run: `source "$HOME/.cargo/env" && cargo test -p claude-code-manager-core 2>&1 | tail -3` — whole crate green.
 
 - [ ] **Step 4: Commit**
 
@@ -643,7 +643,7 @@ In `main()`, immediately after `root` is resolved (after the `.context("could no
 
 ```rust
     if let Some(Command::Surgery { op }) = &cli.command {
-        use claude_manager_core::session::surgery::{self, RewriteMode};
+        use claude_code_manager_core::session::surgery::{self, RewriteMode};
         match op {
             SurgeryOp::Extract { session, from, to } => {
                 let path = surgery::resolve_session_path(&root, session)?;
@@ -683,7 +683,7 @@ In `main()`, immediately after `root` is resolved (after the `.context("could no
 
 - [ ] **Step 4: Build**
 
-Run: `source "$HOME/.cargo/env" && cargo build -p claude-manager-tui 2>&1 | tail -10`
+Run: `source "$HOME/.cargo/env" && cargo build -p claude-code-manager-tui 2>&1 | tail -10`
 Expected: Finished, no errors. (A pre-existing `theme::thinking` dead-code warning may appear — leave it.)
 
 - [ ] **Step 5: Manual smoke — extract + prune on a real session**
@@ -703,13 +703,13 @@ print(ids[0]); print(ids[1] if len(ids)>1 else ids[0])
 ")
 A=$(echo "$IDS" | sed -n 1p); B=$(echo "$IDS" | sed -n 2p)
 echo "session=$SRC  A=$A  B=$B"
-./target/debug/claude-manager surgery extract --session "$SRC" --from "$A" --to "$B" | head -20
+./target/debug/claude-code-manager surgery extract --session "$SRC" --from "$A" --to "$B" | head -20
 echo "--- rewrite prune ---"
-./target/debug/claude-manager surgery rewrite --session "$SRC" --from "$A" --to "$B" --mode prune
+./target/debug/claude-code-manager surgery rewrite --session "$SRC" --from "$A" --to "$B" --mode prune
 ```
 Expected: `extract` prints the first turn(s) as `[role]` text; `rewrite` prints a new session id, path, `claude --resume <id>`, and a `messages: N -> M` line. Verify the new file is valid:
 ```bash
-NEW=$(./target/debug/claude-manager surgery rewrite --session "$SRC" --from "$A" --to "$B" --mode prune | grep '^path:' | sed 's/^path: //')
+NEW=$(./target/debug/claude-code-manager surgery rewrite --session "$SRC" --from "$A" --to "$B" --mode prune | grep '^path:' | sed 's/^path: //')
 python3 -c "import json;[json.loads(l) for l in open('$NEW') if l.strip()];print('valid jsonl')"
 ```
 
@@ -734,7 +734,7 @@ Create `skills/session-surgery/SKILL.md` with exactly:
 ````markdown
 ---
 name: session-surgery
-description: Use when the user wants to shrink/compact a Claude Code session's context by summarizing or pruning a range of messages between two message ids (copied from the claude-manager webui's per-message "copy id" button). Produces a NEW resumable session via the claude-manager binary; never modifies the original. Trigger phrases include "summarize messages between <id> and <id>", "prune/cut this part of the session", "reduce context in session X", "compact this stretch".
+description: Use when the user wants to shrink/compact a Claude Code session's context by summarizing or pruning a range of messages between two message ids (copied from the claude-code-manager webui's per-message "copy id" button). Produces a NEW resumable session via the claude-code-manager binary; never modifies the original. Trigger phrases include "summarize messages between <id> and <id>", "prune/cut this part of the session", "reduce context in session X", "compact this stretch".
 ---
 
 # Session Surgery
@@ -743,7 +743,7 @@ You are rewriting the history of a Claude Code session so it uses less context, 
 
 **Two hard guarantees, both enforced by the tooling — never violate them:**
 1. **Copy-on-edit.** Every operation writes a brand-new session file (new id). The original session file is read-only and is never modified. If anything goes wrong, the user loses nothing.
-2. **You never hand-edit the jsonl.** All structural work goes through the `claude-manager` binary's `surgery` subcommands, which reuse the tested write pipeline (flatten, regenerate uuids, relink the parent chain, repair tool_use/tool_result pairing). Editing the jsonl by hand would corrupt those invariants.
+2. **You never hand-edit the jsonl.** All structural work goes through the `claude-code-manager` binary's `surgery` subcommands, which reuse the tested write pipeline (flatten, regenerate uuids, relink the parent chain, repair tool_use/tool_result pairing). Editing the jsonl by hand would corrupt those invariants.
 
 ## Background you need (mental model)
 
@@ -760,9 +760,9 @@ A Claude Code session is a `.jsonl` transcript at `~/.claude/projects/<encoded-c
 ## Locate the binary (once, up front)
 
 ```bash
-BIN=/Users/zillydev/my/Dev/Personal/claude-manager/target/release/claude-manager
-[ -x "$BIN" ] || BIN=/Users/zillydev/my/Dev/Personal/claude-manager/target/debug/claude-manager
-[ -x "$BIN" ] || { echo "build it first"; (cd /Users/zillydev/my/Dev/Personal/claude-manager && cargo build --release); BIN=/Users/zillydev/my/Dev/Personal/claude-manager/target/release/claude-manager; }
+BIN=/Users/zillydev/my/Dev/Personal/claude-manager/target/release/claude-code-manager
+[ -x "$BIN" ] || BIN=/Users/zillydev/my/Dev/Personal/claude-manager/target/debug/claude-code-manager
+[ -x "$BIN" ] || { echo "build it first"; (cd /Users/zillydev/my/Dev/Personal/claude-manager && cargo build --release); BIN=/Users/zillydev/my/Dev/Personal/claude-manager/target/release/claude-code-manager; }
 ```
 
 ## Step 0 — Safety check (ALWAYS do first)

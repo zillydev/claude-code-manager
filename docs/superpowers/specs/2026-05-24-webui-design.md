@@ -1,4 +1,4 @@
-# claude-manager Web UI — Tauri + React
+# claude-code-manager Web UI — Tauri + React
 
 **Date:** 2026-05-24
 **Status:** Approved, implementing
@@ -10,7 +10,7 @@ Add a Tauri-based web UI alongside the existing TUI. Restructure into a Cargo wo
 ## Workspace layout
 
 ```
-claude-manager/
+claude-code-manager/
 ├── Cargo.toml          ← workspace root
 ├── crates/
 │   ├── core/           ← shared: session/, store/ (lib crate)

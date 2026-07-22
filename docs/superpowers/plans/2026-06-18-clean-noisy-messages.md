@@ -147,7 +147,7 @@ In `crates/core/src/session/summary.rs`, delete its local `extract_tag` function
 
 - [ ] **Step 3: Run the tests**
 
-Run: `cargo test -p claude-manager-core display && cargo test -p claude-manager-core summary`
+Run: `cargo test -p claude-code-manager-core display && cargo test -p claude-code-manager-core summary`
 Expected: PASS — the 3 new `display::tests::*` and all existing `summary::tests::*` (summary still compiles using the shared `extract_tag`).
 
 - [ ] **Step 4: Commit**
@@ -222,7 +222,7 @@ In `render.rs` tests, add (constructing a user event whose text is a task-notifi
 
 - [ ] **Step 3: Run to verify it fails**
 
-Run: `cargo test -p claude-manager-core task_notification_user_event_becomes_task_turn`
+Run: `cargo test -p claude-code-manager-core task_notification_user_event_becomes_task_turn`
 Expected: FAIL — the user event renders as `RenderedTurn::User`, not `TaskNotification`.
 
 - [ ] **Step 4: Emit the variant in `render_path_turns`**
@@ -246,7 +246,7 @@ In `crates/core/src/session/render.rs`, in the `Event::User(u)` arm, right after
 
 - [ ] **Step 5: Run to verify it passes + full core**
 
-Run: `cargo test -p claude-manager-core`
+Run: `cargo test -p claude-code-manager-core`
 Expected: PASS — the new test plus all existing core tests (the new variant is additive; the stats filter uses `matches!(… User | Assistant)` so task-notifications are correctly excluded from message-turn counts/stats).
 
 - [ ] **Step 6: Commit**
@@ -315,7 +315,7 @@ In `surgery.rs` tests, add a fixture + assertions:
 
 - [ ] **Step 3: Run + commit**
 
-Run: `cargo test -p claude-manager-core surgery`
+Run: `cargo test -p claude-code-manager-core surgery`
 Expected: PASS — `outline_compacts_command_echo_and_task_notification` plus existing surgery tests.
 
 ```bash
@@ -497,7 +497,7 @@ Expected: `tsc` clean; 14 tests pass; build succeeds.
 Build (`cargo build --release`), then on a session with command echoes + task-notifications (e.g. `c84ba790-92b6-41ea-881f-971902858ce2`):
 
 ```bash
-BIN=/Users/zillydev/my/Dev/Personal/claude-manager/target/release/claude-manager
+BIN=/Users/zillydev/my/Dev/Personal/claude-manager/target/release/claude-code-manager
 S=c84ba790-92b6-41ea-881f-971902858ce2
 "$BIN" surgery extract --session "$S" --outline --all-segments | grep -E '/compact|/resume|task · ' | head
 "$BIN" surgery extract --session "$S" --outline --all-segments | grep -c '<task-notification>'

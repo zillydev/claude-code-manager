@@ -2,7 +2,7 @@
 
 ## Goal
 
-Let the user customize claude-manager's appearance and remembered UI state through
+Let the user customize claude-code-manager's appearance and remembered UI state through
 a single on-disk config file, edited via an in-app settings panel with live
 preview. Covers: **preset themes** (incl. light mode), **typography** (font size,
 density, UI + mono font choices), and **behavior defaults** (compact, details,
@@ -18,9 +18,9 @@ localStorage UI prefs (they reset to config defaults once).
 
 Resolved at startup, first match wins:
 
-1. `$CLAUDE_MANAGER_CONFIG_DIR`
-2. `$XDG_CONFIG_HOME/claude-manager`
-3. `~/.config/claude-manager` (home from `dirs::home_dir()`)
+1. `$CLAUDE_CODE_MANAGER_CONFIG_DIR`
+2. `$XDG_CONFIG_HOME/claude-code-manager`
+3. `~/.config/claude-code-manager` (home from `dirs::home_dir()`)
 
 The file is `config.json` inside that directory. (Env var, not a CLI flag,
 because the bundled/launchd app has no argv; the default needs nothing set. Note:

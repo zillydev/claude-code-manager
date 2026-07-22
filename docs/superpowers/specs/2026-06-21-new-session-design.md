@@ -50,7 +50,7 @@ also fixes a latent surgery bug (`session_file_path` for dotted/spaced cwds).
 ### `encode_project_dir` (fix + tests) — `crates/core/src/store/paths.rs`
 
 Unit-test the verified cases: `/Users/x/my.app` → `-Users-x-my-app`,
-`/tmp/a_b c` → `-tmp-a-b-c`, `/Users/x/claude-manager` → `-Users-x-claude-manager`
+`/tmp/a_b c` → `-tmp-a-b-c`, `/Users/x/claude-code-manager` → `-Users-x-claude-code-manager`
 (existing `-` preserved), `UPPER` kept.
 
 ### Fresh-vs-resume spawn — `crates/webui/src/terminal.rs`

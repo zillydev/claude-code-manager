@@ -347,14 +347,14 @@ pub fn open_session(file_path: PathBuf, project_label: String) -> Result<Session
     Ok(s)
 }
 
-/// Move a session file into the app trash (`<root>/.trash/claude-manager/`) and
+/// Move a session file into the app trash (`<root>/.trash/claude-code-manager/`) and
 /// write a `<name>.trashinfo` sidecar recording the original path and deletion
 /// time so it can be restored later. Returns the trashed file's new path.
 ///
 /// The trash dir lives under `<root>` but outside `<root>/projects/`, so trashed
 /// sessions are not re-discovered by `discover`.
 pub fn trash_session(root: &Path, file_path: &Path) -> Result<PathBuf> {
-    let trash_dir = root.join(".trash").join("claude-manager");
+    let trash_dir = root.join(".trash").join("claude-code-manager");
     fs::create_dir_all(&trash_dir).with_context(|| {
         format!("could not create trash dir {}", trash_dir.display())
     })?;
@@ -504,10 +504,10 @@ mod tests {
 
         let dest = trash_session(&root, &src).unwrap();
 
-        // Original gone, trashed file present under .trash/claude-manager.
+        // Original gone, trashed file present under .trash/claude-code-manager.
         assert!(!src.exists(), "source should be moved");
         assert!(dest.exists(), "trashed file should exist");
-        assert!(dest.starts_with(root.join(".trash").join("claude-manager")));
+        assert!(dest.starts_with(root.join(".trash").join("claude-code-manager")));
 
         // trashinfo sidecar records the original path.
         let info_path = dest.with_extension("jsonl.trashinfo");

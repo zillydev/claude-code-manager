@@ -53,7 +53,7 @@ In `paths.rs` `#[cfg(test)] mod tests`, add:
 
 - [ ] **Step 2: Run it — fails**
 
-Run: `cargo test -p claude-manager-core encode_project_dir_matches_cc`
+Run: `cargo test -p claude-code-manager-core encode_project_dir_matches_cc`
 Expected: FAIL on the `my.app` / `a_b c` / `v1.2-rc` cases (current code only replaces `/`).
 
 - [ ] **Step 3: Fix the function**
@@ -72,7 +72,7 @@ pub fn encode_project_dir(cwd: &str) -> String {
 
 - [ ] **Step 4: Run it — passes**
 
-Run: `cargo test -p claude-manager-core paths`
+Run: `cargo test -p claude-code-manager-core paths`
 Expected: PASS (the new test + existing `fallback_label`/`label_from_cwd` tests).
 
 - [ ] **Step 5: Commit**
@@ -230,7 +230,7 @@ Add to `invoke_handler![...]` (next to `commands::terminal_open`):
 
 - [ ] **Step 5: Build + test**
 
-Run: `cargo test -p claude-manager-webui && cargo build -p claude-manager-webui`
+Run: `cargo test -p claude-code-manager-webui && cargo build -p claude-code-manager-webui`
 Expected: terminal tests pass (resume + fresh); webui compiles.
 
 - [ ] **Step 6: Commit**

@@ -1,8 +1,8 @@
 //! User configuration: persisted UI preferences (theme, typography, behavior).
 //!
 //! Stored as JSON at `<dir>/config.json`, where `<dir>` resolves (first match):
-//! `$CLAUDE_MANAGER_CONFIG_DIR` → `$XDG_CONFIG_HOME/claude-manager` →
-//! `~/.config/claude-manager`. The frontend tolerates unknown enum strings, so
+//! `$CLAUDE_CODE_MANAGER_CONFIG_DIR` → `$XDG_CONFIG_HOME/claude-code-manager` →
+//! `~/.config/claude-code-manager`. The frontend tolerates unknown enum strings, so
 //! we only clamp numeric ranges here; missing fields fall back to defaults.
 
 use std::path::{Path, PathBuf};
@@ -121,16 +121,16 @@ fn resolve_dir(cm: Option<String>, xdg: Option<String>, home: Option<String>) ->
         return PathBuf::from(d);
     }
     if let Some(x) = xdg.filter(|s| !s.is_empty()) {
-        return PathBuf::from(x).join("claude-manager");
+        return PathBuf::from(x).join("claude-code-manager");
     }
     PathBuf::from(home.unwrap_or_else(|| ".".to_string()))
         .join(".config")
-        .join("claude-manager")
+        .join("claude-code-manager")
 }
 
 pub(crate) fn config_dir() -> PathBuf {
     resolve_dir(
-        std::env::var("CLAUDE_MANAGER_CONFIG_DIR").ok(),
+        std::env::var("CLAUDE_CODE_MANAGER_CONFIG_DIR").ok(),
         std::env::var("XDG_CONFIG_HOME").ok(),
         std::env::var("HOME").ok(),
     )
@@ -194,25 +194,25 @@ mod tests {
 
     #[test]
     fn resolve_dir_precedence() {
-        // CLAUDE_MANAGER_CONFIG_DIR wins.
+        // CLAUDE_CODE_MANAGER_CONFIG_DIR wins.
         assert_eq!(
             resolve_dir(Some("/a".into()), Some("/b".into()), Some("/h".into())),
             PathBuf::from("/a")
         );
-        // then XDG_CONFIG_HOME/claude-manager.
+        // then XDG_CONFIG_HOME/claude-code-manager.
         assert_eq!(
             resolve_dir(None, Some("/b".into()), Some("/h".into())),
-            PathBuf::from("/b/claude-manager")
+            PathBuf::from("/b/claude-code-manager")
         );
-        // then ~/.config/claude-manager.
+        // then ~/.config/claude-code-manager.
         assert_eq!(
             resolve_dir(None, None, Some("/h".into())),
-            PathBuf::from("/h/.config/claude-manager")
+            PathBuf::from("/h/.config/claude-code-manager")
         );
         // empty strings are ignored.
         assert_eq!(
             resolve_dir(Some(String::new()), Some(String::new()), Some("/h".into())),
-            PathBuf::from("/h/.config/claude-manager")
+            PathBuf::from("/h/.config/claude-code-manager")
         );
     }
 

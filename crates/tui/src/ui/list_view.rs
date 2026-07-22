@@ -7,7 +7,7 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Paragraph, Row, Table, TableState};
 use ratatui::Frame;
 
-use claude_manager_core::session::summary::{compact_tokens, relative_time, SessionSummary};
+use claude_code_manager_core::session::summary::{compact_tokens, relative_time, SessionSummary};
 use crate::ui::theme;
 
 pub enum ListAction {
@@ -352,7 +352,7 @@ impl ListView {
 
         // Header
         let header = Paragraph::new(Line::from(vec![
-            Span::raw(" claude-manager "),
+            Span::raw(" claude-code-manager "),
             Span::styled(
                 format!(
                     "({}/{} sessions)",

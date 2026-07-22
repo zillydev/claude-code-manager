@@ -52,7 +52,7 @@ export default function Transcript({
   const { config, setConfig } = useConfig();
   const compact = config.ui.compact;
   const statsOpen = config.ui.detailsOpen;
-  // Local alias/note for this session (claude-manager metadata, not the .jsonl).
+  // Local alias/note for this session (claude-code-manager metadata, not the .jsonl).
   const { meta, setSessionTags } = useSessionMeta();
   const metaEntry = meta.sessions[session.id];
   const bottomRef = useRef<HTMLDivElement>(null);

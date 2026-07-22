@@ -110,7 +110,7 @@ In the `#[cfg(test)] mod tests` of `summary.rs`, add:
 
 - [ ] **Step 4: Run the test to verify it fails**
 
-Run: `cargo test -p claude-manager-core forked_from_message_read_from_provenance`
+Run: `cargo test -p claude-code-manager-core forked_from_message_read_from_provenance`
 Expected: FAIL to COMPILE — `forked_from_message` field/initializer not set in `summarize` yet (and the struct field unused). This confirms the test targets new behavior.
 
 - [ ] **Step 5: Capture `forked_from_message` in `summarize`**
@@ -141,7 +141,7 @@ And in the `SessionSummary { … }` constructor, add after `copied_overlap: None
 
 - [ ] **Step 6: Run the test to verify it passes**
 
-Run: `cargo test -p claude-manager-core summary`
+Run: `cargo test -p claude-code-manager-core summary`
 Expected: PASS — `forked_from_message_read_from_provenance` plus all existing `summary::tests::*`.
 
 - [ ] **Step 7: Commit**
@@ -175,7 +175,7 @@ In `crates/core/src/store/mod.rs`, in the existing test `discover_sets_copied_fr
 
 - [ ] **Step 2: Run the test to verify it fails**
 
-Run: `cargo test -p claude-manager-core discover_sets_copied_from_via_shared_uuid`
+Run: `cargo test -p claude-code-manager-core discover_sets_copied_from_via_shared_uuid`
 Expected: FAIL — `copied_from_message` is `None` (discover doesn't set it yet).
 
 - [ ] **Step 3: Set `copied_from_message` in the discover stamping loop**
@@ -214,7 +214,7 @@ with the index-based version that also records the branch point (the descendant'
 
 - [ ] **Step 4: Run the test + full core suite**
 
-Run: `cargo test -p claude-manager-core`
+Run: `cargo test -p claude-code-manager-core`
 Expected: PASS — `discover_sets_copied_from_via_shared_uuid` (with the new assertions) and all existing core tests.
 
 - [ ] **Step 5: Commit**

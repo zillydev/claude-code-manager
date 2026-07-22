@@ -7,7 +7,7 @@ description: Use when the user wants to mine a PAST Claude Code session for reus
 
 You are mining a finished Claude Code session for knowledge worth keeping, and turning it into durable artifacts: a **skill**, a **kb entry** (the user's runbooks live in the kb), a **summary**, or a **script** for a deterministic flow.
 
-**Read-only guarantee:** this skill only READS sessions (through the `claude-manager` binary's `surgery extract`) and WRITES new artifact files. It never rewrites or touches a session file — that's session-surgery's job, not this one. Confirm every file write (destination + one-line intent) before writing.
+**Read-only guarantee:** this skill only READS sessions (through the `claude-code-manager` binary's `surgery extract`) and WRITES new artifact files. It never rewrites or touches a session file — that's session-surgery's job, not this one. Confirm every file write (destination + one-line intent) before writing.
 
 ## Two modes (infer from the request)
 
@@ -17,9 +17,9 @@ You are mining a finished Claude Code session for knowledge worth keeping, and t
 ## Locate the binary (once)
 
 ```bash
-BIN=/Users/zillydev/my/Dev/Personal/claude-manager/target/release/claude-manager
-[ -x "$BIN" ] || BIN=/Users/zillydev/my/Dev/Personal/claude-manager/target/debug/claude-manager
-[ -x "$BIN" ] || { (cd /Users/zillydev/my/Dev/Personal/claude-manager && cargo build --release); BIN=/Users/zillydev/my/Dev/Personal/claude-manager/target/release/claude-manager; }
+BIN=/Users/zillydev/my/Dev/Personal/claude-manager/target/release/claude-code-manager
+[ -x "$BIN" ] || BIN=/Users/zillydev/my/Dev/Personal/claude-manager/target/debug/claude-code-manager
+[ -x "$BIN" ] || { (cd /Users/zillydev/my/Dev/Personal/claude-manager && cargo build --release); BIN=/Users/zillydev/my/Dev/Personal/claude-manager/target/release/claude-code-manager; }
 ```
 
 ## Navigation: outline-first → drill down → fan out
@@ -80,7 +80,7 @@ Then ask which to generate (e.g. "make 2 and 4"). Generate each chosen one via t
 
 ## Producing each artifact type
 
-**skill** — Do NOT hand-roll the format. Invoke the `superpowers:writing-skills` skill and author the skill from the drilled-down span. Decide destination by judgment and CONFIRM it: `~/.claude/skills/<name>/` for a general/cross-project skill, or `/Users/zillydev/my/Dev/Personal/claude-manager/skills/<name>/` for a claude-manager-specific one.
+**skill** — Do NOT hand-roll the format. Invoke the `superpowers:writing-skills` skill and author the skill from the drilled-down span. Decide destination by judgment and CONFIRM it: `~/.claude/skills/<name>/` for a general/cross-project skill, or `/Users/zillydev/my/Dev/Personal/claude-manager/skills/<name>/` for a claude-code-manager-specific one.
 
 **kb** — Invoke the `kb` skill to write the entry into the user's Obsidian wiki (`/Users/zillydev/my/Obsidian/02 - Areas/Emergent/knowledge/<topic>.md`). The kb skill checks for an existing entry to update, matches the house style, and cross-references. Runbooks are kb entries.
 

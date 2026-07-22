@@ -222,7 +222,7 @@ mod tests {
 
 - [ ] **Step 3: Run the tests — expect FAIL to compile (module not registered)**
 
-Run: `cargo test -p claude-manager-webui session_meta`
+Run: `cargo test -p claude-code-manager-webui session_meta`
 Expected: compile error — `session_meta` not in the crate. (If it compiles standalone, fine; the module registration comes next either way.)
 
 - [ ] **Step 4: Register the module and commands**
@@ -270,7 +270,7 @@ pub fn set_session_meta(
 
 - [ ] **Step 5: Run tests to verify pass**
 
-Run: `cargo test -p claude-manager-webui 2>&1 | grep -E "test result|error"`
+Run: `cargo test -p claude-code-manager-webui 2>&1 | grep -E "test result|error"`
 Expected: `session_meta` tests pass; webui total becomes 18 (12 + 6); no errors.
 
 Run: `cargo test 2>&1 | grep -E "test result|error"`

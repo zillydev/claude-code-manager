@@ -5,7 +5,7 @@
 
 ## Problem / goal
 
-Add a **top-level tab bar** to the claude-manager window: **Manager** (today's
+Add a **top-level tab bar** to the claude-code-manager window: **Manager** (today's
 sidebar + transcript, unchanged) and **Terminal**. The Terminal tab embeds a
 **real terminal** that runs `claude --resume <the open session>` in that
 session's working directory, so the user can drive the actual interactive Claude

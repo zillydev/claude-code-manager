@@ -143,7 +143,7 @@ The `TerminalOpenResult` is typed inline in `TerminalView` (no shared type neede
 - **Owner window closed:** `close_window(label)` kills+removes its PTYs → the
   session frees; another window can now open it.
 - **External claude (real Ghostty) on the same session:** undetectable — out of
-  scope. The guard covers claude-manager's own windows only.
+  scope. The guard covers claude-code-manager's own windows only.
 
 ## Testing
 

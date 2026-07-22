@@ -1,4 +1,4 @@
-# claude-manager — TUI for Claude Code sessions
+# claude-code-manager — TUI for Claude Code sessions
 
 **Date:** 2026-05-23
 **Author:** Zaid (with Claude)
@@ -41,7 +41,7 @@ ui ── consumes ── session ── uses ── store
 ## Crate layout
 
 ```
-claude-manager/
+claude-code-manager/
 ├── Cargo.toml
 └── src/
     ├── main.rs             ← terminal setup, panic hook, arg parsing
@@ -216,7 +216,7 @@ The watcher channel feeds the main event loop alongside `crossterm::event::poll`
 ## CLI
 
 ```
-claude-manager [--root PATH]
+claude-code-manager [--root PATH]
 ```
 
 `--root` overrides `~/.claude` for tests / inspecting another user's tree. Defaults to `dirs::home_dir()?.join(".claude")`.

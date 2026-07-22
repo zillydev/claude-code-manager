@@ -13,12 +13,12 @@ use crossterm::terminal::{
 use ratatui::backend::CrosstermBackend;
 use ratatui::Terminal;
 
-use claude_manager_core::session::summary;
-use claude_manager_core::store;
-use claude_manager_core::store::paths;
+use claude_code_manager_core::session::summary;
+use claude_code_manager_core::store;
+use claude_code_manager_core::store::paths;
 
 #[derive(Parser, Debug)]
-#[command(name = "claude-manager", about = "TUI for Claude Code sessions")]
+#[command(name = "claude-code-manager", about = "TUI for Claude Code sessions")]
 struct Cli {
     /// Override the ~/.claude root (useful for inspecting another user's tree).
     #[arg(long)]
@@ -91,7 +91,7 @@ fn main() -> Result<()> {
         .context("could not locate ~/.claude (HOME unset?)")?;
 
     if let Some(Command::Surgery { op }) = &cli.command {
-        use claude_manager_core::session::surgery::{self, RewriteMode};
+        use claude_code_manager_core::session::surgery::{self, RewriteMode};
         match op {
             SurgeryOp::Extract { session, from, to, outline, all_segments } => {
                 let path = surgery::resolve_session_path(&root, session)?;
@@ -128,8 +128,8 @@ fn main() -> Result<()> {
     }
 
     if let Some(src) = cli.fork_test.clone() {
-        use claude_manager_core::session::edit::{commit, CommitOpts};
-        use claude_manager_core::session::raw::{active_path, read_raw};
+        use claude_code_manager_core::session::edit::{commit, CommitOpts};
+        use claude_code_manager_core::session::raw::{active_path, read_raw};
         let lines = read_raw(&src)?;
         let path = active_path(&lines);
         let cwd = lines

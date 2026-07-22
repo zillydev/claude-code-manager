@@ -1,8 +1,8 @@
 use std::path::Path;
 use std::sync::Mutex;
 
-use claude_manager_core::session::summary::SessionSummary;
-use claude_manager_core::store;
+use claude_code_manager_core::session::summary::SessionSummary;
+use claude_code_manager_core::store;
 
 use crate::commands::SessionActivity;
 

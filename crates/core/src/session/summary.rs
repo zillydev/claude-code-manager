@@ -30,7 +30,7 @@ pub struct SessionSummary {
     /// count Claude Code's TUI shows, not a cumulative lifetime sum.
     pub total_tokens: u64,
     /// The source session this one was forked from (Claude Code's `forkedFrom`,
-    /// also written by claude-manager forks/edits). `None` if not derived.
+    /// also written by claude-code-manager forks/edits). `None` if not derived.
     pub forked_from: Option<String>,
     /// Ancestor session this one's history was copied from, inferred from shared
     /// message uuids (fork / resume / background-restart copies that Claude Code

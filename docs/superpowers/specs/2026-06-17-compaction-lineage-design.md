@@ -33,7 +33,7 @@ compaction to any copy (`/branch`, `--fork-session`, background/restart forks).
 ## Problem
 
 Claude Code can persist one logical conversation into multiple session files
-that share a block of identical-uuid messages. Today claude-manager shows these
+that share a block of identical-uuid messages. Today claude-code-manager shows these
 as unrelated sessions, so the overlap reads as "duplicated" / "missing latest" /
 "missing earlier" history depending on which file you open. We want to detect
 the lineage and surface it, including how much overlaps.

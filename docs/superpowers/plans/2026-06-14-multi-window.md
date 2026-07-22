@@ -17,7 +17,7 @@
 - **Modify** `crates/webui/src/lib.rs` — declare `mod window;`; build the application menu; register `on_menu_event` (New Window) and `on_window_event` (Destroyed → drop that window's watcher).
 - **Modify** `crates/webui/frontend/src/hooks/useSessions.ts` — `useTranscript` subscribes via `getCurrentWebviewWindow().listen(...)`.
 
-No `claude-manager-core` changes. No `tauri.conf.json` changes (menu is built in Rust).
+No `claude-code-manager-core` changes. No `tauri.conf.json` changes (menu is built in Rust).
 
 ---
 
@@ -56,7 +56,7 @@ pub fn spawn_window(app: &AppHandle) {
     let offset = existing.len() as f64 * 28.0;
 
     if let Err(e) = WebviewWindowBuilder::new(app, &label, WebviewUrl::App("index.html".into()))
-        .title("claude-manager")
+        .title("claude-code-manager")
         .inner_size(1200.0, 800.0)
         .min_inner_size(800.0, 600.0)
         .position(120.0 + offset, 120.0 + offset)
@@ -103,7 +103,7 @@ mod window;
 
 - [ ] **Step 2: Run the tests to verify they fail**
 
-Run: `cargo test -p claude-manager-webui next_window_label skips_taken_labels reuses_freed -- --nocapture`
+Run: `cargo test -p claude-code-manager-webui next_window_label skips_taken_labels reuses_freed -- --nocapture`
 
 Note: `cargo test` for this crate requires `crates/webui/frontend/dist` to exist (the Tauri context embeds it). It already does; if a `clean` wiped it, run `npm --prefix crates/webui/frontend run build` first.
 
@@ -124,7 +124,7 @@ pub fn next_window_label(existing: &HashSet<String>) -> String {
 
 - [ ] **Step 4: Run the tests to verify they pass**
 
-Run: `cargo test -p claude-manager-webui`
+Run: `cargo test -p claude-code-manager-webui`
 Expected: PASS — including `window::tests::first_label_is_win_1`, `skips_taken_labels_including_main`, `reuses_freed_label_in_the_middle`.
 
 - [ ] **Step 5: Commit**
@@ -249,7 +249,7 @@ fn tail_loop(
 
 - [ ] **Step 4: Build to verify the crate compiles**
 
-Run: `cargo build -p claude-manager-webui`
+Run: `cargo build -p claude-code-manager-webui`
 Expected: compiles cleanly. (No warnings about unused `Emitter`/`Manager`.)
 
 - [ ] **Step 5: Commit**
@@ -382,7 +382,7 @@ pub fn run() {
 
 - [ ] **Step 2: Build to verify it compiles**
 
-Run: `cargo build -p claude-manager-webui`
+Run: `cargo build -p claude-code-manager-webui`
 Expected: compiles cleanly.
 
 If a `PredefinedMenuItem` constructor (e.g. `fullscreen`) is not available in the installed Tauri version, the compiler will name it; drop that one line from the Window submenu (it is a non-essential nicety) and rebuild. All other items (`minimize`, the Edit items, App items, `close_window`) are core and must stay.
@@ -511,7 +511,7 @@ Report the exact `cargo test` and frontend test counts and the manual-check outc
 
 ## Notes for the implementer
 
-- **Do not** mutate `claude-manager-core` — all changes are in `crates/webui`.
+- **Do not** mutate `claude-code-manager-core` — all changes are in `crates/webui`.
 - **Do not** change the copy-on-edit invariant: `fork`/`commit`/`rename`/`delete` are unchanged and remain correct from any window.
 - `emit_to(label, …)` dispatches only to the window whose label matches; combined with `getCurrentWebviewWindow().listen`, this gives strict per-window isolation. Do not revert either half — both are required.
 - The bootstrap window (from `tauri.conf.json`) has label `main`; spawned windows are `win-1`, `win-2`, … so they never collide.

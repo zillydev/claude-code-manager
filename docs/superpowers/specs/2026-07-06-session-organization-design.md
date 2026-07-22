@@ -2,7 +2,7 @@
 
 ## Goal
 
-Give claude-manager its own layer of session organization, stored **separately
+Give claude-code-manager its own layer of session organization, stored **separately
 from claude's `.jsonl`** (never mutated): global colored **tags**, a local
 **alias** shown alongside claude's auto-name, per-session **notes**, and a
 sidebar **tag filter**. All keyed by the stable session `id`.
@@ -13,18 +13,18 @@ session files.
 
 ## Why a separate store (not the transcript)
 
-Storing metadata in the `.jsonl` would (a) violate claude-manager's copy-on-edit
+Storing metadata in the `.jsonl` would (a) violate claude-code-manager's copy-on-edit
 rule — the `custom-title` append was the sole exception and the cause of the
 rename desync we're now fixing; (b) risk interleaved/corrupt writes, since the
 live `claude` process is writing that same file; and (c) not fit **global** tags
 (name+color), which need one shared registry, not a copy per transcript. A
-separate file owned by claude-manager avoids all three.
+separate file owned by claude-code-manager avoids all three.
 
 ## Storage
 
 `<config-dir>/session-meta.json`, where `<config-dir>` resolves exactly as the
-config file (`$CLAUDE_MANAGER_CONFIG_DIR` → `$XDG_CONFIG_HOME/claude-manager` →
-`~/.config/claude-manager`) — share `config::config_dir()`. Atomic temp-write +
+config file (`$CLAUDE_CODE_MANAGER_CONFIG_DIR` → `$XDG_CONFIG_HOME/claude-code-manager` →
+`~/.config/claude-code-manager`) — share `config::config_dir()`. Atomic temp-write +
 rename; missing/malformed → defaults (empty); merge-over-defaults on load.
 
 ### Schema

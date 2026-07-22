@@ -50,7 +50,7 @@ pub struct UserEvent {
     #[serde(default, rename = "gitBranch")]
     pub git_branch: Option<String>,
     /// Claude Code provenance: the source session/message this line was forked
-    /// from (also written by claude-manager's own copy-on-edit; see `edit::commit`).
+    /// from (also written by claude-code-manager's own copy-on-edit; see `edit::commit`).
     #[serde(default, rename = "forkedFrom")]
     pub forked_from: Option<ForkedFrom>,
 }
@@ -75,7 +75,7 @@ pub struct AssistantEvent {
 }
 
 /// Fork provenance recorded on a copied message line. Claude Code's `/branch` and
-/// `--fork-session` write this; claude-manager's `commit` writes it too.
+/// `--fork-session` write this; claude-code-manager's `commit` writes it too.
 #[derive(Debug, Clone, serde::Serialize, Deserialize)]
 pub struct ForkedFrom {
     #[serde(rename = "sessionId")]

@@ -205,7 +205,7 @@ Add `mod terminal;` with the other modules at the top of `crates/webui/src/lib.r
 
 - [ ] **Step 4: Run the unit test (verifies the crate compiles + the builder)**
 
-Run: `cargo test -p claude-manager-webui terminal_argv`
+Run: `cargo test -p claude-code-manager-webui terminal_argv`
 Expected: PASS (and the crate compiles with the new deps).
 
 - [ ] **Step 5: Add the commands to `commands.rs`**
@@ -316,7 +316,7 @@ Add to `invoke_handler![...]`:
 
 - [ ] **Step 7: Build the backend**
 
-Run: `cargo build -p claude-manager-webui`
+Run: `cargo build -p claude-code-manager-webui`
 Expected: compiles (fetches `portable-pty`, `base64`).
 
 - [ ] **Step 8: Commit**

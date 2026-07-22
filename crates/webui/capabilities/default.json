@@ -1,6 +1,6 @@
 {
   "identifier": "default",
-  "description": "Default permissions for claude-manager",
+  "description": "Default permissions for claude-code-manager",
   "windows": ["main", "win-*"],
   "permissions": [
     "core:default",

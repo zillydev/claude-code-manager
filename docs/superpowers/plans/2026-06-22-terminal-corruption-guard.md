@@ -14,7 +14,7 @@
 - **Block + redirect** on a cross-window collision (no shared/mirrored terminal, no take-over).
 - **Decide + spawn + insert under one lock hold** in `terminal_open` (TOCTOU-free).
 - A **blocked** window must never call `terminal_input`/`terminal_resize` (the pool is session-keyed, so it would hit the owner's process).
-- Guards claude-manager's own windows only (external claude is undetectable).
+- Guards claude-code-manager's own windows only (external claude is undetectable).
 - Verification: `cargo test`, `tsc --noEmit`, `vitest run`, `vite build` all green.
 
 ---
@@ -44,7 +44,7 @@ In `crates/webui/src/terminal.rs`, add to the `tests` module:
 
 - [ ] **Step 2: Run it, verify it fails**
 
-Run: `cargo test -p claude-manager-webui open_decision`
+Run: `cargo test -p claude-code-manager-webui open_decision`
 Expected: FAIL — `cannot find function open_decision` / `OpenDecision`.
 
 - [ ] **Step 3: Implement `OpenDecision` + `open_decision`, re-key the pool**
@@ -184,7 +184,7 @@ pre-thread clones.)
 
 - [ ] **Step 4: Run the test, verify it passes**
 
-Run: `cargo test -p claude-manager-webui open_decision`
+Run: `cargo test -p claude-code-manager-webui open_decision`
 Expected: PASS. (The crate won't fully build yet — commands.rs still uses the old signatures; fixed next. The unit test compiles within the lib regardless — if the crate fails to build, proceed to Step 5 first, then re-run.)
 
 - [ ] **Step 5: Update `commands.rs` — `terminal_open` result, decision, lock-held spawn**
@@ -291,7 +291,7 @@ In `crates/webui/src/lib.rs` `generate_handler![...]`, add after `commands::sess
 
 - [ ] **Step 7: Build + test the whole crate**
 
-Run: `cargo test -p claude-manager-webui && cargo build -p claude-manager-webui`
+Run: `cargo test -p claude-code-manager-webui && cargo build -p claude-code-manager-webui`
 Expected: tests pass (incl. `open_decision_spawn_reuse_busy`); webui builds with no errors. Fix any unused-variable warnings (drop unused `label` bindings).
 
 - [ ] **Step 8: Full workspace test**

@@ -6,7 +6,7 @@ PORT ?= 5173
 
 # Launch the terminal UI
 tui:
-	cargo run -p claude-manager-tui
+	cargo run -p claude-code-manager-tui
 
 # Launch the web UI (Tauri dev mode).
 # --no-watch disables Tauri's Rust file watcher so editing source never
@@ -23,7 +23,7 @@ build:
 	npm --prefix crates/webui/frontend run build
 	cargo build --release
 
-APP_NAME := claude-manager.app
+APP_NAME := claude-code-manager.app
 APP_BUNDLE := target/release/bundle/macos/$(APP_NAME)
 
 # Build the distributable macOS app: `cargo tauri build` runs the frontend
@@ -48,7 +48,7 @@ test:
 
 # Print session list (quick smoke test)
 print:
-	cargo run -p claude-manager-tui -- --print
+	cargo run -p claude-code-manager-tui -- --print
 
 clean:
 	cargo clean

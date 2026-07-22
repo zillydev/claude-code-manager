@@ -1,4 +1,4 @@
-# claude-manager — Session History Editor
+# claude-code-manager — Session History Editor
 
 **Date:** 2026-05-30
 **Status:** Draft — iterating on feature surface
@@ -173,7 +173,7 @@ Each phase is independently shippable and de-risks the next.
 ## 7. Open questions (to resolve while iterating)
 
 1. **Undo/redo model.** Pure client-side full-state snapshots (simplest, since commit is what touches disk) vs. invertible `EditOp`s in core. Leaning: client-side snapshot stack; core stays stateless.
-2. **Where does the trash live?** `~/.claude/.trash/claude-manager/` vs. an app data dir. Restore needs original path + project.
+2. **Where does the trash live?** `~/.claude/.trash/claude-code-manager/` vs. an app data dir. Restore needs original path + project.
 3. **New-file proliferation on cross-session move.** Copy-on-edit means moving a turn A→B spawns edited copies of both A and B. Acceptable, or do we want an opt-in "edit original in place" for power users on non-live sessions?
 4. **Manual/inserted turns** — do synthesized assistant turns need a model label and plausible token usage, or is empty fine for resume? (Phase 0 informs this.)
 5. **Timestamps** — auto-assign monotonic timestamps on insert/reorder, or preserve originals (which may then be out of order)?

@@ -18,7 +18,7 @@ CC already records, on each copied message line, the source it was forked from:
 
 `sessionId` is the immediate source session (verified against a real `/branch`).
 So CC `/branch` / `--fork-session` sessions are linkable with no heuristics. We
-reuse this exact field — read it everywhere, and write it for claude-manager's
+reuse this exact field — read it everywhere, and write it for claude-code-manager's
 own forks/edits so they link the same way.
 
 No content-matching, no new format, no `CommitOpts`/caller changes for the write
@@ -38,7 +38,7 @@ No content-matching, no new format, no `CommitOpts`/caller changes for the write
   set it to the first non-null `ev.forked_from_session()` (the value is consistent
   across a file's lines).
 
-## 2. Write (links claude-manager's own forks/edits)
+## 2. Write (links claude-code-manager's own forks/edits)
 
 In `edit.rs::commit`, entirely self-contained — no `CommitOpts` change:
 - Before regenerating ids, capture `source_session = values.iter().find_map(|v|

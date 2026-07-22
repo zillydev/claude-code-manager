@@ -13,7 +13,7 @@ This is the inverse of the sidebar's "⮌ from `<source>`" badge (shown on the
 child): here the marker is shown on the **parent**, at the branch point.
 
 Scope (decided): cover **both** explicit forks (Claude Code `/branch` and
-claude-manager "fork from here", which record `forkedFrom.messageUuid`) **and**
+claude-code-manager "fork from here", which record `forkedFrom.messageUuid`) **and**
 the copied lineage (resume / background-restart copies detected via shared-uuid
 overlap, whose branch point is the copy's shared root message).
 

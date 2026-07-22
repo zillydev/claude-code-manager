@@ -13,7 +13,7 @@ previous conversation…"), then continues. The original pre-compaction conversa
 stays in the same file as an **earlier, now-disconnected tree** (its own
 null-parent root). The two trees share no nodes.
 
-claude-manager renders only the *active path*: `resolve_leaf` takes the last
+claude-code-manager renders only the *active path*: `resolve_leaf` takes the last
 uuid-bearing line and `current_path` walks `parentUuid` back from it. That walk only
 traverses the tree containing the global leaf — the post-compaction tree — so the
 pre-compaction history is invisible in the UI even though it is fully present on disk.
@@ -159,7 +159,7 @@ Single flat `turns` array (pre-compaction turns + dividers + active turns) is de
 ## Follow-up
 
 - After this lands, **update or delete** the `compaction-reroots-session-tree` memory —
-  it asserts the claude-manager limitation "as of 2026-06-06", which this fix makes false.
+  it asserts the claude-code-manager limitation "as of 2026-06-06", which this fix makes false.
 
 ## Risks / edge cases
 
