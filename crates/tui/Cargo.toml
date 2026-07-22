@@ -2,6 +2,9 @@
 name = "claude-code-manager-tui"
 version = "0.1.0"
 edition = "2021"
+description = "Terminal UI for browsing Claude Code sessions, plus the `surgery` CLI."
+license = "MIT"
+repository = "https://github.com/zillydev/claude-code-manager"
 
 [[bin]]
 name = "claude-code-manager"

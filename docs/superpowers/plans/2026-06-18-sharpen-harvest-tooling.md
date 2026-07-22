@@ -339,7 +339,7 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 
 - [ ] **Step 1: Document short ids / prefix ranges / the summary tag**
 
-In `/Users/zillydev/my/Dev/Personal/claude-manager/skills/session-harvest/SKILL.md`, in the "Navigation" section, after the outline-command paragraph (the one describing the `── segment k/N ──` dividers), add:
+In `/Users/you/dev/claude-code-manager/skills/session-harvest/SKILL.md`, in the "Navigation" section, after the outline-command paragraph (the one describing the `── segment k/N ──` dividers), add:
 
 ```markdown
    Each outline turn header is `#<n> <role> <short-id>` where `<short-id>` is the
@@ -374,7 +374,7 @@ Expected: all workspace tests PASS (core surgery incl. the new resolver/prefix/h
 Build (`cargo build --release`), then on a compacted session (e.g. `91052458-9e2f-4cb9-80dc-afe3b9ce904d`):
 
 ```bash
-BIN=/Users/zillydev/my/Dev/Personal/claude-manager/target/release/claude-code-manager
+BIN=/Users/you/dev/claude-code-manager/target/release/claude-code-manager
 S=91052458-9e2f-4cb9-80dc-afe3b9ce904d
 # Outline: short ids + a compaction-summary tag
 "$BIN" surgery extract --session "$S" --outline --all-segments | grep -E '· compaction summary' | head -2

@@ -16,6 +16,8 @@ pub fn system() -> Style {
         .add_modifier(Modifier::DIM)
 }
 
+/// Part of the theme palette; no view currently renders thinking blocks.
+#[allow(dead_code)]
 pub fn thinking() -> Style {
     Style::default()
         .fg(Color::Gray)

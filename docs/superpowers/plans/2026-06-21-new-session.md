@@ -45,8 +45,8 @@ In `paths.rs` `#[cfg(test)] mod tests`, add:
         assert_eq!(encode_project_dir("/tmp/a_b c"), "-tmp-a-b-c");
         assert_eq!(encode_project_dir("/Users/x/v1.2-rc"), "-Users-x-v1-2-rc");
         assert_eq!(
-            encode_project_dir("/Users/zillydev/my/Dev/Personal/claude-manager"),
-            "-Users-zillydev-my-Dev-Personal-claude-manager"
+            encode_project_dir("/Users/you/dev/claude-code-manager"),
+            "-Users-you-dev-claude-code-manager"
         );
     }
 ```

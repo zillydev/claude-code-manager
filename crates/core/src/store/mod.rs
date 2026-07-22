@@ -166,7 +166,7 @@ pub fn discover(root: &Path) -> Result<Discovery> {
     }
 
     // most-recent first
-    sessions.sort_by(|a, b| b.mtime.cmp(&a.mtime));
+    sessions.sort_by_key(|s| std::cmp::Reverse(s.mtime));
 
     Ok(Discovery { sessions, warnings })
 }
@@ -456,11 +456,20 @@ mod tests {
         let u2 = "00000000-0000-0000-0000-0000000000a2";
         fs::write(
             &path,
-            format!(
-                "{}\n{}\n",
-                format!(r#"{{"type":"user","uuid":"{u1}","message":{{"role":"user","content":"hello fork point here"}}}}"#),
-                format!(r#"{{"type":"user","uuid":"{u2}","message":{{"role":"user","content":"{}"}}}}"#, "x ".repeat(80)),
-            ),
+            {
+                let long = "x ".repeat(80);
+                format!(
+                    concat!(
+                        r#"{{"type":"user","uuid":"{u1}","message":{{"role":"user","content":"hello fork point here"}}}}"#,
+                        "\n",
+                        r#"{{"type":"user","uuid":"{u2}","message":{{"role":"user","content":"{long}"}}}}"#,
+                        "\n",
+                    ),
+                    u1 = u1,
+                    u2 = u2,
+                    long = long,
+                )
+            },
         )
         .unwrap();
 

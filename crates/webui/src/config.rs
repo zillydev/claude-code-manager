@@ -219,8 +219,7 @@ mod tests {
     #[test]
     fn roundtrip_save_load() {
         let path = tmp("roundtrip");
-        let mut cfg = Config::default();
-        cfg.theme = "light".into();
+        let mut cfg = Config { theme: "light".into(), ..Default::default() };
         cfg.typography.mono_font = "JetBrains Mono".into();
         cfg.ui.sidebar_width = 420;
         save_to(&path, &cfg).unwrap();

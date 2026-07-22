@@ -419,7 +419,7 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 
 - [ ] **Step 1: Make the navigation commands pass `--all-segments`**
 
-In `/Users/zillydev/my/Dev/Personal/claude-manager/skills/session-harvest/SKILL.md`, change the outline command in the "Navigation" section from:
+In `/Users/you/dev/claude-code-manager/skills/session-harvest/SKILL.md`, change the outline command in the "Navigation" section from:
 
 ```bash
    "$BIN" surgery extract --session "$SESSION" --outline
@@ -458,7 +458,7 @@ And in the "Discovery output" section, change the candidate template's `span` li
 
 - [ ] **Step 3: Sanity-check + commit**
 
-Run: `grep -c 'all-segments' /Users/zillydev/my/Dev/Personal/claude-manager/skills/session-harvest/SKILL.md`
+Run: `grep -c 'all-segments' /Users/you/dev/claude-code-manager/skills/session-harvest/SKILL.md`
 Expected: `2` (both navigation commands updated).
 
 ```bash
@@ -484,7 +484,7 @@ Expected: all workspace tests PASS — core incl. 3 new `raw::segments` tests + 
 Build (`cargo build --release`), then on a compacted session whose active path is short (e.g. `91052458-9e2f-4cb9-80dc-afe3b9ce904d`):
 
 ```bash
-BIN=/Users/zillydev/my/Dev/Personal/claude-manager/target/release/claude-code-manager
+BIN=/Users/you/dev/claude-code-manager/target/release/claude-code-manager
 S=91052458-9e2f-4cb9-80dc-afe3b9ce904d
 echo "active-path-only outline turns:";  "$BIN" surgery extract --session "$S" --outline | wc -l
 echo "all-segments outline turns:";      "$BIN" surgery extract --session "$S" --outline --all-segments | wc -l

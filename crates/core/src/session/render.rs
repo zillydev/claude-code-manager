@@ -482,7 +482,7 @@ pub fn compute_stats(path: &[&Event]) -> SessionStats {
         .into_iter()
         .map(|(model, turn_count)| ModelUsage { model, turn_count })
         .collect();
-    models.sort_by(|a, b| b.turn_count.cmp(&a.turn_count));
+    models.sort_by_key(|m| std::cmp::Reverse(m.turn_count));
 
     SessionStats {
         cwd,
