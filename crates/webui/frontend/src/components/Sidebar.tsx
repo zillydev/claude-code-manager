@@ -15,6 +15,7 @@ import {
   sessionTitle,
   tagColor,
 } from "../lib/sessionMeta";
+import { sessionUpdatedAt } from "../lib/sessions";
 import { deriveStatus } from "../lib/sessionStatus";
 import type { LiveActivity } from "../hooks/useActivity";
 
@@ -199,8 +200,8 @@ export default function Sidebar({
       if (filter.startsWith("dir:") && s.cwd !== filter.slice(4)) return false;
       // Tag filter (any-of): only sessions carrying at least one selected tag.
       if (!matchesTagFilter(meta.sessions[s.id], tagFilter)) return false;
-      // Date range
-      const epoch = s.mtime.secs_since_epoch;
+      // Date range — by last conversation turn, not raw file mtime.
+      const epoch = sessionUpdatedAt(s, activity.get(s.id)?.at);
       if (dateRange === "today" && now - epoch > 86400) return false;
       if (dateRange === "week" && now - epoch > 604800) return false;
       if (dateRange === "month" && now - epoch > 2592000) return false;
@@ -216,7 +217,7 @@ export default function Sidebar({
       }
       return true;
     });
-  }, [sessions, filter, dateRange, textFilter, searchHits, now, meta, tagFilter]);
+  }, [sessions, filter, dateRange, textFilter, searchHits, now, meta, tagFilter, activity]);
 
   const sorted = useMemo(() => {
     const items = [...filtered];
@@ -224,7 +225,10 @@ export default function Sidebar({
       let cmp = 0;
       switch (sortField) {
         case "updated":
-          cmp = a.mtime.secs_since_epoch - b.mtime.secs_since_epoch;
+          // Order by last conversation turn (what the row shows), not file mtime.
+          cmp =
+            sessionUpdatedAt(a, activity.get(a.id)?.at) -
+            sessionUpdatedAt(b, activity.get(b.id)?.at);
           break;
         case "project":
           cmp = a.project_label.localeCompare(b.project_label);
@@ -242,7 +246,7 @@ export default function Sidebar({
       return sortDir === "desc" ? -cmp : cmp;
     });
     return items;
-  }, [filtered, sortField, sortDir, meta]);
+  }, [filtered, sortField, sortDir, meta, activity]);
 
   const toggleSort = (field: SortField) => {
     if (sortField === field) {
@@ -547,7 +551,7 @@ export default function Sidebar({
                       {s.project_label}
                     </span>
                     <span className="text-[10px] text-[var(--color-text-dim)] ml-2 shrink-0">
-                      {relativeTime(s.mtime.secs_since_epoch)}
+                      {relativeTime(sessionUpdatedAt(s, act?.at))}
                     </span>
                   </div>
                   {entry?.alias ? (
