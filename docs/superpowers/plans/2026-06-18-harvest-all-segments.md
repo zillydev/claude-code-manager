@@ -23,7 +23,7 @@
 - **Modify** `crates/core/src/session/raw.rs` — add `pub fn segments` + tests.
 - **Modify** `crates/core/src/session/surgery.rs` — `extract` gains `all_segments`; add `render_seg`/`resolve_range` helpers + the all-segments branch; update existing extract tests' calls; add all-segments tests.
 - **Modify** `crates/tui/src/main.rs` — `Extract` subcommand gains `--all-segments`; handler passes it.
-- **Modify** `claude-manager/skills/session-harvest/SKILL.md` — outline/drill-down pass `--all-segments`; tag candidates by segment; drop the v1 active-path-only note.
+- **Modify** `claude-code-manager/skills/session-harvest/SKILL.md` — outline/drill-down pass `--all-segments`; tag candidates by segment; drop the v1 active-path-only note.
 
 ---
 
@@ -107,7 +107,7 @@ Add to `crates/core/src/session/raw.rs` test module (it already has `line(uuid, 
 
 - [ ] **Step 2: Run to verify they fail**
 
-Run: `cargo test -p claude-manager-core segments_`
+Run: `cargo test -p claude-code-manager-core segments_`
 Expected: FAIL to compile — `segments` not defined in `raw`.
 
 - [ ] **Step 3: Implement `raw::segments`**
@@ -189,7 +189,7 @@ pub fn segments(lines: &[RawLine]) -> Vec<Vec<&RawLine>> {
 
 - [ ] **Step 4: Run to verify they pass**
 
-Run: `cargo test -p claude-manager-core segments_`
+Run: `cargo test -p claude-code-manager-core segments_`
 Expected: PASS — `segments_single_tree_equals_active_path`, `segments_two_roots_active_last`, `segments_dangling_parent_starts_new_tree`.
 
 - [ ] **Step 5: Commit**
@@ -398,7 +398,7 @@ In `crates/tui/src/main.rs`, add `--all-segments` to the `Extract` subcommand:
 
 - [ ] **Step 5: Build + test**
 
-Run: `cargo test -p claude-manager-core surgery && cargo build -p claude-manager-tui`
+Run: `cargo test -p claude-code-manager-core surgery && cargo build -p claude-code-manager-tui`
 Expected: all surgery tests pass (4 updated + 3 new all-segments); TUI compiles with the new arity.
 
 - [ ] **Step 6: Commit**
@@ -415,7 +415,7 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 ## Task 3: Update the `session-harvest` skill
 
 **Files:**
-- Modify: `claude-manager/skills/session-harvest/SKILL.md`
+- Modify: `claude-code-manager/skills/session-harvest/SKILL.md`
 
 - [ ] **Step 1: Make the navigation commands pass `--all-segments`**
 
@@ -484,7 +484,7 @@ Expected: all workspace tests PASS — core incl. 3 new `raw::segments` tests + 
 Build (`cargo build --release`), then on a compacted session whose active path is short (e.g. `91052458-9e2f-4cb9-80dc-afe3b9ce904d`):
 
 ```bash
-BIN=/Users/zillydev/my/Dev/Personal/claude-manager/target/release/claude-manager
+BIN=/Users/zillydev/my/Dev/Personal/claude-manager/target/release/claude-code-manager
 S=91052458-9e2f-4cb9-80dc-afe3b9ce904d
 echo "active-path-only outline turns:";  "$BIN" surgery extract --session "$S" --outline | wc -l
 echo "all-segments outline turns:";      "$BIN" surgery extract --session "$S" --outline --all-segments | wc -l

@@ -1,6 +1,6 @@
 ---
 name: session-surgery
-description: Use when the user wants to shrink/compact a Claude Code session's context by summarizing or pruning a range of messages between two message ids (copied from the claude-manager webui's per-message "copy id" button). Produces a NEW resumable session via the claude-manager binary; never modifies the original. Trigger phrases include "summarize messages between <id> and <id>", "prune/cut this part of the session", "reduce context in session X", "compact this stretch".
+description: Use when the user wants to shrink/compact a Claude Code session's context by summarizing or pruning a range of messages between two message ids (copied from the claude-code-manager webui's per-message "copy id" button). Produces a NEW resumable session via the claude-code-manager binary; never modifies the original. Trigger phrases include "summarize messages between <id> and <id>", "prune/cut this part of the session", "reduce context in session X", "compact this stretch".
 ---
 
 # Session Surgery
@@ -9,7 +9,7 @@ You are rewriting the history of a Claude Code session so it uses less context, 
 
 **Two hard guarantees, both enforced by the tooling — never violate them:**
 1. **Copy-on-edit.** Every operation writes a brand-new session file (new id). The original session file is read-only and is never modified. If anything goes wrong, the user loses nothing.
-2. **You never hand-edit the jsonl.** All structural work goes through the `claude-manager` binary's `surgery` subcommands, which reuse the tested write pipeline (flatten, regenerate uuids, relink the parent chain, repair tool_use/tool_result pairing). Editing the jsonl by hand would corrupt those invariants.
+2. **You never hand-edit the jsonl.** All structural work goes through the `claude-code-manager` binary's `surgery` subcommands, which reuse the tested write pipeline (flatten, regenerate uuids, relink the parent chain, repair tool_use/tool_result pairing). Editing the jsonl by hand would corrupt those invariants.
 
 ## Background you need (mental model)
 
@@ -26,9 +26,9 @@ A Claude Code session is a `.jsonl` transcript at `~/.claude/projects/<encoded-c
 ## Locate the binary (once, up front)
 
 ```bash
-BIN=/Users/zillydev/my/Dev/Personal/claude-manager/target/release/claude-manager
-[ -x "$BIN" ] || BIN=/Users/zillydev/my/Dev/Personal/claude-manager/target/debug/claude-manager
-[ -x "$BIN" ] || { echo "build it first"; (cd /Users/zillydev/my/Dev/Personal/claude-manager && cargo build --release); BIN=/Users/zillydev/my/Dev/Personal/claude-manager/target/release/claude-manager; }
+BIN=/Users/zillydev/my/Dev/Personal/claude-manager/target/release/claude-code-manager
+[ -x "$BIN" ] || BIN=/Users/zillydev/my/Dev/Personal/claude-manager/target/debug/claude-code-manager
+[ -x "$BIN" ] || { echo "build it first"; (cd /Users/zillydev/my/Dev/Personal/claude-manager && cargo build --release); BIN=/Users/zillydev/my/Dev/Personal/claude-manager/target/release/claude-code-manager; }
 ```
 
 ## Step 0 — Safety check (ALWAYS do first)

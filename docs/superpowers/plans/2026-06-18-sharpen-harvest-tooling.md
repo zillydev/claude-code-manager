@@ -236,7 +236,7 @@ Add to the `surgery.rs` test module:
 
 - [ ] **Step 6: Build + test**
 
-Run: `cargo test -p claude-manager-core surgery && cargo build -p claude-manager-tui`
+Run: `cargo test -p claude-code-manager-core surgery && cargo build -p claude-code-manager-tui`
 Expected: all surgery tests pass (updated + 3 new); TUI compiles with the `&str` `extract`.
 
 - [ ] **Step 7: Commit**
@@ -318,7 +318,7 @@ Add to the `surgery.rs` test module:
 
 - [ ] **Step 4: Build + test**
 
-Run: `cargo test -p claude-manager-core surgery`
+Run: `cargo test -p claude-code-manager-core surgery`
 Expected: PASS — `outline_tags_compaction_summary` + the updated `extract_outline_is_compact` + the rest.
 
 - [ ] **Step 5: Commit**
@@ -374,7 +374,7 @@ Expected: all workspace tests PASS (core surgery incl. the new resolver/prefix/h
 Build (`cargo build --release`), then on a compacted session (e.g. `91052458-9e2f-4cb9-80dc-afe3b9ce904d`):
 
 ```bash
-BIN=/Users/zillydev/my/Dev/Personal/claude-manager/target/release/claude-manager
+BIN=/Users/zillydev/my/Dev/Personal/claude-manager/target/release/claude-code-manager
 S=91052458-9e2f-4cb9-80dc-afe3b9ce904d
 # Outline: short ids + a compaction-summary tag
 "$BIN" surgery extract --session "$S" --outline --all-segments | grep -E '· compaction summary' | head -2

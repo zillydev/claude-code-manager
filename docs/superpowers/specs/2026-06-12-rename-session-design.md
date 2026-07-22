@@ -5,9 +5,9 @@ Status: Approved
 
 ## Goal
 
-Let the user rename a session from the claude-manager sidebar. A rename is a
+Let the user rename a session from the claude-code-manager sidebar. A rename is a
 **real** Claude Code rename: it appends a `custom-title` event to the session's
-`.jsonl`, so the new name shows in both claude-manager and `claude --resume`.
+`.jsonl`, so the new name shows in both claude-code-manager and `claude --resume`.
 
 ## Persistence (the one architectural decision)
 
@@ -18,7 +18,7 @@ last-custom-title-wins fix means the appended title becomes the displayed title.
 This deliberately **mutates the original file**, the one thing copy-on-edit
 otherwise avoids. It's acceptable because a custom-title is pure metadata (never
 conversation content), CC itself appends these in-place, and "rename" must keep the
-same session id (a copy would not be a rename). Chosen over a claude-manager-only
+same session id (a copy would not be a rename). Chosen over a claude-code-manager-only
 sidecar so the rename is the real session title, visible in `/resume`.
 
 custom-title events carry no timestamp (verified on real files); they are metadata,

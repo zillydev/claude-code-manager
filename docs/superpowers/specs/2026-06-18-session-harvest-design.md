@@ -24,7 +24,7 @@ This is a **new sibling skill** (`session-harvest`), not an extension of
 session-surgery. Surgery **compresses a session so it can be resumed** (it
 rewrites history → a new session file). Harvest **reads a session and emits new
 reusable artifacts** — it never rewrites or touches a session file. They share
-one thing: the `claude-manager` binary's `surgery extract` reader (which already
+one thing: the `claude-code-manager` binary's `surgery extract` reader (which already
 turn-snaps and caps tool output). Harvest extends that reader; it uses no part of
 the `rewrite` path.
 
@@ -36,7 +36,7 @@ every file write is confirmed with the user first (destination + intent).
 
 | Type | What | Destination | How produced |
 |------|------|-------------|--------------|
-| **skill** | Reusable process/workflow with judgment | `~/.claude/skills/<name>/` (general) or `claude-manager/skills/<name>/` (project-specific) — chosen by judgment, **confirmed** | Delegate to superpowers `writing-skills` (don't hand-roll the format) |
+| **skill** | Reusable process/workflow with judgment | `~/.claude/skills/<name>/` (general) or `claude-code-manager/skills/<name>/` (project-specific) — chosen by judgment, **confirmed** | Delegate to superpowers `writing-skills` (don't hand-roll the format) |
 | **kb** | Durable reference knowledge — gotchas, flows, invariants, playbooks/**runbooks** | Obsidian wiki `~/my/Obsidian/02 - Areas/Emergent/knowledge/<topic>.md` | Delegate to the `kb` skill (checks for existing entry, matches style, cross-references) |
 | **summary** | Dense recap of what the session accomplished | Rendered in chat; **offer to save** to a path the user gives (no surprise file) | Inline, using surgery's handoff-summary discipline |
 | **script** | Automation of a genuinely **deterministic** flow (no judgment/branches) | **Propose** a path from what it does (repo `scripts/`, `~/.claude`, …) and **confirm** | Inline; if the flow needs judgment, recommend a skill instead |
@@ -87,7 +87,7 @@ context. Strategy:
    agent only ever holds the outline + aggregated results. Small sessions are
    handled inline (no fan-out).
 
-## Tooling changes (`claude-manager` binary)
+## Tooling changes (`claude-code-manager` binary)
 
 All in the existing `surgery extract` reader; the `rewrite` path is untouched.
 
@@ -108,7 +108,7 @@ user sees.)
 
 ## Skill structure (the SKILL.md)
 
-`claude-manager/skills/session-harvest/SKILL.md`, mirroring session-surgery's
+`claude-code-manager/skills/session-harvest/SKILL.md`, mirroring session-surgery's
 shape:
 
 - **Trigger / description** — fires on "what can be reused from session X",

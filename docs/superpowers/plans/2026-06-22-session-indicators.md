@@ -6,7 +6,7 @@
 
 **Architecture:** The core computes each session's `last_event_at` (last real turn's timestamp). A cheap backend command tail-reads only recently-touched files so a lightweight frontend poll can drive a live "running" dot; unread compares `last_event_at` to a per-session last-viewed time kept in localStorage. Frontend-only UI; the two backend additions are additive.
 
-**Tech Stack:** Rust (`claude-manager-core`, Tauri commands) + React 19 / TypeScript / Tailwind v4. Tests: `cargo test`, Vitest.
+**Tech Stack:** Rust (`claude-code-manager-core`, Tauri commands) + React 19 / TypeScript / Tailwind v4. Tests: `cargo test`, Vitest.
 
 ## Global Constraints
 
@@ -126,7 +126,7 @@ Then add:
 
 - [ ] **Step 3: Run the tests, verify they fail**
 
-Run: `cargo test -p claude-manager-core last_event_at`
+Run: `cargo test -p claude-code-manager-core last_event_at`
 Expected: FAIL — `no field last_event_at on type SessionSummary` (compile error).
 
 - [ ] **Step 4: Add the field and compute it**
@@ -166,7 +166,7 @@ Add the field to the returned struct literal (after `mtime,`, line 157):
 
 - [ ] **Step 5: Run tests, verify they pass**
 
-Run: `cargo test -p claude-manager-core`
+Run: `cargo test -p claude-code-manager-core`
 Expected: PASS (all core tests, including the 3 new ones).
 
 - [ ] **Step 6: Commit**
@@ -245,7 +245,7 @@ Then the test (uses the existing `TempPath` to make a temp file path; writes eve
 
 - [ ] **Step 2: Run it, verify it fails**
 
-Run: `cargo test -p claude-manager-core last_activity`
+Run: `cargo test -p claude-code-manager-core last_activity`
 Expected: FAIL — `cannot find function last_activity`.
 
 - [ ] **Step 3: Implement `last_activity`**
@@ -270,7 +270,7 @@ pub fn last_activity(path: &Path) -> Option<DateTime<Utc>> {
 
 - [ ] **Step 4: Run it, verify it passes**
 
-Run: `cargo test -p claude-manager-core last_activity`
+Run: `cargo test -p claude-code-manager-core last_activity`
 Expected: PASS.
 
 - [ ] **Step 5: Add `store::scan_activity`**
@@ -378,7 +378,7 @@ In `crates/webui/src/lib.rs`, add to the `tauri::generate_handler![...]` list (a
 
 - [ ] **Step 8: Build + test**
 
-Run: `cargo test -p claude-manager-core && cargo build -p claude-manager-webui`
+Run: `cargo test -p claude-code-manager-core && cargo build -p claude-code-manager-webui`
 Expected: tests pass; webui builds.
 
 - [ ] **Step 9: Commit**

@@ -201,7 +201,7 @@ mod tests {
 
 - [ ] **Step 3: Run the test to verify it fails to compile then passes once written**
 
-Run: `cargo test -p claude-manager-core raw:: 2>&1 | tail -20`
+Run: `cargo test -p claude-code-manager-core raw:: 2>&1 | tail -20`
 Expected: `test session::raw::tests::active_path_walks_parents_from_last_uuid ... ok`
 
 (If `pub mod edit;` was added in Step 1 before Task 2 exists, the crate won't compile — temporarily comment it out, run this test, then restore in Task 2.)
@@ -243,7 +243,7 @@ Add to the `#[cfg(test)] mod tests` block in `crates/core/src/store/paths.rs`:
 
 - [ ] **Step 2: Run it to confirm it fails**
 
-Run: `cargo test -p claude-manager-core paths::tests::encode_then_session_path 2>&1 | tail -15`
+Run: `cargo test -p claude-code-manager-core paths::tests::encode_then_session_path 2>&1 | tail -15`
 Expected: FAIL — `cannot find function encode_project_dir`.
 
 - [ ] **Step 3: Implement the helpers**
@@ -270,7 +270,7 @@ pub fn session_file_path(root: &Path, cwd: &str, id: Uuid) -> PathBuf {
 
 - [ ] **Step 4: Run the test to verify it passes**
 
-Run: `cargo test -p claude-manager-core paths:: 2>&1 | tail -15`
+Run: `cargo test -p claude-code-manager-core paths:: 2>&1 | tail -15`
 Expected: all `paths::tests::*` PASS including `encode_then_session_path`.
 
 - [ ] **Step 5: Commit**
@@ -694,12 +694,12 @@ mod tests {
 
 - [ ] **Step 2: Run the tests to verify they pass**
 
-Run: `cargo test -p claude-manager-core edit:: 2>&1 | tail -25`
+Run: `cargo test -p claude-code-manager-core edit:: 2>&1 | tail -25`
 Expected: `validate_flags_dangling_and_orphan`, `commit_produces_linear_resolvable_session`, `commit_repairs_dangling_tool_use` all PASS.
 
 - [ ] **Step 3: Confirm the whole core crate still builds + tests green**
 
-Run: `cargo test -p claude-manager-core 2>&1 | tail -5`
+Run: `cargo test -p claude-code-manager-core 2>&1 | tail -5`
 Expected: all tests pass (existing 20 + the 3 new ones).
 
 - [ ] **Step 4: Commit**
@@ -732,8 +732,8 @@ And near the top of `main()` after `root` is resolved, before the `--print` bloc
 
 ```rust
     if let Some(src) = cli.fork_test.clone() {
-        use claude_manager_core::session::raw::{read_raw, active_path};
-        use claude_manager_core::session::edit::{commit, CommitOpts};
+        use claude_code_manager_core::session::raw::{read_raw, active_path};
+        use claude_code_manager_core::session::edit::{commit, CommitOpts};
         let lines = read_raw(&src)?;
         let path = active_path(&lines);
         // derive target cwd from the source events
@@ -757,10 +757,10 @@ And near the top of `main()` after `root` is resolved, before the `--print` bloc
 - [ ] **Step 2: Build and generate a fork of a real session**
 
 ```bash
-cargo build -p claude-manager-tui 2>&1 | tail -3
+cargo build -p claude-code-manager-tui 2>&1 | tail -3
 # pick a small real session to fork (adjust path):
 SRC=$(ls -S ~/.claude/projects/-Users-zillydev-my-Dev-Personal-claude-manager/*.jsonl | tail -1)
-./target/debug/claude-manager --fork-test "$SRC"
+./target/debug/claude-code-manager --fork-test "$SRC"
 ```
 
 Expected: prints `new session: <uuid>`, a `path:` under the same project dir, and a `claude --resume <uuid>` line.
@@ -799,8 +799,8 @@ git commit -m "chore(tui): --fork-test dev flag; record Phase 0 resume-acceptanc
 Append to `crates/webui/src/commands.rs`:
 
 ```rust
-use claude_manager_core::session::edit::{commit, CommitOpts, CommitResult};
-use claude_manager_core::session::raw::{active_path, read_raw, RawLine};
+use claude_code_manager_core::session::edit::{commit, CommitOpts, CommitResult};
+use claude_code_manager_core::session::raw::{active_path, read_raw, RawLine};
 use serde::Serialize;
 use std::path::PathBuf;
 
@@ -894,7 +894,7 @@ pub fn commit_session(
             .collect();
         if let Some(target) = msg_uuids.get(idx).copied() {
             if let Some(line) = lines.iter_mut().find(|l| l.uuid == Some(target)) {
-                claude_manager_core::session::edit::set_message_text(line, text);
+                claude_code_manager_core::session::edit::set_message_text(line, text);
             }
         }
     }
@@ -972,7 +972,7 @@ In `crates/webui/src/lib.rs`, extend the `generate_handler!` list:
 
 - [ ] **Step 3: Build the webui backend**
 
-Run: `cargo build -p claude-manager-webui 2>&1 | tail -5`
+Run: `cargo build -p claude-code-manager-webui 2>&1 | tail -5`
 Expected: `Finished` with no errors.
 
 - [ ] **Step 4: Commit**
@@ -1435,7 +1435,7 @@ function EditBox({
 
 Run:
 ```bash
-cargo build -p claude-manager-webui 2>&1 | tail -3
+cargo build -p claude-code-manager-webui 2>&1 | tail -3
 npm --prefix crates/webui/frontend run build 2>&1 | tail -5
 ```
 Expected: both build clean (no TS errors, no Rust errors).

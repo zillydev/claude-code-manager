@@ -4,15 +4,15 @@ use std::sync::Mutex;
 
 use crate::terminal::{self, TerminalState};
 
-use claude_manager_core::session::edit::{commit, CommitOpts, CommitResult};
-use claude_manager_core::session::parse::parse_tail;
-use claude_manager_core::session::raw::{active_path, first_cwd, read_raw, RawLine};
-use claude_manager_core::session::render::{render_session, RenderedSession, RenderedTurn};
-use claude_manager_core::session::summary::SessionSummary;
-use claude_manager_core::session::tree;
-use claude_manager_core::store;
-use claude_manager_core::store::paths;
-use claude_manager_core::store::watcher;
+use claude_code_manager_core::session::edit::{commit, CommitOpts, CommitResult};
+use claude_code_manager_core::session::parse::parse_tail;
+use claude_code_manager_core::session::raw::{active_path, first_cwd, read_raw, RawLine};
+use claude_code_manager_core::session::render::{render_session, RenderedSession, RenderedTurn};
+use claude_code_manager_core::session::summary::SessionSummary;
+use claude_code_manager_core::session::tree;
+use claude_code_manager_core::store;
+use claude_code_manager_core::store::paths;
+use claude_code_manager_core::store::watcher;
 
 use crate::shared::Shared;
 use serde::Serialize;
@@ -166,7 +166,7 @@ fn tail_loop(
         // the entire file. The tree resolution is trivial for append-only
         // new events (they're all on the current path).
         let leaf = tree::resolve_leaf(&outcome.events);
-        let mini = claude_manager_core::session::Session {
+        let mini = claude_code_manager_core::session::Session {
             project_label: String::new(),
             id: uuid::Uuid::nil(),
             file_path: path.clone(),
@@ -186,7 +186,7 @@ fn tail_loop(
         // frontend only patches calls still missing a result. Emitted even when
         // no turns rendered — a pure tool-result message is suppressed
         // machinery, producing exactly the turnless batch that needs this.
-        let updates = claude_manager_core::session::render::tool_result_updates(&mini.events);
+        let updates = claude_code_manager_core::session::render::tool_result_updates(&mini.events);
         if !updates.is_empty() {
             let _ = app.emit_to(label.as_str(), "session-tool-results", &updates);
         }
@@ -290,7 +290,7 @@ pub async fn commit_session(
         let target = uuid::Uuid::parse_str(&uuid_str)
             .map_err(|e| format!("invalid edit uuid: {e}"))?;
         match lines.iter_mut().find(|l| l.uuid == Some(target)) {
-            Some(line) => claude_manager_core::session::edit::set_message_text(line, text),
+            Some(line) => claude_code_manager_core::session::edit::set_message_text(line, text),
             None => return Err(format!("edit target {uuid_str} not found in session")),
         }
     }
@@ -348,7 +348,7 @@ pub async fn fork_session(
     // pre-compaction message yields the full raw history up to that point.
     let fork_target = uuid::Uuid::parse_str(&fork_uuid)
         .map_err(|e| format!("invalid fork uuid: {e}"))?;
-    let full = claude_manager_core::session::raw::path_to(&lines, fork_target);
+    let full = claude_code_manager_core::session::raw::path_to(&lines, fork_target);
     if full.is_empty() {
         return Err(format!("fork point {fork_uuid} not found in session"));
     }
@@ -359,7 +359,7 @@ pub async fn fork_session(
     // too long") — forcing an immediate compaction. Starting from the last
     // context reset makes the fork replay ≈ what claude actually holds. A no-op
     // (returns 0) for an uncompacted session.
-    let start = claude_manager_core::session::raw::context_segment_start(&full);
+    let start = claude_code_manager_core::session::raw::context_segment_start(&full);
     let prefix = &full[start..];
     // Launch cwd (first cwd in file order) so the fork lands in the same project
     // dir as the source and stays resumable — not the active-path prefix's cwd,
@@ -382,7 +382,7 @@ pub async fn fork_session(
 /// refuses a delete that would leave a leading assistant message.
 #[tauri::command]
 pub async fn delete_message(file_path: String, message_uuid: String) -> Result<CommitResult, String> {
-    use claude_manager_core::session::surgery::{rewrite, RewriteMode};
+    use claude_code_manager_core::session::surgery::{rewrite, RewriteMode};
     // rewrite reads + rewrites a potentially-large file — off the main thread.
     tauri::async_runtime::spawn_blocking(move || -> Result<CommitResult, String> {
         let root = paths::default_claude_root().ok_or("could not locate ~/.claude")?;

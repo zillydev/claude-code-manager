@@ -1,5 +1,5 @@
 [package]
-name = "claude-manager-core"
+name = "claude-code-manager-core"
 version = "0.1.0"
 edition = "2021"
 

@@ -6,7 +6,7 @@
 
 **Architecture:** A new `tree::segments` groups uuid-bearing events by their root (walk `parent_uuid` to the last present node), one segment per tree, with the active segment (the one containing `resolve_leaf`) rendered last. `render_session` renders each segment via an extracted helper, inserts a `Compaction` divider between segments, and marks only the active segment's turns `editable`. The webui renders the divider and hides all mutating controls — and the `editIndex` itself — when a turn isn't editable.
 
-**Tech Stack:** Rust (claude-manager-core), React 19 + TypeScript (webui). Rust tests via `cargo test -p claude-manager-core`. Frontend type-check via `tsc`.
+**Tech Stack:** Rust (claude-code-manager-core), React 19 + TypeScript (webui). Rust tests via `cargo test -p claude-code-manager-core`. Frontend type-check via `tsc`.
 
 ---
 
@@ -108,7 +108,7 @@ In `crates/core/src/session/tree.rs`, inside the existing `mod tests { ... }` (a
 
 - [ ] **Step 2: Run to verify it fails**
 
-Run: `cargo test -p claude-manager-core segments_ 2>&1 | tail -20`
+Run: `cargo test -p claude-code-manager-core segments_ 2>&1 | tail -20`
 Expected: FAIL — `cannot find function segments in this scope`.
 
 - [ ] **Step 3: Implement `segments`**
@@ -201,7 +201,7 @@ pub fn segments(events: &[Event]) -> Vec<Vec<&Event>> {
 
 - [ ] **Step 4: Run to verify it passes**
 
-Run: `cargo test -p claude-manager-core segments_ 2>&1 | tail -20`
+Run: `cargo test -p claude-code-manager-core segments_ 2>&1 | tail -20`
 Expected: PASS — all 5 `segments_*` tests green.
 
 - [ ] **Step 5: Commit**
@@ -625,7 +625,7 @@ mod render_tests {
 
 - [ ] **Step 4: Run the render + segments tests**
 
-Run: `cargo test -p claude-manager-core 2>&1 | tail -25`
+Run: `cargo test -p claude-code-manager-core 2>&1 | tail -25`
 Expected: PASS — all existing tests plus the new `segments_*` and `render_tests::*` green.
 
 - [ ] **Step 5: Commit**
@@ -802,7 +802,7 @@ git commit -m "feat(webui): render compaction divider; pre-compaction turns are 
 
 - [ ] **Step 1: Full workspace check**
 
-Run: `cargo test -p claude-manager-core 2>&1 | tail -5 && cargo build -p claude-manager-webui 2>&1 | tail -3`
+Run: `cargo test -p claude-code-manager-core 2>&1 | tail -5 && cargo build -p claude-code-manager-webui 2>&1 | tail -3`
 Expected: all core tests pass; webui crate builds.
 
 - [ ] **Step 2: Frontend build + tests**

@@ -6,7 +6,7 @@ Each phase ends green (`cargo test` / `tsc` / `vitest` / `vite build`) and is on
 ## Phase 1 — backend config (Rust)
 - `crates/webui/src/config.rs`:
   - `Config { version, theme, typography: Typography, ui: Ui }`, `Typography { font_size, density, ui_font, mono_font }`, `Ui { compact, details_open, sidebar_width, sidebar_collapsed, default_tab }` — serde with `#[serde(default)]` per field; `Default` = schema defaults.
-  - `config_path()` — `$CLAUDE_MANAGER_CONFIG_DIR` → `$XDG_CONFIG_HOME/claude-manager` → `~/.config/claude-manager`, then `config.json`.
+  - `config_path()` — `$CLAUDE_CODE_MANAGER_CONFIG_DIR` → `$XDG_CONFIG_HOME/claude-code-manager` → `~/.config/claude-code-manager`, then `config.json`.
   - `load()` — read+parse+clamp(font_size 12..=18); missing/bad → defaults + write.
   - `save(&Config)` — atomic temp-write + rename (creates dir).
 - `commands.rs`: `get_config()`, `set_config(config)` → save + `app.emit("config-changed", &config)`.

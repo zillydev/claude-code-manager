@@ -49,7 +49,7 @@ In `crates/core/src/store/mod.rs` tests module, add:
 
 - [ ] **Step 2: Run it, verify it fails**
 
-Run: `cargo test -p claude-manager-core signature_of`
+Run: `cargo test -p claude-code-manager-core signature_of`
 Expected: FAIL — `cannot find function signature_of`.
 
 - [ ] **Step 3: Implement both functions**
@@ -104,7 +104,7 @@ pub fn dir_signature(root: &Path) -> u64 {
 
 - [ ] **Step 4: Run it, verify it passes**
 
-Run: `cargo test -p claude-manager-core signature_of`
+Run: `cargo test -p claude-code-manager-core signature_of`
 Expected: PASS.
 
 - [ ] **Step 5: Commit**
@@ -133,8 +133,8 @@ git commit -m "feat(core): dir_signature + signature_of (cheap change probe)"
 use std::path::Path;
 use std::sync::Mutex;
 
-use claude_manager_core::session::summary::SessionSummary;
-use claude_manager_core::store;
+use claude_code_manager_core::session::summary::SessionSummary;
+use claude_code_manager_core::store;
 
 use crate::commands::SessionActivity;
 
@@ -302,7 +302,7 @@ Add a `.setup(...)` (e.g. right after the `.manage(...)` calls) that spawns the 
                 if handle.webview_windows().is_empty() {
                     continue; // idle when there are no windows
                 }
-                let root = match claude_manager_core::store::paths::default_claude_root() {
+                let root = match claude_code_manager_core::store::paths::default_claude_root() {
                     Some(r) => r,
                     None => continue,
                 };
@@ -318,7 +318,7 @@ Add a `.setup(...)` (e.g. right after the `.manage(...)` calls) that spawns the 
 
 - [ ] **Step 4: Build + test the crate**
 
-Run: `cargo build -p claude-manager-webui && cargo test`
+Run: `cargo build -p claude-code-manager-webui && cargo test`
 Expected: builds (fix any unused imports); all tests green. Note `list_sessions`
 now takes `app` — Tauri injects it, the frontend invoke is unchanged.
 

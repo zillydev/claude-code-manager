@@ -329,7 +329,7 @@ pub fn set_message_text(line: &mut RawLine, text: &str) {
 /// Rename a session in place by appending a `custom-title` event — exactly what
 /// Claude Code's `/rename` writes. The most-recent custom-title wins (see
 /// `summary::summarize` / `render::session_title`), so the appended title becomes
-/// the displayed one in both claude-manager and `claude --resume`.
+/// the displayed one in both claude-code-manager and `claude --resume`.
 ///
 /// This is the one place we mutate the original file: a custom-title is pure
 /// metadata (never conversation content), and a rename must keep the same session

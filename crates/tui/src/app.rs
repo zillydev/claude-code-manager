@@ -8,9 +8,9 @@ use crossterm::event::{self, Event as CtEvent, KeyEventKind};
 use ratatui::backend::CrosstermBackend;
 use ratatui::Terminal;
 
-use claude_manager_core::session::parse::parse_tail;
-use claude_manager_core::store;
-use claude_manager_core::store::watcher::{watch_file, FileWatcher};
+use claude_code_manager_core::session::parse::parse_tail;
+use claude_code_manager_core::store;
+use claude_code_manager_core::store::watcher::{watch_file, FileWatcher};
 use crate::ui::list_view::{ListAction, ListView};
 use crate::ui::transcript_view::{TranscriptAction, TranscriptView};
 

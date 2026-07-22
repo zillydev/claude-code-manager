@@ -24,7 +24,7 @@ pub fn spawn_window(app: &AppHandle) {
     let offset = existing.len() as f64 * 28.0;
 
     if let Err(e) = WebviewWindowBuilder::new(app, &label, WebviewUrl::App("index.html".into()))
-        .title("claude-manager")
+        .title("claude-code-manager")
         .inner_size(1200.0, 800.0)
         .min_inner_size(800.0, 600.0)
         .position(120.0 + offset, 120.0 + offset)

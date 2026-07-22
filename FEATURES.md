@@ -1,19 +1,19 @@
-# claude-manager — Features
+# claude-code-manager — Features
 
-A tool to browse, search, edit, compact, harvest, and resume Claude Code session `.jsonl` files. A **Tauri 2 + React 19 webui** and a **ratatui TUI** over a shared Rust core (`claude-manager-core`).
+A tool to browse, search, edit, compact, harvest, and resume Claude Code session `.jsonl` files. A **Tauri 2 + React 19 webui** and a **ratatui TUI** over a shared Rust core (`claude-code-manager-core`).
 
 > **Maintenance:** update this file as the last step of every feature merge. Each entry links to its design spec in `docs/superpowers/specs/` (and plan in `docs/superpowers/plans/`) for the full rationale. Per-feature specs are the source of truth for *why/how*; this file is the index of *what exists now*.
 
 ## Architecture
 
-- **Cargo workspace:** `crates/core` (lib — parsing/render/store/surgery), `crates/tui` (ratatui binary `claude-manager`, also hosts the `surgery` CLI), `crates/webui` (Tauri 2 + React/TS/Vite/Tailwind).
+- **Cargo workspace:** `crates/core` (lib — parsing/render/store/surgery), `crates/tui` (ratatui binary `claude-code-manager`, also hosts the `surgery` CLI), `crates/webui` (Tauri 2 + React/TS/Vite/Tailwind).
 - Operates on `~/.claude/projects/<encoded-cwd>/<uuid>.jsonl` — one JSON object per line, linked into a tree by `parentUuid`.
 - **Copy-on-edit safety:** every fork/edit/delete/surgery writes a NEW session file; originals are never mutated (sole exception: rename, which appends a `custom-title` line in place).
 - Run: `make tui` · `make webui` (`cargo tauri dev --no-watch`) · `make build` · `make test`.
 
 ## Browsing & viewing (webui + TUI)
 
-- Sessions list — project, title, tokens, updated (time of the last real conversation turn — live activity → discovered last-event → file mtime only for a turnless session — so the shown time, the Updated sort, and the time filter all agree and a non-turn file write doesn't bump it); project + time filters (one project selector, grouped by name, expands to directories only on name collisions); sort; sidebar resize/collapse. → `2026-05-23-claude-manager-tui-design`, `2026-05-24-webui-design`, `2026-06-21-unified-project-selector-design`
+- Sessions list — project, title, tokens, updated (time of the last real conversation turn — live activity → discovered last-event → file mtime only for a turnless session — so the shown time, the Updated sort, and the time filter all agree and a non-turn file write doesn't bump it); project + time filters (one project selector, grouped by name, expands to directories only on name collisions); sort; sidebar resize/collapse. → `2026-05-23-claude-code-manager-tui-design`, `2026-05-24-webui-design`, `2026-06-21-unified-project-selector-design`
 - Transcript rendering — consecutive assistant turns merged, **GFM** markdown (react-markdown + `remark-gfm` + `@tailwindcss/typography`: tables, strikethrough, task-lists; inline code without decorative backticks), tool calls with full input on expand, synthetic turns skipped. Slash-command invocations (e.g. `/deploy-gateway`) render as a compact command line; the injected skill body and `<local-command-…>` machinery stay hidden. Explanatory-style `★ Insight` blocks render as a terminal-style callout (accent rules + markdown body) instead of collapsing into inline-code pills.
 - Session info panel — token cost, per-turn model, git branch, cwd.
 - **Compact** toggle (user turns + adjacent assistant) and **Details** toggle — both persisted across restarts.
@@ -26,7 +26,7 @@ A tool to browse, search, edit, compact, harvest, and resume Claude Code session
 
 ## Organization
 
-- **Session organization** — claude-manager-local metadata over sessions, in a separate `session-meta.json` (same dir/env as the config; claude's `.jsonl` is never touched). Global **tags** (a `name+color` registry; colored chips on rows; a per-session Tags… editor with autocomplete; a sidebar any-of **tag filter**, which a newly created session inherits — so it isn't instantly filtered out of the list you're looking at; a **Manage tags…** window to recolor/rename/delete), a **local alias** (a rename that is NOT claude's `custom-title` — so no live-terminal desync; shown as the row's primary title with claude's auto-name dim beneath), and a per-session **note** (`✎` on rows, full text under the details panel). A session derived by copy-on-edit (fork / edit / delete) inherits the source's tags — tags only, not the alias (which would duplicate a name) or note. Live + broadcast across windows; dangling tags self-heal on load. → `2026-07-06-session-organization-design`
+- **Session organization** — claude-code-manager-local metadata over sessions, in a separate `session-meta.json` (same dir/env as the config; claude's `.jsonl` is never touched). Global **tags** (a `name+color` registry; colored chips on rows; a per-session Tags… editor with autocomplete; a sidebar any-of **tag filter**, which a newly created session inherits — so it isn't instantly filtered out of the list you're looking at; a **Manage tags…** window to recolor/rename/delete), a **local alias** (a rename that is NOT claude's `custom-title` — so no live-terminal desync; shown as the row's primary title with claude's auto-name dim beneath), and a per-session **note** (`✎` on rows, full text under the details panel). A session derived by copy-on-edit (fork / edit / delete) inherits the source's tags — tags only, not the alias (which would duplicate a name) or note. Live + broadcast across windows; dangling tags self-heal on load. → `2026-07-06-session-organization-design`
 
 ## Editing & surgery
 
@@ -64,7 +64,7 @@ A tool to browse, search, edit, compact, harvest, and resume Claude Code session
 
 ## Customization
 
-- **Settings panel** (`⚙` in the sidebar header, or `⌘,`) backed by a JSON config file — location resolves `$CLAUDE_MANAGER_CONFIG_DIR` → `$XDG_CONFIG_HOME/claude-manager` → `~/.config/claude-manager` (`config.json`). Covers **theme** (GitHub Dark / Light — applied by setting the 14 `--color-*` vars live), **typography** (font size 12–18 via the root rem; a `compact` density that shrinks Tailwind's `--spacing` token globally; UI + Mono font choices — presets or a custom family, the mono font also re-applied to the live terminal), and **behavior** (compact / details / sidebar width + collapsed are set-and-stick config; a launch-only default tab). Changes apply live and broadcast to every window (`config-changed`); load is merge-over-defaults + clamp, save is atomic. → `2026-06-28-ui-customization-design`
+- **Settings panel** (`⚙` in the sidebar header, or `⌘,`) backed by a JSON config file — location resolves `$CLAUDE_CODE_MANAGER_CONFIG_DIR` → `$XDG_CONFIG_HOME/claude-code-manager` → `~/.config/claude-code-manager` (`config.json`). Covers **theme** (GitHub Dark / Light — applied by setting the 14 `--color-*` vars live), **typography** (font size 12–18 via the root rem; a `compact` density that shrinks Tailwind's `--spacing` token globally; UI + Mono font choices — presets or a custom family, the mono font also re-applied to the live terminal), and **behavior** (compact / details / sidebar width + collapsed are set-and-stick config; a launch-only default tab). Changes apply live and broadcast to every window (`config-changed`); load is merge-over-defaults + clamp, save is atomic. → `2026-06-28-ui-customization-design`
 
 ## Feedback
 

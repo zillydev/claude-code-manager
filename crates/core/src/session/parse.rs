@@ -139,7 +139,7 @@ mod tests {
 
     fn tmp(name: &str) -> TempPath {
         let mut p = std::env::temp_dir();
-        p.push(format!("claude-manager-test-{}-{}.jsonl", name, std::process::id()));
+        p.push(format!("claude-code-manager-test-{}-{}.jsonl", name, std::process::id()));
         let _ = std::fs::remove_file(&p);
         TempPath(p)
     }

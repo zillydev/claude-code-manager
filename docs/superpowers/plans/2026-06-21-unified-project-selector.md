@@ -157,7 +157,7 @@ Expected: tsc clean; 20 tests; vite build succeeds.
 - [ ] **Step 2: Hand the user manual steps (I won't launch the webui)**
 
   1. The sidebar now has **one** project dropdown (Directories is gone).
-  2. Unique projects show as a flat list of names (no paths) — e.g. `claude-manager`, `mono`.
+  2. Unique projects show as a flat list of names (no paths) — e.g. `claude-code-manager`, `mono`.
   3. `integration-proxy` and `k8-kustomize` appear as **optgroups**, each listing their two directories (`shortenPath`).
   4. Selecting a name filters to that project; selecting a collision's directory pins that exact path; `All projects` clears it.
   5. The filter still ANDs with the date dropdown and the search box; the Project sort still works.

@@ -4,7 +4,7 @@
 
 **Goal:** A read-only `session-harvest` skill that mines a past Claude Code session for reusable artifacts (skills, kb entries, summaries, scripts), backed by an extended `surgery extract` reader (whole-session default, uuid-annotated, plus a compact `--outline` map).
 
-**Architecture:** Two parts. (1) Core/CLI: extend `surgery::extract` to take an optional range (defaulting to the whole active path), annotate each emitted turn with its message uuid, and add an `--outline` mode that prints a one-line-per-turn map (ids + tool-call one-liners, no outputs). (2) A new `claude-manager/skills/session-harvest/SKILL.md` workflow that navigates outline-first → drills down → fans out to subagents for large sessions, and produces artifacts by delegating to the `writing-skills` and `kb` skills (and inline for summaries/scripts), confirming every file write.
+**Architecture:** Two parts. (1) Core/CLI: extend `surgery::extract` to take an optional range (defaulting to the whole active path), annotate each emitted turn with its message uuid, and add an `--outline` mode that prints a one-line-per-turn map (ids + tool-call one-liners, no outputs). (2) A new `claude-code-manager/skills/session-harvest/SKILL.md` workflow that navigates outline-first → drills down → fans out to subagents for large sessions, and produces artifacts by delegating to the `writing-skills` and `kb` skills (and inline for summaries/scripts), confirming every file write.
 
 **Tech Stack:** Rust (`uuid`, `serde_json`, `anyhow`, `clap`), Markdown skill authoring.
 
@@ -13,7 +13,7 @@
 - No new dependencies.
 - Read-only on sessions: harvest never rewrites/touches a session file; the only writes are NEW artifact files (skills/kb/scripts) or rendered text (summaries), each confirmed with the user before writing.
 - Reuse the binary's `surgery extract` reader; never hand-parse jsonl in the skill; never use the `rewrite` path.
-- Artifact destinations: skill → `~/.claude/skills/` or `claude-manager/skills/` (confirm); kb → via `kb` skill (Obsidian); summary → render in chat + offer to save; script → propose path + confirm. "Runbook" is a kb entry, not a separate type.
+- Artifact destinations: skill → `~/.claude/skills/` or `claude-code-manager/skills/` (confirm); kb → via `kb` skill (Obsidian); summary → render in chat + offer to save; script → propose path + confirm. "Runbook" is a kb entry, not a separate type.
 - `--outline` / whole-session reads operate on the **active path** only (pre-compaction trees out of scope for v1).
 - Commit messages end with `Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>`.
 
@@ -23,7 +23,7 @@
 
 - **Modify** `crates/core/src/session/surgery.rs` — id-annotate `render_range_text`; add `render_outline`; change `extract` signature (optional range + `outline` flag); update its tests.
 - **Modify** `crates/tui/src/main.rs` — `Extract` subcommand: optional `--from`/`--to`, new `--outline` flag; updated handler.
-- **Create** `claude-manager/skills/session-harvest/SKILL.md` — the skill workflow.
+- **Create** `claude-code-manager/skills/session-harvest/SKILL.md` — the skill workflow.
 
 ---
 
@@ -248,7 +248,7 @@ In `crates/tui/src/main.rs`, update the `Extract` subcommand definition (make `f
 
 - [ ] **Step 6: Build + test**
 
-Run: `cargo test -p claude-manager-core surgery && cargo build -p claude-manager-tui`
+Run: `cargo test -p claude-code-manager-core surgery && cargo build -p claude-code-manager-tui`
 Expected: all surgery tests pass (updated + 3 new); TUI binary compiles with the new `extract` signature.
 
 - [ ] **Step 7: Commit**
@@ -265,7 +265,7 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 ## Task 2: The `session-harvest` skill
 
 **Files:**
-- Create: `claude-manager/skills/session-harvest/SKILL.md`
+- Create: `claude-code-manager/skills/session-harvest/SKILL.md`
 
 This is a Markdown workflow (no unit tests). Its deliverable is the skill doc itself; verification is the real-session exercise in Task 3.
 
@@ -283,7 +283,7 @@ description: Use when the user wants to mine a PAST Claude Code session for reus
 
 You are mining a finished Claude Code session for knowledge worth keeping, and turning it into durable artifacts: a **skill**, a **kb entry** (the user's runbooks live in the kb), a **summary**, or a **script** for a deterministic flow.
 
-**Read-only guarantee:** this skill only READS sessions (through the `claude-manager` binary's `surgery extract`) and WRITES new artifact files. It never rewrites or touches a session file — that's session-surgery's job, not this one. Confirm every file write (destination + one-line intent) before writing.
+**Read-only guarantee:** this skill only READS sessions (through the `claude-code-manager` binary's `surgery extract`) and WRITES new artifact files. It never rewrites or touches a session file — that's session-surgery's job, not this one. Confirm every file write (destination + one-line intent) before writing.
 
 ## Two modes (infer from the request)
 
@@ -293,9 +293,9 @@ You are mining a finished Claude Code session for knowledge worth keeping, and t
 ## Locate the binary (once)
 
 ```bash
-BIN=/Users/zillydev/my/Dev/Personal/claude-manager/target/release/claude-manager
-[ -x "$BIN" ] || BIN=/Users/zillydev/my/Dev/Personal/claude-manager/target/debug/claude-manager
-[ -x "$BIN" ] || { (cd /Users/zillydev/my/Dev/Personal/claude-manager && cargo build --release); BIN=/Users/zillydev/my/Dev/Personal/claude-manager/target/release/claude-manager; }
+BIN=/Users/zillydev/my/Dev/Personal/claude-manager/target/release/claude-code-manager
+[ -x "$BIN" ] || BIN=/Users/zillydev/my/Dev/Personal/claude-manager/target/debug/claude-code-manager
+[ -x "$BIN" ] || { (cd /Users/zillydev/my/Dev/Personal/claude-manager && cargo build --release); BIN=/Users/zillydev/my/Dev/Personal/claude-manager/target/release/claude-code-manager; }
 ```
 
 ## Navigation: outline-first → drill down → fan out
@@ -343,7 +343,7 @@ Then ask which to generate (e.g. "make 2 and 4"). Generate each chosen one via t
 
 ## Producing each artifact type
 
-**skill** — Do NOT hand-roll the format. Invoke the `superpowers:writing-skills` skill and author the skill from the drilled-down span. Decide destination by judgment and CONFIRM it: `~/.claude/skills/<name>/` for a general/cross-project skill, or `/Users/zillydev/my/Dev/Personal/claude-manager/skills/<name>/` for a claude-manager-specific one.
+**skill** — Do NOT hand-roll the format. Invoke the `superpowers:writing-skills` skill and author the skill from the drilled-down span. Decide destination by judgment and CONFIRM it: `~/.claude/skills/<name>/` for a general/cross-project skill, or `/Users/zillydev/my/Dev/Personal/claude-manager/skills/<name>/` for a claude-code-manager-specific one.
 
 **kb** — Invoke the `kb` skill to write the entry into the user's Obsidian wiki (`/Users/zillydev/my/Obsidian/02 - Areas/Emergent/knowledge/<topic>.md`). The kb skill checks for an existing entry to update, matches the house style, and cross-references. Runbooks are kb entries.
 
@@ -392,7 +392,7 @@ Expected: all workspace tests PASS (core incl. the 4 surgery extract tests; webu
 Build once (`cargo build --release`), then against a real session (e.g. the user's `91052458-9e2f-4cb9-80dc-afe3b9ce904d`):
 
 ```bash
-BIN=/Users/zillydev/my/Dev/Personal/claude-manager/target/release/claude-manager
+BIN=/Users/zillydev/my/Dev/Personal/claude-manager/target/release/claude-code-manager
 "$BIN" surgery extract --session 91052458-9e2f-4cb9-80dc-afe3b9ce904d --outline | head -20
 "$BIN" surgery extract --session 91052458-9e2f-4cb9-80dc-afe3b9ce904d --outline | wc -l
 ```

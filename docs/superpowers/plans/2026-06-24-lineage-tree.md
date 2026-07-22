@@ -68,7 +68,7 @@ In `crates/core/src/store/mod.rs` tests module, add (mirrors the existing temp-f
 
 - [ ] **Step 2: Run it, verify it fails**
 
-Run: `cargo test -p claude-manager-core message_snippets`
+Run: `cargo test -p claude-code-manager-core message_snippets`
 Expected: FAIL — `cannot find function message_snippets`.
 
 - [ ] **Step 3: Implement `message_snippets`**
@@ -146,7 +146,7 @@ fn one_line_truncated(s: &str, max: usize) -> String {
 
 - [ ] **Step 4: Run it, verify it passes**
 
-Run: `cargo test -p claude-manager-core message_snippets`
+Run: `cargo test -p claude-code-manager-core message_snippets`
 Expected: PASS.
 
 - [ ] **Step 5: Add the `resolve_branch_messages` command**
@@ -217,7 +217,7 @@ In `crates/webui/src/lib.rs` `generate_handler![...]`, add after `commands::refr
 
 - [ ] **Step 7: Build + test the workspace**
 
-Run: `cargo test && cargo build -p claude-manager-webui`
+Run: `cargo test && cargo build -p claude-code-manager-webui`
 Expected: all green; webui builds (fix any unused imports).
 
 - [ ] **Step 8: Commit**

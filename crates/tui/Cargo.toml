@@ -1,14 +1,14 @@
 [package]
-name = "claude-manager-tui"
+name = "claude-code-manager-tui"
 version = "0.1.0"
 edition = "2021"
 
 [[bin]]
-name = "claude-manager"
+name = "claude-code-manager"
 path = "src/main.rs"
 
 [dependencies]
-claude-manager-core = { path = "../core" }
+claude-code-manager-core = { path = "../core" }
 ratatui = "0.29"
 crossterm = "0.28"
 clap = { version = "4", features = ["derive"] }

@@ -7,9 +7,9 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Paragraph};
 use ratatui::Frame;
 
-use claude_manager_core::session::event::{Block as ABlock, Event, MessageContent, UserBlock};
-use claude_manager_core::session::render::compute_stats;
-use claude_manager_core::session::Session;
+use claude_code_manager_core::session::event::{Block as ABlock, Event, MessageContent, UserBlock};
+use claude_code_manager_core::session::render::compute_stats;
+use claude_code_manager_core::session::Session;
 use crate::ui::theme;
 
 pub enum TranscriptAction {
@@ -648,11 +648,11 @@ fn extract_tag<'a>(s: &'a str, tag: &str) -> Option<&'a str> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use claude_manager_core::session::event::{
+    use claude_code_manager_core::session::event::{
         AssistantEvent, AssistantMessage, Block, Message, MessageContent, ToolResultContent,
         UserBlock, UserEvent,
     };
-    use claude_manager_core::session::Session;
+    use claude_code_manager_core::session::Session;
     use chrono::Utc;
     use std::path::PathBuf;
     use std::time::UNIX_EPOCH;

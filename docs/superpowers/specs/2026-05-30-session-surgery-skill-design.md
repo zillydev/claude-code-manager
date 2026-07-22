@@ -13,7 +13,7 @@ Claude Code's auto-compaction is untargeted. Often you know exactly which span b
 | Decision | Choice |
 |---|---|
 | Operations | **summarize a range [A..B]** and **prune a range [A..B]** |
-| Rewrite engine | new **`claude-manager surgery`** CLI subcommands, reusing `core::edit::commit` (model never hand-edits jsonl) |
+| Rewrite engine | new **`claude-code-manager surgery`** CLI subcommands, reusing `core::edit::commit` (model never hand-edits jsonl) |
 | Summarizer | the **running Claude, inline** (reads the range, writes the summary) |
 | Output | always a **new session** (copy-on-edit); original file never modified |
 | Agent-performance guard | high-fidelity, handoff-quality summary; range snaps to whole-turn boundaries; clean tool-pairing |
@@ -25,12 +25,12 @@ Claude Code's auto-compaction is untargeted. Often you know exactly which span b
 
 ## CLI surface
 
-Introduce a `surgery` subcommand group on the existing `claude-manager` binary (alongside the current `--print`/`--fork-test` flags; this requires moving to a clap subcommand structure, keeping the bare-invocation = launch-TUI default).
+Introduce a `surgery` subcommand group on the existing `claude-code-manager` binary (alongside the current `--print`/`--fork-test` flags; this requires moving to a clap subcommand structure, keeping the bare-invocation = launch-TUI default).
 
-### `claude-manager surgery extract --session <path|id> --from <uuidA> --to <uuidB>`
+### `claude-code-manager surgery extract --session <path|id> --from <uuidA> --to <uuidB>`
 Prints the messages in the **turn-snapped, inclusive** range A..B on the active path, human-readable: `[role] text`, with tool calls shown as `▸ Tool: <args>` and tool results included but each capped to ~4000 chars (`…[N more chars]`) so the orchestrating session's context stays bounded while remaining faithful enough to summarize. Used only by the summarize flow.
 
-### `claude-manager surgery rewrite --session <path|id> --from <uuidA> --to <uuidB> --mode <summary|prune> [--summary-file <f>]`
+### `claude-code-manager surgery rewrite --session <path|id> --from <uuidA> --to <uuidB> --mode <summary|prune> [--summary-file <f>]`
 Builds the new raw-line list from the active path and commits it via `core::edit::commit`:
 - **prune:** `lines[..A_start] + lines[B_end+1..]`
 - **summary:** `lines[..A_start] + <summary message> + lines[B_end+1..]` (summary text read from `--summary-file`)
@@ -59,7 +59,7 @@ A user-role note can sit next to another user message after the cut; Claude Code
 
 ## Skill: `session-surgery`
 
-Lives at `skills/session-surgery/SKILL.md` in this repo (tightly coupled to the binary), symlink-able into `~/.claude/skills/`. It calls the built `claude-manager` binary (release build, or on `PATH`).
+Lives at `skills/session-surgery/SKILL.md` in this repo (tightly coupled to the binary), symlink-able into `~/.claude/skills/`. It calls the built `claude-code-manager` binary (release build, or on `PATH`).
 
 **Frontmatter:** `name: session-surgery`, `description:` triggers on intents like "summarize/compact messages between two ids", "prune messages between …", "reduce context in session X".
 

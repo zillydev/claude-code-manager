@@ -87,7 +87,7 @@ In `display.rs` `#[cfg(test)] mod tests`, add:
 
 - [ ] **Step 3: Run the tests**
 
-Run: `cargo test -p claude-manager-core display`
+Run: `cargo test -p claude-code-manager-core display`
 Expected: PASS — `skill_prompt_name_extracts_folder`, `one_line_compacts_skill_prompt`, plus the existing `display::tests::*`.
 
 - [ ] **Step 4: Commit**
@@ -196,7 +196,7 @@ Add to the `surgery.rs` test module:
 
 - [ ] **Step 3: Run the test + full core suite**
 
-Run: `cargo test -p claude-manager-core surgery`
+Run: `cargo test -p claude-code-manager-core surgery`
 Expected: PASS — `extract_elides_skill_prompt` plus all existing surgery tests.
 
 - [ ] **Step 4: Commit**
@@ -224,7 +224,7 @@ Expected: all workspace tests PASS (core incl. the new display + surgery tests; 
 Build (`cargo build --release`), then on this session (which is full of skill invocations):
 
 ```bash
-BIN=/Users/zillydev/my/Dev/Personal/claude-manager/target/release/claude-manager
+BIN=/Users/zillydev/my/Dev/Personal/claude-manager/target/release/claude-code-manager
 S=c84ba790-92b6-41ea-881f-971902858ce2
 # Outline: skill prompts show as `skill: <name>`, no raw "Base directory" path
 "$BIN" surgery extract --session "$S" --outline --all-segments | grep -c 'Base directory for this skill'   # expect 0

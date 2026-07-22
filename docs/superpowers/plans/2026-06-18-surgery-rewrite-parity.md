@@ -190,7 +190,7 @@ Add to the `surgery.rs` test module:
 
 - [ ] **Step 6: Build all three crates + run core tests**
 
-Run: `cargo build && cargo test -p claude-manager-core surgery`
+Run: `cargo build && cargo test -p claude-code-manager-core surgery`
 Expected: workspace compiles (core, tui, webui); surgery tests pass — the 7 updated rewrite tests, `rewrite_accepts_uuid_prefix`, `rewrite_rejects_off_active_path_id`, and all others. Fix any now-unused `use uuid::Uuid;` warnings flagged by the build (remove the import in that file).
 
 - [ ] **Step 7: Commit**
@@ -252,7 +252,7 @@ Expected: all workspace tests PASS (core incl. the 2 new rewrite tests; webui; T
 Build (`cargo build --release`). On a session, copy ONE 8-char short id from the outline and use it for both the preview and a prune:
 
 ```bash
-BIN=/Users/zillydev/my/Dev/Personal/claude-manager/target/release/claude-manager
+BIN=/Users/zillydev/my/Dev/Personal/claude-manager/target/release/claude-code-manager
 S=c84ba790-92b6-41ea-881f-971902858ce2
 SHORT=$("$BIN" surgery extract --session "$S" --outline --all-segments | grep -oE '^#[0-9]+ [a-z]+ [0-9a-f]{8}$' | awk 'NR==5{print $3}')
 echo "using short id: $SHORT"

@@ -86,7 +86,7 @@ pub fn run() {
                 if handle.webview_windows().is_empty() {
                     continue;
                 }
-                let root = match claude_manager_core::store::paths::default_claude_root() {
+                let root = match claude_code_manager_core::store::paths::default_claude_root() {
                     Some(r) => r,
                     None => continue,
                 };
