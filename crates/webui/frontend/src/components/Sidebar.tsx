@@ -284,7 +284,7 @@ export default function Sidebar({
           <button
             onClick={onOpenSettings}
             className="text-sm leading-none px-1.5 py-1 rounded text-[var(--color-text-dim)] hover:text-[var(--color-accent)] hover:bg-[var(--color-surface-hover)]"
-            title="Settings"
+            title="Settings (⌘,)"
           >
             ⚙
           </button>

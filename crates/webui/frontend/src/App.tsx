@@ -194,9 +194,10 @@ export default function App() {
     }
   }, [configLoaded, config.ui.defaultTab]);
 
-  // Cmd+E toggles Manager ↔ Terminal; Cmd+B toggles the sidebar. Cmd (not Ctrl)
-  // so they never collide with the terminal — Ctrl+E/Ctrl+B are line-editing keys
-  // in claude/shells. Capture phase so it beats xterm when the terminal is focused.
+  // Cmd+E toggles Manager ↔ Terminal; Cmd+B toggles the sidebar; Cmd+, opens
+  // Settings (the macOS Preferences shortcut). Cmd (not Ctrl) so they never
+  // collide with the terminal — Ctrl+E/Ctrl+B are line-editing keys in
+  // claude/shells. Capture phase so it beats xterm when the terminal is focused.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (!e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
@@ -209,6 +210,10 @@ export default function App() {
         e.preventDefault();
         e.stopPropagation();
         setConfig({ ui: { sidebarCollapsed: !collapsed } });
+      } else if (k === ",") {
+        e.preventDefault();
+        e.stopPropagation();
+        setSettingsOpen(true);
       }
     };
     window.addEventListener("keydown", onKey, true);
