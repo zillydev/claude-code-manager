@@ -54,6 +54,25 @@ those files directly and gives you a real interface over them.
 
 ## Install
 
+### Download a release
+
+Grab the universal macOS `.dmg` (Apple Silicon + Intel) from
+[Releases](https://github.com/zillydev/claude-code-manager/releases), then drag
+the app to `/Applications`.
+
+Release builds are **not signed or notarized by Apple**, so Gatekeeper blocks
+them on first launch. Clear the quarantine attribute once:
+
+```bash
+xattr -cr /Applications/claude-code-manager.app
+```
+
+(Or right-click the app → **Open** → **Open**.)
+
+### Or build from source
+
+Building locally produces no quarantine attribute, so there's nothing to clear:
+
 ```bash
 git clone https://github.com/zillydev/claude-code-manager.git
 cd claude-code-manager
@@ -125,6 +144,24 @@ npx tsc --noEmit && npx vitest run          # frontend typecheck + tests
 ```
 
 The codebase is deliberately hand-formatted, so `cargo fmt` is **not** enforced.
+
+### Cutting a release
+
+Version lives in `crates/webui/tauri.conf.json` (the bundle version) and the
+three `crates/*/Cargo.toml`. Bump them together, then tag:
+
+```bash
+git tag v0.2.0 && git push origin v0.2.0
+```
+
+That triggers [`release.yml`](.github/workflows/release.yml), which builds a
+universal macOS bundle and publishes it. The workflow refuses to run if the tag
+doesn't match the version in `tauri.conf.json`, so a release can't ship a
+mislabelled `.dmg`.
+
+To sign and notarize instead of shipping unsigned, add the `APPLE_*` repo
+secrets listed in that workflow (requires a paid Apple Developer account); no
+workflow changes are needed.
 
 ## License
 

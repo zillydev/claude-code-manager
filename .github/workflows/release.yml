@@ -1,0 +1,108 @@
+name: Release
+
+# Tag a version to publish a macOS build:
+#   git tag v0.1.0 && git push origin v0.1.0
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag to build (must already exist)"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+
+      # Fail early on a version mismatch rather than shipping a v0.2.0 release
+      # whose .dmg is built as 0.1.0 (the bundle version comes from tauri.conf.json).
+      - name: Check tag matches tauri.conf.json version
+        run: |
+          TAG="${{ github.event.inputs.tag || github.ref_name }}"
+          CONF=$(sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' \
+                   crates/webui/tauri.conf.json | head -1)
+          if [ "${TAG#v}" != "$CONF" ]; then
+            echo "::error::Tag $TAG does not match tauri.conf.json version $CONF."
+            echo "Bump version in crates/webui/tauri.conf.json and crates/*/Cargo.toml, then re-tag."
+            exit 1
+          fi
+          echo "version $CONF matches tag $TAG"
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          # Both arches so the bundle is universal (Apple Silicon + Intel).
+          targets: aarch64-apple-darwin, x86_64-apple-darwin
+      - uses: Swatinem/rust-cache@v2
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: crates/webui/frontend/package-lock.json
+
+      # tauri's beforeBuildCommand only runs `npm run build`, not install.
+      - name: Install frontend deps
+        run: npm ci --prefix crates/webui/frontend
+
+      - name: Install Tauri CLI
+        run: cargo install tauri-cli --version "^2" --locked
+
+      - name: Build universal macOS bundle
+        working-directory: crates/webui
+        run: cargo tauri build --target universal-apple-darwin
+        env:
+          # Optional code signing + notarization. With these secrets unset the
+          # build still succeeds and simply ships UNSIGNED — see the release
+          # notes for the Gatekeeper workaround users need in that case.
+          # To enable: add these repo secrets (needs a paid Apple Developer
+          # account) and nothing else here has to change.
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+
+      - name: Collect artifacts
+        id: artifacts
+        run: |
+          BUNDLE=target/universal-apple-darwin/release/bundle
+          mkdir -p dist
+          # The real dmg has lived in bundle/dmg/ and bundle/macos/ across tauri
+          # versions, and a temporary "rw.*.dmg" is left behind during creation.
+          find "$BUNDLE" -name "*.dmg" ! -name "rw.*" -exec cp {} dist/ \;
+          # Zip the .app too — some people prefer it over mounting a dmg.
+          ditto -c -k --keepParent "$BUNDLE"/macos/claude-code-manager.app \
+                dist/claude-code-manager-macos-universal.app.zip
+          ls -lh dist
+          if [ -z "$(ls -A dist)" ]; then echo "::error::no artifacts produced"; exit 1; fi
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.inputs.tag || github.ref_name }}
+          name: claude-code-manager ${{ github.event.inputs.tag || github.ref_name }}
+          files: dist/*
+          generate_release_notes: true
+          body: |
+            Universal macOS build (Apple Silicon + Intel).
+
+            **This build is not signed or notarized by Apple**, so Gatekeeper
+            will refuse it on first launch. After dragging the app to
+            `/Applications`, clear the quarantine attribute:
+
+            ```bash
+            xattr -cr /Applications/claude-code-manager.app
+            ```
+
+            (Or right-click the app → **Open** → **Open**.) You only need to do
+            this once per install. Building from source with `make install`
+            avoids this entirely.
