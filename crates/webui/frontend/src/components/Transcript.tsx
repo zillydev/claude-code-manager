@@ -517,13 +517,18 @@ const Turn = memo(function Turn({
   deletePending: boolean;
 }) {
   const ts = "timestamp" in turn && turn.timestamp ? formatTime(turn.timestamp) : "--:--";
+  // Full date shown on hover; undefined ⇒ no tooltip (e.g. compaction turns).
+  const tsTitle =
+    "timestamp" in turn && turn.timestamp ? formatFullDate(turn.timestamp) : undefined;
 
   switch (turn.type) {
     case "user":
       return (
         <div className="group" data-msg-uuids={turn.uuids.join(" ")}>
           <div className="flex items-baseline gap-2 mb-1">
-            <span className="text-xs text-[var(--color-text-dim)]">{ts}</span>
+            <span className="text-xs text-[var(--color-text-dim)]" title={tsTitle}>
+              {ts}
+            </span>
             <span className="font-medium text-[var(--color-user)]">user</span>
             <TurnActions
               onEdit={() => editUuid && onStartEdit(editUuid, turn.text)}
@@ -558,7 +563,9 @@ const Turn = memo(function Turn({
       return (
         <div className="group" data-msg-uuids={turn.uuids.join(" ")}>
           <div className="flex items-baseline gap-2 mb-1">
-            <span className="text-xs text-[var(--color-text-dim)]">{ts}</span>
+            <span className="text-xs text-[var(--color-text-dim)]" title={tsTitle}>
+              {ts}
+            </span>
             <span className="font-medium text-[var(--color-assistant)]">
               assistant
             </span>
@@ -607,7 +614,10 @@ const Turn = memo(function Turn({
     case "system":
       return (
         <div className="text-[var(--color-system)] text-sm opacity-70">
-          <span className="text-xs">{ts}</span> system:{" "}
+          <span className="text-xs" title={tsTitle}>
+            {ts}
+          </span>{" "}
+          system:{" "}
           <span data-seg-id={makeSegId(turnIndex, null, "system")}>{turn.content}</span>
         </div>
       );
@@ -615,7 +625,9 @@ const Turn = memo(function Turn({
     case "command":
       return (
         <div className="flex items-baseline gap-2">
-          <span className="text-xs text-[var(--color-text-dim)]">{ts}</span>
+          <span className="text-xs text-[var(--color-text-dim)]" title={tsTitle}>
+            {ts}
+          </span>
           <span className="text-[var(--color-accent)]">›</span>
           <code
             data-seg-id={makeSegId(turnIndex, null, "command")}
@@ -945,6 +957,14 @@ function formatTime(ts: string): string {
   } catch {
     return "--:--";
   }
+}
+
+/** Full local date + time for the timestamp hover tooltip (the row shows only
+ *  HH:MM). `undefined` when unparseable, so no misleading tooltip is attached. */
+function formatFullDate(ts: string): string | undefined {
+  const d = new Date(ts);
+  if (isNaN(d.getTime())) return undefined;
+  return d.toLocaleString(undefined, { dateStyle: "full", timeStyle: "medium" });
 }
 
 function shortModel(model: string): string {
