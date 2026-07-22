@@ -13,7 +13,7 @@ A tool to browse, search, edit, compact, harvest, and resume Claude Code session
 
 ## Browsing & viewing (webui + TUI)
 
-- Sessions list — project, title, tokens, updated; project + time filters (one project selector, grouped by name, expands to directories only on name collisions); sort; sidebar resize/collapse. → `2026-05-23-claude-manager-tui-design`, `2026-05-24-webui-design`, `2026-06-21-unified-project-selector-design`
+- Sessions list — project, title, tokens, updated (time of the last real conversation turn — live activity → discovered last-event → file mtime only for a turnless session — so the shown time, the Updated sort, and the time filter all agree and a non-turn file write doesn't bump it); project + time filters (one project selector, grouped by name, expands to directories only on name collisions); sort; sidebar resize/collapse. → `2026-05-23-claude-manager-tui-design`, `2026-05-24-webui-design`, `2026-06-21-unified-project-selector-design`
 - Transcript rendering — consecutive assistant turns merged, **GFM** markdown (react-markdown + `remark-gfm` + `@tailwindcss/typography`: tables, strikethrough, task-lists; inline code without decorative backticks), tool calls with full input on expand, synthetic turns skipped. Slash-command invocations (e.g. `/deploy-gateway`) render as a compact command line; the injected skill body and `<local-command-…>` machinery stay hidden. Explanatory-style `★ Insight` blocks render as a terminal-style callout (accent rules + markdown body) instead of collapsing into inline-code pills.
 - Session info panel — token cost, per-turn model, git branch, cwd.
 - **Compact** toggle (user turns + adjacent assistant) and **Details** toggle — both persisted across restarts.
