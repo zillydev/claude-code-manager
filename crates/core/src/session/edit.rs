@@ -74,10 +74,20 @@ fn tool_result_ids(value: &Value) -> Vec<String> {
 pub fn validate(values: &[Value]) -> Vec<Violation> {
     let mut violations = Vec::new();
     let mut open: Vec<String> = Vec::new(); // tool_use ids awaiting a result
+    let mut open_msg: Option<String> = None; // message.id that opened them
     for v in values {
         let kind = v.get("type").and_then(Value::as_str).unwrap_or("");
         if kind == "assistant" {
-            if !open.is_empty() {
+            // Claude Code writes each content block of ONE assistant message as
+            // its own jsonl line (thinking, text, and each parallel tool_use), so
+            // a line sharing the previous line's `message.id` CONTINUES that
+            // message rather than abandoning its pending calls. The API's
+            // adjacency rule applies to the reassembled message, not to lines.
+            // Only a genuinely new message — or an untagged line, where we can't
+            // tell — leaves earlier calls dangling.
+            let msg_id = v.pointer("/message/id").and_then(Value::as_str).map(str::to_string);
+            let continues = msg_id.is_some() && msg_id == open_msg;
+            if !continues {
                 for id in open.drain(..) {
                     violations.push(Violation {
                         kind: "dangling_tool_use".into(),
@@ -86,6 +96,7 @@ pub fn validate(values: &[Value]) -> Vec<Violation> {
                 }
             }
             open.extend(tool_use_ids(v));
+            open_msg = msg_id;
         } else if kind == "user" {
             for id in tool_result_ids(v) {
                 if let Some(pos) = open.iter().position(|o| o == &id) {
@@ -395,6 +406,48 @@ mod tests {
         let v = validate(&[assistant, user]);
         assert!(v.iter().any(|x| x.kind == "dangling_tool_use" && x.detail == "T1"));
         assert!(v.iter().any(|x| x.kind == "orphan_tool_result" && x.detail == "T9"));
+    }
+
+    #[test]
+    fn validate_accepts_tool_calls_split_across_lines_of_one_message() {
+        // Claude Code writes each content block of ONE assistant message as its
+        // own jsonl line, so parallel tool calls arrive as two `assistant` lines
+        // sharing a `message.id`, answered by a single user line carrying both
+        // results. The API's adjacency rule applies to the reassembled message,
+        // not to lines — this is valid and must not be "repaired".
+        let a1 = json!({"type":"assistant","message":{"id":"msg_1","content":[
+            {"type":"tool_use","id":"T1","name":"Read","input":{}}]}});
+        let a2 = json!({"type":"assistant","message":{"id":"msg_1","content":[
+            {"type":"tool_use","id":"T2","name":"Read","input":{}}]}});
+        let results = json!({"type":"user","message":{"content":[
+            {"type":"tool_result","tool_use_id":"T1","content":"x"},
+            {"type":"tool_result","tool_use_id":"T2","content":"y"}]}});
+        assert_eq!(validate(&[a1, a2, results]), vec![]);
+    }
+
+    #[test]
+    fn validate_flags_a_call_abandoned_by_the_next_message() {
+        // A DIFFERENT message.id means a genuinely new assistant message, so the
+        // earlier call was never answered — still a dangling tool_use.
+        let a1 = json!({"type":"assistant","message":{"id":"msg_1","content":[
+            {"type":"tool_use","id":"T1","name":"Read","input":{}}]}});
+        let a2 = json!({"type":"assistant","message":{"id":"msg_2","content":[
+            {"type":"text","text":"never mind"}]}});
+        let v = validate(&[a1, a2]);
+        assert_eq!(v.len(), 1);
+        assert_eq!(v[0].kind, "dangling_tool_use");
+        assert_eq!(v[0].detail, "T1");
+    }
+
+    #[test]
+    fn validate_flags_a_dangling_call_when_message_ids_are_absent() {
+        // Synthesized/edited lines carry no message.id; fall back to treating
+        // each assistant line as its own message (the conservative reading).
+        let a1 = json!({"type":"assistant","message":{"content":[
+            {"type":"tool_use","id":"T1","name":"Read","input":{}}]}});
+        let a2 = json!({"type":"assistant","message":{"content":[
+            {"type":"text","text":"hi"}]}});
+        assert!(validate(&[a1, a2]).iter().any(|x| x.detail == "T1"));
     }
 
     #[test]
