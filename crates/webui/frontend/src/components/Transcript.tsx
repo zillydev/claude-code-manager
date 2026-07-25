@@ -116,6 +116,13 @@ export default function Transcript({
     },
     [editor.fork, sourcePath, inheritTags],
   );
+  const handleCloneFork = useCallback(
+    async (forkUuid: string) => {
+      const res = await editor.cloneFork(sourcePath, forkUuid);
+      inheritTags(res?.new_session_id);
+    },
+    [editor.cloneFork, sourcePath, inheritTags],
+  );
   const handleDelete = useCallback(
     async (uuid: string) => {
       const res = await editor.deleteMessage(sourcePath, uuid);
@@ -343,6 +350,7 @@ export default function Transcript({
                 onCancelEdit={handleCancelEdit}
                 onSaveEdit={handleSaveEdit}
                 onFork={handleFork}
+                onCloneFork={handleCloneFork}
                 onDelete={handleDelete}
                 forkPending={!!forkPending}
                 editPending={!!editPending}
@@ -495,6 +503,7 @@ const Turn = memo(function Turn({
   onCancelEdit,
   onSaveEdit,
   onFork,
+  onCloneFork,
   onDelete,
   forkPending,
   editPending,
@@ -511,6 +520,7 @@ const Turn = memo(function Turn({
   onCancelEdit: () => void;
   onSaveEdit: (uuid: string) => void;
   onFork: (forkUuid: string) => void;
+  onCloneFork: (forkUuid: string) => void;
   onDelete: (uuid: string) => void;
   forkPending: boolean;
   editPending: boolean;
@@ -533,6 +543,7 @@ const Turn = memo(function Turn({
             <TurnActions
               onEdit={() => editUuid && onStartEdit(editUuid, turn.text)}
               onFork={() => onFork(turn.fork_uuid)}
+              onCloneFork={() => onCloneFork(turn.fork_uuid)}
               onDelete={() => onDelete(turn.uuid)}
               messageId={turn.uuid}
               canMutate={turn.editable}
@@ -581,6 +592,7 @@ const Turn = memo(function Turn({
                 onStartEdit(editUuid, firstText && firstText.type === "text" ? firstText.text : "");
               }}
               onFork={() => onFork(turn.fork_uuid)}
+              onCloneFork={() => onCloneFork(turn.fork_uuid)}
               onDelete={() => onDelete(turn.uuid)}
               messageId={turn.uuid}
               canMutate={turn.editable}
@@ -678,6 +690,7 @@ const Turn = memo(function Turn({
 function TurnActions({
   onEdit,
   onFork,
+  onCloneFork,
   onDelete,
   messageId,
   canMutate,
@@ -686,6 +699,7 @@ function TurnActions({
 }: {
   onEdit: () => void;
   onFork: () => void;
+  onCloneFork: () => void;
   onDelete: () => void;
   messageId: string;
   /// Edit/delete operate on the active path, so they're offered only on the
@@ -734,6 +748,18 @@ function TurnActions({
               }}
             >
               Fork from here
+            </button>
+            <button
+              role="menuitem"
+              className={menuItemClass}
+              disabled={busy}
+              title="Copy the session file as-is up to this message — keeps abandoned branches and pre-compaction history, and never trims"
+              onClick={() => {
+                close();
+                onCloneFork();
+              }}
+            >
+              Fork (full copy)
             </button>
             {canMutate && (
               <ConfirmMenuItem

@@ -4,6 +4,7 @@ use std::sync::Mutex;
 
 use crate::terminal::{self, TerminalState};
 
+use claude_code_manager_core::session::clone::{clone_prefix, CloneOpts};
 use claude_code_manager_core::session::edit::{commit, CommitOpts, CommitResult};
 use claude_code_manager_core::session::parse::parse_tail;
 use claude_code_manager_core::session::raw::{active_path, first_cwd, read_raw, RawLine};
@@ -366,6 +367,35 @@ pub async fn fork_session(
         .find_map(|l| l.value.get("gitBranch").and_then(|v| v.as_str()).map(|s| s.to_string()));
     let opts = CommitOpts { target_cwd: cwd, git_branch, custom_title };
     commit(&root, prefix, &opts).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// Fork v2: copy the source file's lines up to `fork_uuid` in FILE order as a
+/// new session, changing only what session identity requires. Unlike
+/// [`fork_session`] nothing is flattened, trimmed, or re-uuid'd — abandoned
+/// branches, pre-compaction segments, attachments and system lines all come
+/// along. Use when you want the fork to carry the source's full history rather
+/// than a minimal replayable chain.
+#[tauri::command]
+pub async fn clone_session(
+    file_path: String,
+    fork_uuid: String,
+    custom_title: Option<String>,
+) -> Result<CommitResult, String> {
+    // read_raw + write on a potentially-large file — off the main thread.
+    tauri::async_runtime::spawn_blocking(move || -> Result<CommitResult, String> {
+        let root = paths::default_claude_root().ok_or("could not locate ~/.claude")?;
+        let path = PathBuf::from(&file_path);
+        let lines = read_raw(&path).map_err(|e| e.to_string())?;
+        let cut = uuid::Uuid::parse_str(&fork_uuid)
+            .map_err(|e| format!("invalid fork uuid: {e}"))?;
+        // Launch cwd (first cwd in file order) so the copy lands in the same
+        // project dir as the source and stays resumable.
+        let cwd = first_cwd(&lines).unwrap_or_else(|| ".".to_string());
+        let opts = CloneOpts { target_cwd: cwd, custom_title };
+        clone_prefix(&root, &lines, cut, &opts).map_err(|e| e.to_string())
     })
     .await
     .map_err(|e| e.to_string())?

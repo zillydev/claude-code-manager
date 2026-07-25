@@ -291,7 +291,7 @@ fn set_str(v: &mut Value, key: &str, val: &str) {
 }
 
 /// Best-effort "last user message text" for the last-prompt bookmark.
-fn last_user_text(values: &[Value]) -> String {
+pub(crate) fn last_user_text(values: &[Value]) -> String {
     for v in values.iter().rev() {
         if v.get("type").and_then(Value::as_str) != Some("user") {
             continue;
