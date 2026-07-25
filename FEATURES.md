@@ -30,8 +30,9 @@ A tool to browse, search, edit, compact, harvest, and resume Claude Code session
 
 ## Editing & surgery
 
-- **Edit a message / fork from here** — copy-on-edit → a new resumable session; resolves targets by stable uuid (incl. pre-compaction turns). The cut covers a whole rendered turn, so each tool call keeps the result the turn displays with it — a fork never ends on an unanswered `tool_use`, which the API rejects on resume. Forking a session that has been auto-compacted trims the copy to claude's current context segment (detected from per-turn `usage` drops), so the fork doesn't replay the discarded pre-compaction history and overflow the window ("Prompt is too long") on resume. → `2026-05-30-session-editor-design`
-- **Delete a session** (trash with restore) / **delete a message**.
+- **Fork from here** — copies the session file **as-is** up to the chosen message (file order), changing only what session identity requires: a new `sessionId` on every line, `forkedFrom` on the cut line, a fresh `last-prompt`, and — only if the copy would otherwise end on an unanswered `tool_use` — one synthesized `tool_result`. Nothing is flattened, trimmed, or re-uuid'd, so abandoned rewind branches and pre-compaction segments (including the `isCompactSummary` bridge) come along. The cut extends over the `tool_result` lines answering it, so a call is never separated from its result. Resolves the target by stable uuid, so the live-tail's batch-local indices can't truncate it. → `2026-05-30-session-editor-design`
+- **Edit a message / delete a message** — copy-on-edit → a new flattened, resumable session (`edit::commit`: active path only, uuids regenerated and relinked, tool-pairing repaired, timestamps backfilled). → `2026-05-30-session-editor-design`
+- **Delete a session** (trash with restore).
 - **`session-surgery` skill + CLI** (`surgery extract` / `rewrite`) — summarize or prune a turn-snapped message range → a new resumable session (timestamps backfilled so `claude --resume` accepts it). `--from/--to` accept a uuid **prefix**. → `2026-05-30-session-surgery-skill-design`, `2026-06-18-surgery-rewrite-parity-design`
 
 ## Lineage

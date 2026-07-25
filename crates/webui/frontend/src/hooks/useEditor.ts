@@ -32,37 +32,15 @@ export function useEditor() {
     []
   );
 
+  /// Copies the source file verbatim up to the cut, so the new session keeps
+  /// the full history (abandoned branches, pre-compaction segments) the source
+  /// had at that point.
   const fork = useCallback(
     async (filePath: string, forkUuid: string) => {
       setPending({ kind: "fork", uuid: forkUuid });
       setError(null);
       try {
         const res = await invoke<CommitResult>("fork_session", {
-          filePath,
-          forkUuid,
-          customTitle: null,
-        });
-        setResult(res);
-        return res;
-      } catch (e) {
-        setError(String(e));
-        return null;
-      } finally {
-        setPending(null);
-      }
-    },
-    []
-  );
-
-  /// Fork v2 — copies the source file verbatim up to the cut instead of
-  /// rebuilding a flattened chain, so the new session keeps the full history
-  /// (abandoned branches, pre-compaction segments) the source had there.
-  const cloneFork = useCallback(
-    async (filePath: string, forkUuid: string) => {
-      setPending({ kind: "fork", uuid: forkUuid });
-      setError(null);
-      try {
-        const res = await invoke<CommitResult>("clone_session", {
           filePath,
           forkUuid,
           customTitle: null,
@@ -109,7 +87,6 @@ export function useEditor() {
     error,
     commitEdit,
     fork,
-    cloneFork,
     deleteMessage,
     dismiss,
   };
