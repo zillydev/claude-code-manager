@@ -308,6 +308,19 @@ fn render_path_turns(path: &[&Event], editable: bool) -> Vec<RenderedTurn> {
                 i += 1;
                 while i < path.len() {
                     if suppressed.contains(&i) {
+                        // This turn RENDERS the tool_result inline with the call
+                        // it answers, so the result is part of the turn: carry the
+                        // fork cutoff over it. Cutting at the last *assistant*
+                        // event instead ends the fork on an unanswered tool_use,
+                        // which the API rejects when the copy is resumed.
+                        if let Some(u) = path[i].uuid() {
+                            let u = u.to_string();
+                            uuids.push(u.clone());
+                            fork_uuid = u;
+                            if let Some(m) = msg_index[i] {
+                                last_msg_i = m;
+                            }
+                        }
                         i += 1;
                         continue;
                     }
@@ -668,6 +681,29 @@ mod render_tests {
         })
     }
 
+    /// An assistant event whose only block is a tool call.
+    fn atool(uuid: &str, parent: Option<&str>, tool_use_id: &str) -> Event {
+        Event::Assistant(AssistantEvent {
+            uuid: Some(uuid.parse().unwrap()),
+            parent_uuid: parent.map(|p| p.parse().unwrap()),
+            timestamp: Some(Utc::now()),
+            is_sidechain: false,
+            message: AssistantMessage {
+                model: Some("claude".into()),
+                stop_reason: None,
+                content: vec![Block::ToolUse {
+                    id: tool_use_id.into(),
+                    name: "Bash".into(),
+                    input: serde_json::Value::Null,
+                }],
+                usage: None,
+            },
+            cwd: None,
+            git_branch: None,
+            forked_from: None,
+        })
+    }
+
     /// A user event that is a pure tool_result container (what claude appends
     /// when a tool finishes).
     fn trev(uuid: &str, parent: Option<&str>, tool_use_id: &str, text: &str, is_error: bool) -> Event {
@@ -741,6 +777,60 @@ mod render_tests {
         assert_eq!(got.0, b, "head uuid");
         assert_eq!(got.1, b, "edit target = first text-bearing event");
         assert_eq!(got.2, c, "fork cutoff = last merged event");
+    }
+
+    #[test]
+    fn fork_cutoff_includes_the_turns_trailing_tool_result() {
+        // The turn RENDERS the tool call together with its result, so forking at
+        // the turn must include the result line. Cutting at the last assistant
+        // event instead leaves the fork ending on an unanswered tool_use, which
+        // the API rejects on resume.
+        let a = "00000000-0000-0000-0000-0000000000a1";
+        let b = "00000000-0000-0000-0000-0000000000b2";
+        let c = "00000000-0000-0000-0000-0000000000c3";
+        let d = "00000000-0000-0000-0000-0000000000d4";
+        let r = render_session(&sess(vec![
+            uev(a, None, "run it"),
+            atool(b, Some(a), "toolu_1"),
+            trev(c, Some(b), "toolu_1", "== output ==", false),
+            uev(d, Some(c), "thanks"),
+        ]));
+        let (fork_uuid, uuids) = r
+            .turns
+            .iter()
+            .find_map(|t| match t {
+                RenderedTurn::Assistant { fork_uuid, uuids, .. } => {
+                    Some((fork_uuid.clone(), uuids.clone()))
+                }
+                _ => None,
+            })
+            .expect("an assistant turn");
+        assert_eq!(fork_uuid, c, "fork cutoff must cover the tool_result");
+        assert!(uuids.contains(&c.to_string()), "uuids[] must cover it too");
+        assert!(uuids.contains(&fork_uuid), "fork_uuid is always one of uuids[]");
+    }
+
+    #[test]
+    fn fork_cutoff_stops_at_the_next_real_turn() {
+        // Extending past trailing tool_results must not swallow the next user
+        // prompt — the cutoff stays inside the turn it belongs to.
+        let a = "00000000-0000-0000-0000-0000000000a1";
+        let b = "00000000-0000-0000-0000-0000000000b2";
+        let c = "00000000-0000-0000-0000-0000000000c3";
+        let r = render_session(&sess(vec![
+            uev(a, None, "hi"),
+            aev(b, Some(a), "done"),
+            uev(c, Some(b), "next"),
+        ]));
+        let fork_uuid = r
+            .turns
+            .iter()
+            .find_map(|t| match t {
+                RenderedTurn::Assistant { fork_uuid, .. } => Some(fork_uuid.clone()),
+                _ => None,
+            })
+            .expect("an assistant turn");
+        assert_eq!(fork_uuid, b, "a turn with no tool_result ends at its last event");
     }
 
     #[test]
