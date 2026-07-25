@@ -32,6 +32,9 @@ export function useEditor() {
     []
   );
 
+  /// Copies the source file verbatim up to the cut, so the new session keeps
+  /// the full history (abandoned branches, pre-compaction segments) the source
+  /// had at that point.
   const fork = useCallback(
     async (filePath: string, forkUuid: string) => {
       setPending({ kind: "fork", uuid: forkUuid });
@@ -77,5 +80,14 @@ export function useEditor() {
 
   const dismiss = useCallback(() => setResult(null), []);
 
-  return { result, pending, busy: pending !== null, error, commitEdit, fork, deleteMessage, dismiss };
+  return {
+    result,
+    pending,
+    busy: pending !== null,
+    error,
+    commitEdit,
+    fork,
+    deleteMessage,
+    dismiss,
+  };
 }

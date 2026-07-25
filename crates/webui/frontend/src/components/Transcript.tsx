@@ -727,7 +727,7 @@ function TurnActions({
               role="menuitem"
               className={menuItemClass}
               disabled={busy}
-              title="Create a new session ending at this message"
+              title="Create a new session ending at this message — a verbatim copy of the file up to here, keeping pre-compaction history"
               onClick={() => {
                 close();
                 onFork();

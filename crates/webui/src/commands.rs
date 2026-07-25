@@ -4,6 +4,7 @@ use std::sync::Mutex;
 
 use crate::terminal::{self, TerminalState};
 
+use claude_code_manager_core::session::clone::{clone_prefix, CloneOpts};
 use claude_code_manager_core::session::edit::{commit, CommitOpts, CommitResult};
 use claude_code_manager_core::session::parse::parse_tail;
 use claude_code_manager_core::session::raw::{active_path, first_cwd, read_raw, RawLine};
@@ -322,50 +323,35 @@ pub async fn delete_session(file_path: String) -> Result<(), String> {
     .map_err(|e| e.to_string())?
 }
 
-/// Fork: write the prefix up to and including the event identified by `fork_uuid`
-/// as a new session (copy-on-edit). Resolving by uuid against the current file
-/// (not a positional `fork_index`) is required: the live-tail renders streamed
-/// turns with batch-local indices, so an index can truncate the fork; the uuid
-/// is stable and found at its true position here.
+/// Fork: copy the source file's lines up to `fork_uuid` in FILE order as a new
+/// session, changing only what session identity requires (see
+/// [`session::clone`](claude_code_manager_core::session::clone)). Nothing is
+/// flattened, trimmed, or re-uuid'd, so abandoned branches, pre-compaction
+/// segments, attachments and system lines all come along and the copy carries
+/// exactly the history the source had at that point.
+///
+/// Resolving by uuid against the current file (not a positional index) is
+/// required: the live-tail renders streamed turns with batch-local indices, so
+/// an index can truncate the fork; the uuid is stable and found at its true
+/// position here.
 #[tauri::command]
 pub async fn fork_session(
     file_path: String,
     fork_uuid: String,
     custom_title: Option<String>,
 ) -> Result<CommitResult, String> {
-    // read_raw + commit (write) on a potentially-large file — off the main thread.
+    // read_raw + write on a potentially-large file — off the main thread.
     tauri::async_runtime::spawn_blocking(move || -> Result<CommitResult, String> {
-    let root = paths::default_claude_root().ok_or("could not locate ~/.claude")?;
-    let path = PathBuf::from(&file_path);
-    let lines = read_raw(&path).map_err(|e| e.to_string())?;
-
-    // Walk from the fork point back to its own tree's root. This works for any
-    // message — including one in an orphaned pre-compaction tree — so forking a
-    // pre-compaction message yields the full raw history up to that point.
-    let fork_target = uuid::Uuid::parse_str(&fork_uuid)
-        .map_err(|e| format!("invalid fork uuid: {e}"))?;
-    let full = claude_code_manager_core::session::raw::path_to(&lines, fork_target);
-    if full.is_empty() {
-        return Err(format!("fork point {fork_uuid} not found in session"));
-    }
-    // Trim to claude's current context segment. A compacted/near-limit source
-    // shrinks its live context (auto-compaction/rewind) without leaving a summary
-    // on the parentUuid chain, so replaying the raw prefix would feed the model
-    // the full discarded history and overflow the window on resume ("Prompt is
-    // too long") — forcing an immediate compaction. Starting from the last
-    // context reset makes the fork replay ≈ what claude actually holds. A no-op
-    // (returns 0) for an uncompacted session.
-    let start = claude_code_manager_core::session::raw::context_segment_start(&full);
-    let prefix = &full[start..];
-    // Launch cwd (first cwd in file order) so the fork lands in the same project
-    // dir as the source and stays resumable — not the active-path prefix's cwd,
-    // which for a compacted session begins post-compaction in a cd'd directory.
-    let cwd = first_cwd(&lines).unwrap_or_else(|| ".".to_string());
-    let git_branch = prefix
-        .iter()
-        .find_map(|l| l.value.get("gitBranch").and_then(|v| v.as_str()).map(|s| s.to_string()));
-    let opts = CommitOpts { target_cwd: cwd, git_branch, custom_title };
-    commit(&root, prefix, &opts).map_err(|e| e.to_string())
+        let root = paths::default_claude_root().ok_or("could not locate ~/.claude")?;
+        let path = PathBuf::from(&file_path);
+        let lines = read_raw(&path).map_err(|e| e.to_string())?;
+        let cut = uuid::Uuid::parse_str(&fork_uuid)
+            .map_err(|e| format!("invalid fork uuid: {e}"))?;
+        // Launch cwd (first cwd in file order) so the copy lands in the same
+        // project dir as the source and stays resumable.
+        let cwd = first_cwd(&lines).unwrap_or_else(|| ".".to_string());
+        let opts = CloneOpts { target_cwd: cwd, custom_title };
+        clone_prefix(&root, &lines, cut, &opts).map_err(|e| e.to_string())
     })
     .await
     .map_err(|e| e.to_string())?
