@@ -119,7 +119,7 @@ impl App {
             .list
             .focused_summary()
             .cloned()
-            .or_else(|| {
+            .or({
                 // fallback: by index in `all`
                 None
             });

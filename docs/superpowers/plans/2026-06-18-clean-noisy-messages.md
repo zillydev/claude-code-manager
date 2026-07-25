@@ -497,7 +497,7 @@ Expected: `tsc` clean; 14 tests pass; build succeeds.
 Build (`cargo build --release`), then on a session with command echoes + task-notifications (e.g. `c84ba790-92b6-41ea-881f-971902858ce2`):
 
 ```bash
-BIN=/Users/zillydev/my/Dev/Personal/claude-manager/target/release/claude-code-manager
+BIN=/Users/you/dev/claude-code-manager/target/release/claude-code-manager
 S=c84ba790-92b6-41ea-881f-971902858ce2
 "$BIN" surgery extract --session "$S" --outline --all-segments | grep -E '/compact|/resume|task · ' | head
 "$BIN" surgery extract --session "$S" --outline --all-segments | grep -c '<task-notification>'

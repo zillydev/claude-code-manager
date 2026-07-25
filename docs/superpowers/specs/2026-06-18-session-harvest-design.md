@@ -37,7 +37,7 @@ every file write is confirmed with the user first (destination + intent).
 | Type | What | Destination | How produced |
 |------|------|-------------|--------------|
 | **skill** | Reusable process/workflow with judgment | `~/.claude/skills/<name>/` (general) or `claude-code-manager/skills/<name>/` (project-specific) — chosen by judgment, **confirmed** | Delegate to superpowers `writing-skills` (don't hand-roll the format) |
-| **kb** | Durable reference knowledge — gotchas, flows, invariants, playbooks/**runbooks** | Obsidian wiki `~/my/Obsidian/02 - Areas/Emergent/knowledge/<topic>.md` | Delegate to the `kb` skill (checks for existing entry, matches style, cross-references) |
+| **kb** | Durable reference knowledge — gotchas, flows, invariants, playbooks/**runbooks** | knowledge base `~/notes/knowledge/<topic>.md` | Delegate to the `kb` skill (checks for existing entry, matches style, cross-references) |
 | **summary** | Dense recap of what the session accomplished | Rendered in chat; **offer to save** to a path the user gives (no surprise file) | Inline, using surgery's handoff-summary discipline |
 | **script** | Automation of a genuinely **deterministic** flow (no judgment/branches) | **Propose** a path from what it does (repo `scripts/`, `~/.claude`, …) and **confirm** | Inline; if the flow needs judgment, recommend a skill instead |
 

@@ -144,13 +144,13 @@ pub fn summarize(
                     last_user_text = Some(trimmed.to_string());
                 }
             }
-            Event::Assistant(a) => {
+            Event::Assistant(a)
                 // Report the current context-window size, not a cumulative sum:
                 // the LAST real assistant turn's full request input
                 // (fresh input + cache writes + cache reads). This matches the
                 // token count Claude Code's TUI shows ("how big is this
                 // conversation now"), rather than total tokens ever processed.
-                if a.message.model.as_deref() != Some("<synthetic>") {
+                if a.message.model.as_deref() != Some("<synthetic>") => {
                     if let Some(u) = &a.message.usage {
                         total_tokens = u
                             .input_tokens
@@ -158,7 +158,6 @@ pub fn summarize(
                             .saturating_add(u.cache_read_input_tokens);
                     }
                 }
-            }
             _ => {}
         }
     }

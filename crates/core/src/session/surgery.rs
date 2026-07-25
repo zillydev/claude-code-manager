@@ -253,21 +253,19 @@ fn render_outline(active: &[&RawLine], a_start: usize, b_end: usize) -> String {
         let mut tools: Vec<String> = Vec::new();
         for l in &active[*s..=*e] {
             match l.value.pointer("/message/content") {
-                Some(Value::String(t)) => {
-                    if preview.is_empty() {
+                Some(Value::String(t))
+                    if preview.is_empty() => {
                         preview = t.clone();
                     }
-                }
                 Some(Value::Array(blocks)) => {
                     for b in blocks {
                         match b.get("type").and_then(|v| v.as_str()) {
-                            Some("text") => {
-                                if preview.is_empty() {
+                            Some("text")
+                                if preview.is_empty() => {
                                     if let Some(t) = b.get("text").and_then(|v| v.as_str()) {
                                         preview = t.to_string();
                                     }
                                 }
-                            }
                             Some("tool_use") => tools.push(tool_salient(b)),
                             _ => {}
                         }

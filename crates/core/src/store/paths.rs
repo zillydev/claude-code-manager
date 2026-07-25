@@ -5,8 +5,7 @@ use uuid::Uuid;
 ///
 /// Use the last `-`-separated component of the encoded dir name — this is
 /// almost always the original project's basename even though the rest of the
-/// path is lossy (e.g. `-Users-zillydev-my-Dev-Personal-claude-manager` →
-/// `manager`). When the caller has access to the real `cwd` from a session
+/// path is lossy (e.g. `-Users-alice-dev-my-cool-tool` → `tool`). When the caller has access to the real `cwd` from a session
 /// event, prefer `label_from_cwd` instead.
 pub fn fallback_label(name: &str) -> String {
     name.rsplit('-')
@@ -56,21 +55,18 @@ mod tests {
 
     #[test]
     fn fallback_label_uses_last_component() {
-        // For a project whose actual basename has a hyphen (e.g. claude-manager),
+        // For a project whose actual basename has a hyphen (e.g. my-cool-tool),
         // the lossy fallback can only recover the trailing word — which is
         // why callers should prefer label_from_cwd whenever possible.
-        assert_eq!(
-            fallback_label("-Users-zillydev-my-Dev-Personal-claude-manager"),
-            "manager"
-        );
-        assert_eq!(fallback_label("-Users-zillydev"), "zillydev");
+        assert_eq!(fallback_label("-Users-alice-dev-my-cool-tool"), "tool");
+        assert_eq!(fallback_label("-Users-alice"), "alice");
     }
 
     #[test]
     fn label_from_real_cwd() {
         assert_eq!(
-            label_from_cwd("/Users/zillydev/my/Dev/Personal/claude-manager"),
-            "claude-manager"
+            label_from_cwd("/Users/alice/dev/my-cool-tool"),
+            "my-cool-tool"
         );
         assert_eq!(label_from_cwd("/tmp/x"), "x");
     }
@@ -82,15 +78,15 @@ mod tests {
         assert_eq!(encode_project_dir("/tmp/a_b c"), "-tmp-a-b-c");
         assert_eq!(encode_project_dir("/Users/x/v1.2-rc"), "-Users-x-v1-2-rc");
         assert_eq!(
-            encode_project_dir("/Users/zillydev/my/Dev/Personal/claude-manager"),
-            "-Users-zillydev-my-Dev-Personal-claude-manager"
+            encode_project_dir("/Users/alice/dev/my-cool-tool"),
+            "-Users-alice-dev-my-cool-tool"
         );
     }
 
     #[test]
     fn encode_then_session_path() {
-        let dir = encode_project_dir("/Users/zillydev/my/Dev/Personal/claude-manager");
-        assert_eq!(dir, "-Users-zillydev-my-Dev-Personal-claude-manager");
+        let dir = encode_project_dir("/Users/alice/dev/my-cool-tool");
+        assert_eq!(dir, "-Users-alice-dev-my-cool-tool");
 
         let root = std::path::Path::new("/tmp/.claude");
         let id = uuid::Uuid::parse_str("00000000-0000-0000-0000-0000000000aa").unwrap();

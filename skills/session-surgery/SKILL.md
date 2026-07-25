@@ -26,9 +26,20 @@ A Claude Code session is a `.jsonl` transcript at `~/.claude/projects/<encoded-c
 ## Locate the binary (once, up front)
 
 ```bash
-BIN=/Users/zillydev/my/Dev/Personal/claude-manager/target/release/claude-code-manager
-[ -x "$BIN" ] || BIN=/Users/zillydev/my/Dev/Personal/claude-manager/target/debug/claude-code-manager
-[ -x "$BIN" ] || { echo "build it first"; (cd /Users/zillydev/my/Dev/Personal/claude-manager && cargo build --release); BIN=/Users/zillydev/my/Dev/Personal/claude-manager/target/release/claude-code-manager; }
+# Resolve the binary: an explicit override, else PATH, else a local build.
+BIN="${CLAUDE_CODE_MANAGER_BIN:-$(command -v claude-code-manager || true)}"
+if [ ! -x "$BIN" ] && [ -n "$CLAUDE_CODE_MANAGER_REPO" ]; then
+  for c in release debug; do
+    [ -x "$CLAUDE_CODE_MANAGER_REPO/target/$c/claude-code-manager" ] \
+      && BIN="$CLAUDE_CODE_MANAGER_REPO/target/$c/claude-code-manager" && break
+  done
+fi
+[ -x "$BIN" ] || {
+  echo "claude-code-manager not found. Install it with:"
+  echo "  cargo install --path crates/tui        # from a clone of the repo"
+  echo "or point CLAUDE_CODE_MANAGER_BIN at the binary."
+  exit 1
+}
 ```
 
 ## Step 0 — Safety check (ALWAYS do first)

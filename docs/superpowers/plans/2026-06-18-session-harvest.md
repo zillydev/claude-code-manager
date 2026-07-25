@@ -13,7 +13,7 @@
 - No new dependencies.
 - Read-only on sessions: harvest never rewrites/touches a session file; the only writes are NEW artifact files (skills/kb/scripts) or rendered text (summaries), each confirmed with the user before writing.
 - Reuse the binary's `surgery extract` reader; never hand-parse jsonl in the skill; never use the `rewrite` path.
-- Artifact destinations: skill → `~/.claude/skills/` or `claude-code-manager/skills/` (confirm); kb → via `kb` skill (Obsidian); summary → render in chat + offer to save; script → propose path + confirm. "Runbook" is a kb entry, not a separate type.
+- Artifact destinations: skill → `~/.claude/skills/` or `claude-code-manager/skills/` (confirm); kb → via `kb` skill (knowledge base); summary → render in chat + offer to save; script → propose path + confirm. "Runbook" is a kb entry, not a separate type.
 - `--outline` / whole-session reads operate on the **active path** only (pre-compaction trees out of scope for v1).
 - Commit messages end with `Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>`.
 
@@ -271,7 +271,7 @@ This is a Markdown workflow (no unit tests). Its deliverable is the skill doc it
 
 - [ ] **Step 1: Write the skill**
 
-Create `crates/../skills/session-harvest/SKILL.md` at the repo path `/Users/zillydev/my/Dev/Personal/claude-manager/skills/session-harvest/SKILL.md` with this content:
+Create `crates/../skills/session-harvest/SKILL.md` at the repo path `/Users/you/dev/claude-code-manager/skills/session-harvest/SKILL.md` with this content:
 
 ````markdown
 ---
@@ -293,9 +293,9 @@ You are mining a finished Claude Code session for knowledge worth keeping, and t
 ## Locate the binary (once)
 
 ```bash
-BIN=/Users/zillydev/my/Dev/Personal/claude-manager/target/release/claude-code-manager
-[ -x "$BIN" ] || BIN=/Users/zillydev/my/Dev/Personal/claude-manager/target/debug/claude-code-manager
-[ -x "$BIN" ] || { (cd /Users/zillydev/my/Dev/Personal/claude-manager && cargo build --release); BIN=/Users/zillydev/my/Dev/Personal/claude-manager/target/release/claude-code-manager; }
+BIN=/Users/you/dev/claude-code-manager/target/release/claude-code-manager
+[ -x "$BIN" ] || BIN=/Users/you/dev/claude-code-manager/target/debug/claude-code-manager
+[ -x "$BIN" ] || { (cd /Users/you/dev/claude-code-manager && cargo build --release); BIN=/Users/you/dev/claude-code-manager/target/release/claude-code-manager; }
 ```
 
 ## Navigation: outline-first → drill down → fan out
@@ -343,9 +343,9 @@ Then ask which to generate (e.g. "make 2 and 4"). Generate each chosen one via t
 
 ## Producing each artifact type
 
-**skill** — Do NOT hand-roll the format. Invoke the `superpowers:writing-skills` skill and author the skill from the drilled-down span. Decide destination by judgment and CONFIRM it: `~/.claude/skills/<name>/` for a general/cross-project skill, or `/Users/zillydev/my/Dev/Personal/claude-manager/skills/<name>/` for a claude-code-manager-specific one.
+**skill** — Do NOT hand-roll the format. Invoke the `superpowers:writing-skills` skill and author the skill from the drilled-down span. Decide destination by judgment and CONFIRM it: `~/.claude/skills/<name>/` for a general/cross-project skill, or `/Users/you/dev/claude-code-manager/skills/<name>/` for a claude-code-manager-specific one.
 
-**kb** — Invoke the `kb` skill to write the entry into the user's Obsidian wiki (`/Users/zillydev/my/Obsidian/02 - Areas/Emergent/knowledge/<topic>.md`). The kb skill checks for an existing entry to update, matches the house style, and cross-references. Runbooks are kb entries.
+**kb** — Invoke the `kb` skill to write the entry into the user's knowledge base (`~/notes/knowledge/<topic>.md`). The kb skill checks for an existing entry to update, matches the house style, and cross-references. Runbooks are kb entries.
 
 **summary** — Write a dense, handoff-quality recap and RENDER it in chat (don't save unless asked, then save to a path the user gives). Cover, concretely: goal; decisions made and WHY; current state; concrete artifacts verbatim (file paths, names, commands+outcomes, ids, config keys+values, URLs, errors, versions); open threads; immediate next step. Drop verbose tool output and pleasantries. (Same discipline as session-surgery's summary.)
 
@@ -364,7 +364,7 @@ Before any file write: show the destination path + a one-line description and ge
 
 - [ ] **Step 2: Sanity-check the skill file**
 
-Run: `head -3 /Users/zillydev/my/Dev/Personal/claude-manager/skills/session-harvest/SKILL.md`
+Run: `head -3 /Users/you/dev/claude-code-manager/skills/session-harvest/SKILL.md`
 Expected: shows the YAML frontmatter (`---`, `name: session-harvest`, `description: ...`).
 
 - [ ] **Step 3: Commit**
@@ -392,7 +392,7 @@ Expected: all workspace tests PASS (core incl. the 4 surgery extract tests; webu
 Build once (`cargo build --release`), then against a real session (e.g. the user's `91052458-9e2f-4cb9-80dc-afe3b9ce904d`):
 
 ```bash
-BIN=/Users/zillydev/my/Dev/Personal/claude-manager/target/release/claude-code-manager
+BIN=/Users/you/dev/claude-code-manager/target/release/claude-code-manager
 "$BIN" surgery extract --session 91052458-9e2f-4cb9-80dc-afe3b9ce904d --outline | head -20
 "$BIN" surgery extract --session 91052458-9e2f-4cb9-80dc-afe3b9ce904d --outline | wc -l
 ```

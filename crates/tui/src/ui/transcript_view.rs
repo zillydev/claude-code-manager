@@ -422,7 +422,7 @@ impl TranscriptView {
                         push_wrapped(&mut payload, &result_text, "    │ ", inner_width, style);
                         expansions.push((*line_idx + 1, payload));
                     }
-                    expansions.sort_by(|a, b| b.0.cmp(&a.0));
+                    expansions.sort_by_key(|e| std::cmp::Reverse(e.0));
 
                     // Apply expansions and adjust tool_emits indices accordingly.
                     for (at, payload) in expansions {
@@ -461,10 +461,10 @@ impl TranscriptView {
                     }
                     lines.push(Line::from(""));
                 }
-                Event::System(s) => {
+                Event::System(s)
                     if s.subtype.as_deref() == Some("local_command")
                         && s.content.contains("<command-name>")
-                    {
+                    => {
                         let start = lines.len();
                         let ts = format_ts(ev.timestamp());
                         let cmd = extract_tag(&s.content, "command-name").unwrap_or("");
@@ -480,7 +480,6 @@ impl TranscriptView {
                         });
                     }
                     // Other system entries (e.g. resume stdout) are silently dropped.
-                }
                 Event::Attachment(_) => {
                     // SessionStart hooks etc. — suppressed in v1.
                 }
@@ -643,6 +642,48 @@ fn extract_tag<'a>(s: &'a str, tag: &str) -> Option<&'a str> {
     let i = s.find(&open)? + open.len();
     let j = s[i..].find(&close)? + i;
     Some(&s[i..j])
+}
+
+fn push_wrapped(
+    lines: &mut Vec<Line<'static>>,
+    text: &str,
+    indent: &'static str,
+    width: usize,
+    style: Style,
+) {
+    let body_width = width.saturating_sub(indent.chars().count()).max(20);
+    for raw_line in text.lines() {
+        if raw_line.is_empty() {
+            lines.push(Line::from(""));
+            continue;
+        }
+        let mut current = String::new();
+        let mut current_chars = 0;
+        for word in raw_line.split(' ') {
+            let w_chars = word.chars().count();
+            if current_chars == 0 {
+                current.push_str(word);
+                current_chars = w_chars;
+            } else if current_chars + 1 + w_chars <= body_width {
+                current.push(' ');
+                current.push_str(word);
+                current_chars += 1 + w_chars;
+            } else {
+                lines.push(Line::from(vec![
+                    Span::raw(indent),
+                    Span::styled(std::mem::take(&mut current), style),
+                ]));
+                current.push_str(word);
+                current_chars = w_chars;
+            }
+        }
+        if !current.is_empty() {
+            lines.push(Line::from(vec![
+                Span::raw(indent),
+                Span::styled(current, style),
+            ]));
+        }
+    }
 }
 
 #[cfg(test)]
@@ -813,48 +854,6 @@ mod tests {
             .position(|l| line_text(l).contains(" pwd"))
             .expect("pwd tool line missing");
         assert!(line_text(&view.lines[pwd_line + 1]).contains("BBBB"));
-    }
-}
-
-fn push_wrapped(
-    lines: &mut Vec<Line<'static>>,
-    text: &str,
-    indent: &'static str,
-    width: usize,
-    style: Style,
-) {
-    let body_width = width.saturating_sub(indent.chars().count()).max(20);
-    for raw_line in text.lines() {
-        if raw_line.is_empty() {
-            lines.push(Line::from(""));
-            continue;
-        }
-        let mut current = String::new();
-        let mut current_chars = 0;
-        for word in raw_line.split(' ') {
-            let w_chars = word.chars().count();
-            if current_chars == 0 {
-                current.push_str(word);
-                current_chars = w_chars;
-            } else if current_chars + 1 + w_chars <= body_width {
-                current.push(' ');
-                current.push_str(word);
-                current_chars += 1 + w_chars;
-            } else {
-                lines.push(Line::from(vec![
-                    Span::raw(indent),
-                    Span::styled(std::mem::take(&mut current), style),
-                ]));
-                current.push_str(word);
-                current_chars = w_chars;
-            }
-        }
-        if !current.is_empty() {
-            lines.push(Line::from(vec![
-                Span::raw(indent),
-                Span::styled(current, style),
-            ]));
-        }
     }
 }
 

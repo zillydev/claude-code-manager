@@ -29,7 +29,7 @@ pub fn resolve_leaf(events: &[Event]) -> Option<Uuid> {
 /// in chronological order (oldest first). Events with no UUID (titles,
 /// last-prompt, etc.) are filtered out — only nodes with identity participate
 /// in the tree.
-pub fn current_path<'a>(events: &'a [Event], leaf: Uuid) -> Vec<&'a Event> {
+pub fn current_path(events: &[Event], leaf: Uuid) -> Vec<&Event> {
     let mut by_uuid: HashMap<Uuid, &Event> = HashMap::with_capacity(events.len());
     for ev in events {
         if let Some(u) = ev.uuid() {

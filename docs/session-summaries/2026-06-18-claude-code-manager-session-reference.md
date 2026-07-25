@@ -8,7 +8,7 @@ and may be approximate.
 
 # claude-code-manager — Session Reference Doc
 
-Built across session `c84ba790-92b6-41ea-881f-971902858ce2` (3 compaction segments). This doc is the handoff reference for future claude-code-manager sessions. Repo root: `/Users/zillydev/my/Dev/Personal/claude-manager`. Current `main` HEAD: `a5a4b12`.
+Built across session `c84ba790-92b6-41ea-881f-971902858ce2` (3 compaction segments). This doc is the handoff reference for future claude-code-manager sessions. Repo root: `/Users/you/dev/claude-code-manager`. Current `main` HEAD: `a5a4b12`.
 
 ## 1. Project shape
 

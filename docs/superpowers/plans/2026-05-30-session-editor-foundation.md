@@ -228,8 +228,8 @@ Add to the `#[cfg(test)] mod tests` block in `crates/core/src/store/paths.rs`:
 ```rust
     #[test]
     fn encode_then_session_path() {
-        let dir = encode_project_dir("/Users/zillydev/my/Dev/Personal/claude-manager");
-        assert_eq!(dir, "-Users-zillydev-my-Dev-Personal-claude-manager");
+        let dir = encode_project_dir("/Users/you/dev/claude-code-manager");
+        assert_eq!(dir, "-Users-you-dev-claude-code-manager");
 
         let root = std::path::Path::new("/tmp/.claude");
         let id = uuid::Uuid::parse_str("00000000-0000-0000-0000-0000000000aa").unwrap();
@@ -759,7 +759,7 @@ And near the top of `main()` after `root` is resolved, before the `--print` bloc
 ```bash
 cargo build -p claude-code-manager-tui 2>&1 | tail -3
 # pick a small real session to fork (adjust path):
-SRC=$(ls -S ~/.claude/projects/-Users-zillydev-my-Dev-Personal-claude-manager/*.jsonl | tail -1)
+SRC=$(ls -S ~/.claude/projects/-Users-you-dev-claude-code-manager/*.jsonl | tail -1)
 ./target/debug/claude-code-manager --fork-test "$SRC"
 ```
 
@@ -767,7 +767,7 @@ Expected: prints `new session: <uuid>`, a `path:` under the same project dir, an
 
 - [ ] **Step 3: MANUAL — verify resume reconstructs context**
 
-In a terminal in `/Users/zillydev/my/Dev/Personal/claude-manager`:
+In a terminal in `/Users/you/dev/claude-code-manager`:
 
 ```bash
 claude --resume <the-new-uuid>

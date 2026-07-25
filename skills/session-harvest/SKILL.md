@@ -17,9 +17,20 @@ You are mining a finished Claude Code session for knowledge worth keeping, and t
 ## Locate the binary (once)
 
 ```bash
-BIN=/Users/zillydev/my/Dev/Personal/claude-manager/target/release/claude-code-manager
-[ -x "$BIN" ] || BIN=/Users/zillydev/my/Dev/Personal/claude-manager/target/debug/claude-code-manager
-[ -x "$BIN" ] || { (cd /Users/zillydev/my/Dev/Personal/claude-manager && cargo build --release); BIN=/Users/zillydev/my/Dev/Personal/claude-manager/target/release/claude-code-manager; }
+# Resolve the binary: an explicit override, else PATH, else a local build.
+BIN="${CLAUDE_CODE_MANAGER_BIN:-$(command -v claude-code-manager || true)}"
+if [ ! -x "$BIN" ] && [ -n "$CLAUDE_CODE_MANAGER_REPO" ]; then
+  for c in release debug; do
+    [ -x "$CLAUDE_CODE_MANAGER_REPO/target/$c/claude-code-manager" ] \
+      && BIN="$CLAUDE_CODE_MANAGER_REPO/target/$c/claude-code-manager" && break
+  done
+fi
+[ -x "$BIN" ] || {
+  echo "claude-code-manager not found. Install it with:"
+  echo "  cargo install --path crates/tui        # from a clone of the repo"
+  echo "or point CLAUDE_CODE_MANAGER_BIN at the binary."
+  exit 1
+}
 ```
 
 ## Navigation: outline-first → drill down → fan out
@@ -38,7 +49,7 @@ A session can be huge. Never read it all raw. Navigate in passes:
 
 2. **Identify & classify spans.** From the outline, mark contiguous turn ranges that carry reusable value and classify each (rubric below). Record each candidate's `from`..`to` message uuids from the outline.
 
-   **Check whether the distillation already exists first.** Claude Code often auto-writes a project `memory/` file *during* the session, and the user may already keep a kb entry on the topic. Before proposing a **kb** or **summary**, scan the session's project memory dir — `~/.claude/projects/<encoded-cwd>/memory/` — and the Obsidian kb for an entry whose topic overlaps. If one exists, the candidate becomes **"promote/update that"** (sync it into the durable kb), NOT create-new — surface the existing path so you don't silently fork or duplicate the user's own notes.
+   **Check whether the distillation already exists first.** Claude Code often auto-writes a project `memory/` file *during* the session, and the user may already keep a kb entry on the topic. Before proposing a **kb** or **summary**, scan the session's project memory dir — `~/.claude/projects/<encoded-cwd>/memory/` — and the user's knowledge base for an entry whose topic overlaps. If one exists, the candidate becomes **"promote/update that"** (sync it into the durable kb), NOT create-new — surface the existing path so you don't silently fork or duplicate the user's own notes.
 
 3. **Drill down** only into the span(s) you will turn into an artifact:
    ```bash
@@ -80,9 +91,9 @@ Then ask which to generate (e.g. "make 2 and 4"). Generate each chosen one via t
 
 ## Producing each artifact type
 
-**skill** — Do NOT hand-roll the format. Invoke the `superpowers:writing-skills` skill and author the skill from the drilled-down span. Decide destination by judgment and CONFIRM it: `~/.claude/skills/<name>/` for a general/cross-project skill, or `/Users/zillydev/my/Dev/Personal/claude-manager/skills/<name>/` for a claude-code-manager-specific one.
+**skill** — Do NOT hand-roll the format. Invoke the `superpowers:writing-skills` skill and author the skill from the drilled-down span. Decide destination by judgment and CONFIRM it: `~/.claude/skills/<name>/` for a general/cross-project skill, or `<repo>/skills/<name>/` for a claude-code-manager-specific one.
 
-**kb** — Invoke the `kb` skill to write the entry into the user's Obsidian wiki (`/Users/zillydev/my/Obsidian/02 - Areas/Emergent/knowledge/<topic>.md`). The kb skill checks for an existing entry to update, matches the house style, and cross-references. Runbooks are kb entries.
+**kb** — Write the entry into the user's knowledge base. If they have a `kb` skill (or equivalent wiki convention), invoke it so the entry lands in the right place, matches the house style, and gets cross-referenced; otherwise ask where notes live. Runbooks are kb entries.
 
 **summary** — Write a dense, handoff-quality recap and RENDER it in chat (don't save unless asked, then save to a path the user gives). Cover, concretely: goal; decisions made and WHY; current state; concrete artifacts verbatim (file paths, names, commands+outcomes, ids, config keys+values, URLs, errors, versions); open threads; immediate next step. Drop verbose tool output and pleasantries. (Same discipline as session-surgery's summary.)
 

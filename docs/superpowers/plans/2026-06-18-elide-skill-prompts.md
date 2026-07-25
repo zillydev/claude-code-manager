@@ -224,7 +224,7 @@ Expected: all workspace tests PASS (core incl. the new display + surgery tests; 
 Build (`cargo build --release`), then on this session (which is full of skill invocations):
 
 ```bash
-BIN=/Users/zillydev/my/Dev/Personal/claude-manager/target/release/claude-code-manager
+BIN=/Users/you/dev/claude-code-manager/target/release/claude-code-manager
 S=c84ba790-92b6-41ea-881f-971902858ce2
 # Outline: skill prompts show as `skill: <name>`, no raw "Base directory" path
 "$BIN" surgery extract --session "$S" --outline --all-segments | grep -c 'Base directory for this skill'   # expect 0

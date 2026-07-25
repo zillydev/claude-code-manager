@@ -760,9 +760,9 @@ A Claude Code session is a `.jsonl` transcript at `~/.claude/projects/<encoded-c
 ## Locate the binary (once, up front)
 
 ```bash
-BIN=/Users/zillydev/my/Dev/Personal/claude-manager/target/release/claude-code-manager
-[ -x "$BIN" ] || BIN=/Users/zillydev/my/Dev/Personal/claude-manager/target/debug/claude-code-manager
-[ -x "$BIN" ] || { echo "build it first"; (cd /Users/zillydev/my/Dev/Personal/claude-manager && cargo build --release); BIN=/Users/zillydev/my/Dev/Personal/claude-manager/target/release/claude-code-manager; }
+BIN=/Users/you/dev/claude-code-manager/target/release/claude-code-manager
+[ -x "$BIN" ] || BIN=/Users/you/dev/claude-code-manager/target/debug/claude-code-manager
+[ -x "$BIN" ] || { echo "build it first"; (cd /Users/you/dev/claude-code-manager && cargo build --release); BIN=/Users/you/dev/claude-code-manager/target/release/claude-code-manager; }
 ```
 
 ## Step 0 — Safety check (ALWAYS do first)
@@ -875,7 +875,7 @@ Expected: the agent answers coherently from the summary — it should know the d
 
 If the user wants the skill globally available:
 ```bash
-ln -s /Users/zillydev/my/Dev/Personal/claude-manager/skills/session-surgery ~/.claude/skills/session-surgery
+ln -s /Users/you/dev/claude-code-manager/skills/session-surgery ~/.claude/skills/session-surgery
 ```
 
 ---

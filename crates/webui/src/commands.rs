@@ -22,15 +22,11 @@ use tauri::{AppHandle, Emitter, Manager};
 /// Mutable state shared between tauri commands — one live-tail watcher per
 /// window, keyed by the window's label, so multiple windows tail different
 /// sessions without clobbering each other.
+#[derive(Default)]
 pub struct WatcherState {
     pub watchers: HashMap<String, watcher::FileWatcher>,
 }
 
-impl Default for WatcherState {
-    fn default() -> Self {
-        Self { watchers: HashMap::new() }
-    }
-}
 
 /// The sessions list, served from the app-global `Shared` cache (computed once,
 /// single-flight, refreshed by the background poller). discover() fully parses
