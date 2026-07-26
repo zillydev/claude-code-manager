@@ -1,6 +1,6 @@
 # claude-code-manager
 
-A desktop app and terminal UI for browsing, searching, editing, and resuming
+A desktop app for browsing, searching, editing, and resuming
 [Claude Code](https://claude.com/claude-code) sessions.
 
 Claude Code stores every session as a JSON-lines file under
@@ -46,9 +46,9 @@ those files directly and gives you a real interface over them.
 
 ## Requirements
 
-- **macOS** (the desktop app is a macOS bundle; the TUI is Unix-friendly)
+- **macOS** (the app ships as a macOS bundle)
 - [Rust](https://rustup.rs) (stable)
-- [Node.js](https://nodejs.org) 20+ (for the webui frontend)
+- [Node.js](https://nodejs.org) 20+ (for the app's frontend)
 - [Claude Code](https://claude.com/claude-code) — this reads the sessions it writes
 - [`cargo-tauri`](https://tauri.app) for the desktop app: `cargo install tauri-cli --version '^2'`
 
@@ -83,8 +83,7 @@ make install   # builds the macOS app and installs it to /Applications
 Other entry points:
 
 ```bash
-make tui       # terminal UI
-make webui     # desktop app in dev mode (Vite HMR; PORT=3000 to change port)
+make dev       # run the app in dev mode (Vite HMR; PORT=3000 to change port)
 make app       # build the .app/.dmg bundle without installing
 make build     # compile everything (no bundle) — the CI check
 make test      # run the Rust test suite
@@ -117,18 +116,19 @@ To use them, symlink into your skills directory and make the binary reachable:
 
 ```bash
 ln -s "$PWD/skills/session-surgery" ~/.claude/skills/session-surgery
-cargo install --path crates/tui        # puts `claude-code-manager` on PATH
+cargo install --path crates/cli        # puts `claude-code-manager` on PATH
 ```
 
 ## Architecture
 
-A Cargo workspace with a shared core, so the TUI and the desktop app can't drift:
+A Cargo workspace. All session logic lives in `core`, so the app and the CLI
+can't drift — and another front-end can be added without touching it:
 
 | Crate | What it is |
 | --- | --- |
 | `crates/core` | Parsing, tree/lineage resolution, rendering, the copy-on-edit write pipeline, surgery |
-| `crates/tui` | ratatui terminal UI + the `surgery` CLI (binary: `claude-code-manager`) |
-| `crates/webui` | Tauri 2 desktop app; React 19 + TypeScript + Tailwind frontend |
+| `crates/app` | Tauri 2 desktop app; React 19 + TypeScript + Tailwind frontend |
+| `crates/cli` | The `claude-code-manager` binary — `surgery` subcommands, driven by the skills |
 
 [`FEATURES.md`](FEATURES.md) is the living catalog of what exists, with each
 entry linking to its design doc in [`docs/superpowers/specs/`](docs/superpowers/specs/).
@@ -139,7 +139,7 @@ entry linking to its design doc in [`docs/superpowers/specs/`](docs/superpowers/
 cargo test                                  # Rust
 cargo clippy --workspace --all-targets      # lints (CI enforces -D warnings)
 
-cd crates/webui/frontend
+cd crates/app/frontend
 npx tsc --noEmit && npx vitest run          # frontend typecheck + tests
 ```
 
@@ -147,7 +147,7 @@ The codebase is deliberately hand-formatted, so `cargo fmt` is **not** enforced.
 
 ### Cutting a release
 
-Version lives in `crates/webui/tauri.conf.json` (the bundle version) and the
+Version lives in `crates/app/tauri.conf.json` (the bundle version) and the
 three `crates/*/Cargo.toml`. Bump them together, then tag:
 
 ```bash

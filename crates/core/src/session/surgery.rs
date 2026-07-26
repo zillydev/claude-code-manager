@@ -38,7 +38,7 @@ fn is_real_user(line: &RawLine) -> bool {
 /// user message is its own single-line turn; an assistant turn begins with an
 /// assistant line and extends until the next real user message, absorbing all
 /// interleaved tool_result lines and consecutive assistant lines. This mirrors
-/// the webui renderer, which merges consecutive assistant events across the
+/// the app renderer, which merges consecutive assistant events across the
 /// suppressed tool_result lines into one displayed turn.
 fn turn_spans(active: &[&RawLine]) -> Vec<(usize, usize)> {
     let mut spans = Vec::new();
@@ -51,7 +51,7 @@ fn turn_spans(active: &[&RawLine]) -> Vec<(usize, usize)> {
         } else {
             // Assistant turn: absorb following tool_result lines AND consecutive
             // assistant lines until the next real user message. Mirrors the
-            // webui renderer, which merges consecutive assistant events across
+            // app renderer, which merges consecutive assistant events across
             // the suppressed tool_result line into one turn.
             i += 1;
             while i < n && !is_real_user(active[i]) {
@@ -275,7 +275,7 @@ fn render_outline(active: &[&RawLine], a_start: usize, b_end: usize) -> String {
             }
         }
         // Skip slash-command machinery turns (caveat + stdout) — pure noise on the
-        // map; the command echo itself still shows (cleaned to `/cmd`). The webui
+        // map; the command echo itself still shows (cleaned to `/cmd`). The app
         // hides these too. (Command echoes start with `<command-`, not
         // `<local-command-`, so they are NOT skipped here.)
         if preview.trim_start().starts_with("<local-command-") {

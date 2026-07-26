@@ -1,6 +1,6 @@
 ---
 name: session-surgery
-description: Use when the user wants to shrink/compact a Claude Code session's context by summarizing or pruning a range of messages between two message ids (copied from the claude-code-manager webui's per-message "copy id" button). Produces a NEW resumable session via the claude-code-manager binary; never modifies the original. Trigger phrases include "summarize messages between <id> and <id>", "prune/cut this part of the session", "reduce context in session X", "compact this stretch".
+description: Use when the user wants to shrink/compact a Claude Code session's context by summarizing or pruning a range of messages between two message ids (copied from the claude-code-manager app's per-message "copy id" button). Produces a NEW resumable session via the claude-code-manager binary; never modifies the original. Trigger phrases include "summarize messages between <id> and <id>", "prune/cut this part of the session", "reduce context in session X", "compact this stretch".
 ---
 
 # Session Surgery
@@ -19,8 +19,8 @@ A Claude Code session is a `.jsonl` transcript at `~/.claude/projects/<encoded-c
 
 ## Inputs (parse from the user's request)
 
-- **session** — a session id (e.g. `8cab6894-...`) or a full `.jsonl` path. The user typically copies the id from the webui detail panel's **session** row or from a `claude --resume <id>` line. If they don't give one and it's not obvious, ask.
-- **from** and **to** — two **message ids** (uuids), copied with the webui's per-message **copy id** hover button. They bound the range to operate on. The range is **inclusive** and **snaps to whole-turn boundaries** automatically (picking an assistant message's id pulls in its tool calls and their results, so a turn is never half-cut). `from` must come at or before `to` on the conversation. Both `--from/--to` (on `extract` and `rewrite`) accept a uuid **prefix** — a short leading fragment is fine, the full uuid works too; the binary errors if a prefix is ambiguous. The `extract` preview annotates each turn's uuid and elides embedded skill prompts (the `Base directory for this skill:` dumps), so the span is easy to read.
+- **session** — a session id (e.g. `8cab6894-...`) or a full `.jsonl` path. The user typically copies the id from the app's detail panel **session** row or from a `claude --resume <id>` line. If they don't give one and it's not obvious, ask.
+- **from** and **to** — two **message ids** (uuids), copied with the app's per-message **copy id** hover button. They bound the range to operate on. The range is **inclusive** and **snaps to whole-turn boundaries** automatically (picking an assistant message's id pulls in its tool calls and their results, so a turn is never half-cut). `from` must come at or before `to` on the conversation. Both `--from/--to` (on `extract` and `rewrite`) accept a uuid **prefix** — a short leading fragment is fine, the full uuid works too; the binary errors if a prefix is ambiguous. The `extract` preview annotates each turn's uuid and elides embedded skill prompts (the `Base directory for this skill:` dumps), so the span is easy to read.
 - **operation** — `summarize` (replace the range with one dense summary message) or `prune` (delete the range entirely). If the user didn't say which, infer from intent and confirm: summarize when the span has durable value worth keeping in condensed form; prune when it's pure noise.
 
 ## Locate the binary (once, up front)
@@ -36,7 +36,7 @@ if [ ! -x "$BIN" ] && [ -n "$CLAUDE_CODE_MANAGER_REPO" ]; then
 fi
 [ -x "$BIN" ] || {
   echo "claude-code-manager not found. Install it with:"
-  echo "  cargo install --path crates/tui        # from a clone of the repo"
+  echo "  cargo install --path crates/cli        # from a clone of the repo"
   echo "or point CLAUDE_CODE_MANAGER_BIN at the binary."
   exit 1
 }
@@ -114,8 +114,8 @@ Give them: the new session's `claude --resume <id>` command (copyable), the savi
 
 ## Handling errors from the binary
 
-- **"... is not on the active path — surgery rewrites the active conversation only"** — the id resolved but sits in an earlier (pre-compaction) tree, not the active conversation surgery operates on. Re-copy an id from the active path (the webui, or the `extract` preview).
-- **"no message id matches '...'"** — the prefix/uuid matches no message (typo, or a metadata line that isn't a turn). Re-copy from the webui.
+- **"... is not on the active path — surgery rewrites the active conversation only"** — the id resolved but sits in an earlier (pre-compaction) tree, not the active conversation surgery operates on. Re-copy an id from the active path (the app, or the `extract` preview).
+- **"no message id matches '...'"** — the prefix/uuid matches no message (typo, or a metadata line that isn't a turn). Re-copy from the app.
 - **"ambiguous id prefix '...' matches N messages — use more characters"** — the prefix is too short; copy a few more characters (or the full id).
 - **"from id occurs after to id"** — the two ids are reversed; swap `--from` and `--to`.
 - **"refusing: the result would contain no messages"** — the range covers the whole conversation; narrow it (you can't summarize-away everything).

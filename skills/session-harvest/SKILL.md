@@ -27,7 +27,7 @@ if [ ! -x "$BIN" ] && [ -n "$CLAUDE_CODE_MANAGER_REPO" ]; then
 fi
 [ -x "$BIN" ] || {
   echo "claude-code-manager not found. Install it with:"
-  echo "  cargo install --path crates/tui        # from a clone of the repo"
+  echo "  cargo install --path crates/cli        # from a clone of the repo"
   echo "or point CLAUDE_CODE_MANAGER_BIN at the binary."
   exit 1
 }

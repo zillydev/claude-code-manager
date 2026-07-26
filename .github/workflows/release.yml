@@ -28,10 +28,10 @@ jobs:
         run: |
           TAG="${{ github.event.inputs.tag || github.ref_name }}"
           CONF=$(sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' \
-                   crates/webui/tauri.conf.json | head -1)
+                   crates/app/tauri.conf.json | head -1)
           if [ "${TAG#v}" != "$CONF" ]; then
             echo "::error::Tag $TAG does not match tauri.conf.json version $CONF."
-            echo "Bump version in crates/webui/tauri.conf.json and crates/*/Cargo.toml, then re-tag."
+            echo "Bump version in crates/app/tauri.conf.json and crates/*/Cargo.toml, then re-tag."
             exit 1
           fi
           echo "version $CONF matches tag $TAG"
@@ -46,17 +46,17 @@ jobs:
         with:
           node-version: 20
           cache: npm
-          cache-dependency-path: crates/webui/frontend/package-lock.json
+          cache-dependency-path: crates/app/frontend/package-lock.json
 
       # tauri's beforeBuildCommand only runs `npm run build`, not install.
       - name: Install frontend deps
-        run: npm ci --prefix crates/webui/frontend
+        run: npm ci --prefix crates/app/frontend
 
       - name: Install Tauri CLI
         run: cargo install tauri-cli --version "^2" --locked
 
       - name: Build universal macOS bundle
-        working-directory: crates/webui
+        working-directory: crates/app
         run: cargo tauri build --target universal-apple-darwin
         env:
           # Optional code signing + notarization. With these secrets unset the
