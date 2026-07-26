@@ -24,6 +24,7 @@ import { useSessionMeta } from "../hooks/useSessionMeta";
 import { entryTags } from "../lib/sessionMeta";
 import { makeSegId } from "../lib/segments";
 import { isNearBottom } from "../lib/scroll";
+import { filterCompact } from "../lib/compactView";
 
 interface Props {
   session: RenderedSession;
@@ -358,37 +359,6 @@ export default function Transcript({
       </div>
     </div>
   );
-}
-
-function filterCompact(turns: RenderedTurn[]): RenderedTurn[] {
-  // User prompts AND slash-command invocations anchor the compact view.
-  const userIndices: number[] = [];
-  for (let i = 0; i < turns.length; i++) {
-    if (turns[i].type === "user" || turns[i].type === "command") userIndices.push(i);
-  }
-  const visible = new Set<number>();
-  // Always keep compaction dividers so the boundary stays marked in compact view.
-  for (let i = 0; i < turns.length; i++) {
-    if (turns[i].type === "compaction") visible.add(i);
-  }
-  for (const ui of userIndices) {
-    visible.add(ui);
-    // Assistant turn just before this user message
-    for (let j = ui - 1; j >= 0; j--) {
-      if (turns[j].type === "assistant") {
-        visible.add(j);
-        break;
-      }
-    }
-    // Assistant turn just after this user message
-    for (let j = ui + 1; j < turns.length; j++) {
-      if (turns[j].type === "assistant") {
-        visible.add(j);
-        break;
-      }
-    }
-  }
-  return turns.filter((_, i) => visible.has(i));
 }
 
 function StatsPanel({
