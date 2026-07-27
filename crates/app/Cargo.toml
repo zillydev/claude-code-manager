@@ -1,5 +1,5 @@
 [package]
-name = "claude-code-manager-webui"
+name = "claude-code-manager-app"
 version = "0.1.0"
 edition = "2021"
 description = "Tauri desktop app for browsing, editing, and resuming Claude Code sessions."
@@ -7,11 +7,11 @@ license = "MIT"
 repository = "https://github.com/zillydev/claude-code-manager"
 
 [lib]
-name = "claude_code_manager_webui_lib"
+name = "claude_code_manager_app_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [[bin]]
-name = "claude-code-manager-webui"
+name = "claude-code-manager-app"
 path = "src/main.rs"
 
 [dependencies]

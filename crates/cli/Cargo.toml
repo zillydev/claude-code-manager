@@ -1,22 +1,19 @@
 [package]
-name = "claude-code-manager-tui"
+name = "claude-code-manager-cli"
 version = "0.1.0"
 edition = "2021"
-description = "Terminal UI for browsing Claude Code sessions, plus the `surgery` CLI."
+description = "The `claude-code-manager` CLI: session surgery over Claude Code session files."
 license = "MIT"
 repository = "https://github.com/zillydev/claude-code-manager"
 
+# The binary name is load-bearing: the session-surgery and session-harvest
+# skills resolve `claude-code-manager` on PATH. Do not rename it without
+# updating skills/*/SKILL.md.
 [[bin]]
 name = "claude-code-manager"
 path = "src/main.rs"
 
 [dependencies]
 claude-code-manager-core = { path = "../core" }
-ratatui = "0.29"
-crossterm = "0.28"
 clap = { version = "4", features = ["derive"] }
 anyhow = "1"
-chrono = "0.4"
-serde_json = "1"
-uuid = { version = "1", features = ["serde", "v4"] }
-dirs = "5"

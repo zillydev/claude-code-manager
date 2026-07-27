@@ -1,36 +1,29 @@
-mod app;
-mod ui;
+//! The `claude-code-manager` CLI — session surgery over Claude Code's session
+//! files, plus a `--print` listing used as a smoke test.
+//!
+//! The desktop app (`crates/app`) is the interactive interface; this binary
+//! exists because the `session-surgery` and `session-harvest` skills drive
+//! surgery non-interactively, resolving it by name on PATH.
 
-use std::io;
 use std::path::PathBuf;
 
 use anyhow::{Context, Result};
-use clap::{Parser, Subcommand};
-use crossterm::execute;
-use crossterm::terminal::{
-    disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen,
-};
-use ratatui::backend::CrosstermBackend;
-use ratatui::Terminal;
+use clap::{CommandFactory, Parser, Subcommand};
 
 use claude_code_manager_core::session::summary;
 use claude_code_manager_core::store;
 use claude_code_manager_core::store::paths;
 
 #[derive(Parser, Debug)]
-#[command(name = "claude-code-manager", about = "TUI for Claude Code sessions")]
+#[command(name = "claude-code-manager", about = "Session surgery for Claude Code sessions")]
 struct Cli {
     /// Override the ~/.claude root (useful for inspecting another user's tree).
     #[arg(long)]
     root: Option<PathBuf>,
 
-    /// Print discovered sessions to stdout and exit, instead of launching the TUI.
+    /// Print discovered sessions to stdout and exit.
     #[arg(long)]
     print: bool,
-
-    /// Dev: fork an existing session file to a new flattened session, print the new id, then exit.
-    #[arg(long)]
-    fork_test: Option<std::path::PathBuf>,
 
     #[command(subcommand)]
     command: Option<Command>,
@@ -127,27 +120,6 @@ fn main() -> Result<()> {
         return Ok(());
     }
 
-    if let Some(src) = cli.fork_test.clone() {
-        use claude_code_manager_core::session::edit::{commit, CommitOpts};
-        use claude_code_manager_core::session::raw::{active_path, read_raw};
-        let lines = read_raw(&src)?;
-        let path = active_path(&lines);
-        let cwd = lines
-            .iter()
-            .find_map(|l| l.value.get("cwd").and_then(|v| v.as_str()).map(|s| s.to_string()))
-            .unwrap_or_else(|| ".".to_string());
-        let git_branch = lines
-            .iter()
-            .find_map(|l| l.value.get("gitBranch").and_then(|v| v.as_str()).map(|s| s.to_string()));
-        let opts = CommitOpts { target_cwd: cwd, git_branch, custom_title: Some("fork-test".into()) };
-        let res = commit(&root, &path, &opts)?;
-        println!("new session: {}", res.new_session_id);
-        println!("path: {}", res.new_path);
-        println!("repairs: {}", res.repairs.len());
-        println!("resume with: claude --resume {}", res.new_session_id);
-        return Ok(());
-    }
-
     if cli.print {
         let disc = store::discover(&root)?;
         println!("{} sessions", disc.sessions.len());
@@ -169,33 +141,11 @@ fn main() -> Result<()> {
         return Ok(());
     }
 
-    let original_hook = std::panic::take_hook();
-    std::panic::set_hook(Box::new(move |info| {
-        let _ = disable_raw_mode();
-        let _ = execute!(io::stdout(), LeaveAlternateScreen);
-        original_hook(info);
-    }));
-
-    enable_raw_mode()?;
-    let mut stdout = io::stdout();
-    execute!(stdout, EnterAlternateScreen)?;
-    let backend = CrosstermBackend::new(stdout);
-    let mut terminal = Terminal::new(backend)?;
-    let guard = TerminalGuard;
-
-    let res = app::App::new(root).and_then(|a| a.run(&mut terminal));
-
-    drop(guard);
-    res
-}
-
-struct TerminalGuard;
-
-impl Drop for TerminalGuard {
-    fn drop(&mut self) {
-        let _ = disable_raw_mode();
-        let _ = execute!(io::stdout(), LeaveAlternateScreen);
-    }
+    // Bare invocation. There is no interactive mode here — the desktop app is
+    // the interface — so show what this binary can do instead of doing nothing.
+    Cli::command().print_help()?;
+    println!();
+    Ok(())
 }
 
 fn truncate(s: &str, max: usize) -> String {

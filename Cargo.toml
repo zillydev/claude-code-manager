@@ -2,8 +2,8 @@
 resolver = "2"
 members = [
     "crates/core",
-    "crates/tui",
-    "crates/webui",
+    "crates/cli",
+    "crates/app",
 ]
 
 [profile.release]

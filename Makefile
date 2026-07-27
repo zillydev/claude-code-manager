@@ -1,26 +1,22 @@
-.PHONY: tui webui build app install test clean
+.PHONY: dev build app install test print clean
 
-# Vite dev-server port for `make webui` (Tauri's devUrl is overridden to match).
-# Override e.g. `make webui PORT=3000`.
+# Vite dev-server port for `make dev` (Tauri's devUrl is overridden to match).
+# Override e.g. `make dev PORT=3000`.
 PORT ?= 5173
 
-# Launch the terminal UI
-tui:
-	cargo run -p claude-code-manager-tui
-
-# Launch the web UI (Tauri dev mode).
+# Launch the desktop app (Tauri dev mode).
 # --no-watch disables Tauri's Rust file watcher so editing source never
 # rebuilds + relaunches the app (the relaunch stole focus and yanked the
 # window onto whatever macOS Space was active). Frontend edits still
 # hot-reload via Vite HMR. To pick up Rust changes, stop and re-run this.
 # PORT overrides the Vite port; --config overrides Tauri's devUrl to match it.
-webui:
-	cd crates/webui && CM_PORT=$(PORT) cargo tauri dev --no-watch --config '{"build":{"devUrl":"http://localhost:$(PORT)"}}'
+dev:
+	cd crates/app && CM_PORT=$(PORT) cargo tauri dev --no-watch --config '{"build":{"devUrl":"http://localhost:$(PORT)"}}'
 
 # Build everything (Rust workspace + frontend) — a compile/CI check, no bundle.
 build:
-	npm --prefix crates/webui/frontend install
-	npm --prefix crates/webui/frontend run build
+	npm --prefix crates/app/frontend install
+	npm --prefix crates/app/frontend run build
 	cargo build --release
 
 APP_NAME := claude-code-manager.app
@@ -31,8 +27,8 @@ APP_BUNDLE := target/release/bundle/macos/$(APP_NAME)
 # binary into target/release/bundle/ (.app + .dmg). npm install first because
 # the before-command only runs `npm run build`, not install.
 app:
-	npm --prefix crates/webui/frontend install
-	cd crates/webui && cargo tauri build
+	npm --prefix crates/app/frontend install
+	cd crates/app && cargo tauri build
 
 # Build the app and install it into /Applications so the Dock icon updates.
 # ditto replaces the existing copy; a locally-built app carries no quarantine
@@ -46,10 +42,10 @@ install: app
 test:
 	cargo test
 
-# Print session list (quick smoke test)
+# Print session list (quick smoke test of the CLI + core)
 print:
-	cargo run -p claude-code-manager-tui -- --print
+	cargo run -p claude-code-manager-cli -- --print
 
 clean:
 	cargo clean
-	rm -rf crates/webui/frontend/dist crates/webui/frontend/node_modules
+	rm -rf crates/app/frontend/dist crates/app/frontend/node_modules

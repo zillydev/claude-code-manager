@@ -1,17 +1,17 @@
 # claude-code-manager — Features
 
-A tool to browse, search, edit, compact, harvest, and resume Claude Code session `.jsonl` files. A **Tauri 2 + React 19 webui** and a **ratatui TUI** over a shared Rust core (`claude-code-manager-core`).
+A tool to browse, search, edit, compact, harvest, and resume Claude Code session `.jsonl` files. A **Tauri 2 + React 19 desktop app** over a reusable Rust core (`claude-code-manager-core`).
 
 > **Maintenance:** update this file as the last step of every feature merge. Each entry links to its design spec in `docs/superpowers/specs/` (and plan in `docs/superpowers/plans/`) for the full rationale. Per-feature specs are the source of truth for *why/how*; this file is the index of *what exists now*.
 
 ## Architecture
 
-- **Cargo workspace:** `crates/core` (lib — parsing/render/store/surgery), `crates/tui` (ratatui binary `claude-code-manager`, also hosts the `surgery` CLI), `crates/webui` (Tauri 2 + React/TS/Vite/Tailwind).
+- **Cargo workspace:** `crates/core` (lib — parsing/render/store/surgery; deliberately front-end agnostic so another UI can be added later), `crates/app` (Tauri 2 + React/TS/Vite/Tailwind — the interface), `crates/cli` (the `claude-code-manager` binary: `surgery` subcommands, driven by the skills).
 - Operates on `~/.claude/projects/<encoded-cwd>/<uuid>.jsonl` — one JSON object per line, linked into a tree by `parentUuid`.
 - **Copy-on-edit safety:** every fork/edit/delete/surgery writes a NEW session file; originals are never mutated (sole exception: rename, which appends a `custom-title` line in place).
-- Run: `make tui` · `make webui` (`cargo tauri dev --no-watch`) · `make build` · `make test`.
+- Run: `make dev` (`cargo tauri dev --no-watch`) · `make build` · `make test` · `make print` (CLI smoke test).
 
-## Browsing & viewing (webui + TUI)
+## Browsing & viewing
 
 - Sessions list — project, title, tokens, updated (time of the last real conversation turn — live activity → discovered last-event → file mtime only for a turnless session — so the shown time, the Updated sort, and the time filter all agree and a non-turn file write doesn't bump it); project + time filters (one project selector, grouped by name, expands to directories only on name collisions); sort; sidebar resize/collapse. → `2026-05-23-claude-code-manager-tui-design`, `2026-05-24-webui-design`, `2026-06-21-unified-project-selector-design`
 - Transcript rendering — consecutive assistant turns merged, **GFM** markdown (react-markdown + `remark-gfm` + `@tailwindcss/typography`: tables, strikethrough, task-lists; inline code without decorative backticks), tool calls with full input on expand, synthetic turns skipped. Slash-command invocations (e.g. `/deploy-gateway`) render as a compact command line; the injected skill body and `<local-command-…>` machinery stay hidden. Explanatory-style `★ Insight` blocks render as a terminal-style callout (accent rules + markdown body) instead of collapsing into inline-code pills.
@@ -75,7 +75,7 @@ A tool to browse, search, edit, compact, harvest, and resume Claude Code session
 ## Conventions & dev notes
 
 - Workflow per feature: **brainstorm → spec → plan → execute → finish → user-directed merge** (`--no-ff`, tests green, delete branch).
-- **Never launch the webui from automation** — the user keeps it open across Spaces; `make webui` uses `--no-watch` (Rust changes need a manual restart; frontend hot-reloads via Vite).
+- **Never launch the app from automation** — the user keeps it open across Spaces; `make dev` uses `--no-watch` (Rust changes need a manual restart; frontend hot-reloads via Vite).
 - `~/.claude/settings.json` has `cleanupPeriodDays: 36500` so sessions aren't auto-pruned.
 - Skills live in `skills/` (`session-surgery`, `session-harvest`).
 
