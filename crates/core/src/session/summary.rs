@@ -74,13 +74,9 @@ pub fn summarize(
             if let Some(ts) = ev.timestamp() {
                 last_event_at = Some(SystemTime::from(ts));
             }
-            // Last activity turn wins: claude is "done" only if it ends on a
-            // completed main-thread assistant turn (not a sub-agent's).
-            awaiting_input = matches!(
-                ev,
-                Event::Assistant(a)
-                    if !a.is_sidechain && a.message.stop_reason.as_deref() == Some("end_turn")
-            );
+            // Last activity turn wins. Shares `awaits_user` with the cheap tail
+            // probe in `parse::last_activity` so the two can't disagree.
+            awaiting_input = ev.awaits_user();
         }
         if let Some(src) = ev.forked_from_session() {
             if forked_from.is_none() {
@@ -254,8 +250,8 @@ pub fn compact_tokens(n: u64) -> String {
 mod tests {
     use super::*;
     use crate::session::event::{
-        AiTitleEvent, AssistantEvent, AssistantMessage, CustomTitleEvent, ForkedFrom, Message,
-        MessageContent, Usage, UserEvent,
+        AiTitleEvent, AssistantEvent, AssistantMessage, Block, CustomTitleEvent, ForkedFrom,
+        Message, MessageContent, Usage, UserEvent,
     };
     use chrono::{TimeZone, Utc};
     use std::time::UNIX_EPOCH;
@@ -488,6 +484,41 @@ mod tests {
             UNIX_EPOCH,
         );
         assert!(!s.awaiting_input, "pending tool_use → mid-turn");
+    }
+
+    #[test]
+    fn awaiting_input_true_for_a_pending_question() {
+        // Same rule as the cheap tail probe: AskUserQuestion stops with
+        // `tool_use` but parks on the user, so it is "your turn". Both paths
+        // feed the sidebar (`act?.awaiting ?? s.awaiting_input`), so they must
+        // agree — this pins the full-parse side.
+        let ev = Event::Assistant(AssistantEvent {
+            uuid: Some(uuid::Uuid::new_v4()),
+            parent_uuid: None,
+            timestamp: Some(Utc::now()),
+            is_sidechain: false,
+            message: AssistantMessage {
+                model: Some("claude".into()),
+                stop_reason: Some("tool_use".into()),
+                content: vec![Block::ToolUse {
+                    id: "t1".into(),
+                    name: "AskUserQuestion".into(),
+                    input: serde_json::Value::Null,
+                }],
+                usage: None,
+            },
+            cwd: None,
+            git_branch: None,
+            forked_from: None,
+        });
+        let s = summarize(
+            &[ev],
+            uuid::Uuid::new_v4(),
+            PathBuf::from("/x.jsonl"),
+            "p".into(),
+            UNIX_EPOCH,
+        );
+        assert!(s.awaiting_input, "pending question → your turn");
     }
 
     #[test]

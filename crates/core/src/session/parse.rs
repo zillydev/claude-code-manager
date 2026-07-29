@@ -100,9 +100,13 @@ pub fn parse_tail(path: &Path, from_offset: u64) -> Result<ParseOutcome> {
 
 /// The last real conversation turn's `(timestamp, awaiting_input)`, read from only
 /// the file's tail (no full parse) — the cheap activity probe behind the sidebar
-/// running/unread dots. `awaiting_input` is true when that turn is a completed
-/// (non-sidechain `end_turn`) assistant turn, i.e. claude is done and it's the
-/// user's turn. Skips meta turns and the rename `custom-title` line.
+/// running/unread dots. `awaiting_input` comes from [`Event::awaits_user`], the
+/// same predicate the full parse uses. Skips meta turns and the rename
+/// `custom-title` line.
+///
+/// A pending question needs no "was it answered?" bookkeeping: the answer lands
+/// as a `tool_result` user line, which is itself an activity turn, so it simply
+/// becomes the last one.
 pub fn last_activity(path: &Path) -> Option<(DateTime<Utc>, bool)> {
     const TAIL_BYTES: u64 = 65_536;
     let len = std::fs::metadata(path).ok()?.len();
@@ -112,12 +116,7 @@ pub fn last_activity(path: &Path) -> Option<(DateTime<Utc>, bool)> {
         .iter()
         .rev()
         .find(|ev| ev.is_activity_turn() && ev.timestamp().is_some())?;
-    let awaiting = matches!(
-        ev,
-        Event::Assistant(a)
-            if !a.is_sidechain && a.message.stop_reason.as_deref() == Some("end_turn")
-    );
-    Some((ev.timestamp()?, awaiting))
+    Some((ev.timestamp()?, ev.awaits_user()))
 }
 
 #[cfg(test)]
@@ -199,6 +198,62 @@ mod tests {
 
         let expected: DateTime<Utc> = "2026-06-22T10:00:09Z".parse().unwrap();
         assert_eq!(last_activity(&p.0), Some((expected, true)));
+    }
+
+    #[test]
+    fn last_activity_awaiting_on_a_pending_question() {
+        // AskUserQuestion renders as a selection UI and blocks on the USER, but
+        // its turn stops with `tool_use`, not `end_turn`. Read as mid-turn, the
+        // sidebar showed "running" until RUNNING_STALE_SECS expired and then
+        // nothing at all — the one state where the user most needs a nudge.
+        let p = tmp("last_activity_question");
+        let mut f = File::create(&p.0).unwrap();
+        writeln!(f, r#"{{"type":"user","uuid":"00000000-0000-0000-0000-000000000001","timestamp":"2026-06-22T10:00:05Z","message":{{"role":"user","content":"hi"}}}}"#).unwrap();
+        writeln!(f, r#"{{"type":"assistant","uuid":"00000000-0000-0000-0000-000000000002","timestamp":"2026-06-22T10:00:09Z","message":{{"stop_reason":"tool_use","content":[{{"type":"tool_use","id":"t1","name":"AskUserQuestion","input":{{}}}}]}}}}"#).unwrap();
+        drop(f);
+
+        let expected: DateTime<Utc> = "2026-06-22T10:00:09Z".parse().unwrap();
+        assert_eq!(last_activity(&p.0), Some((expected, true)));
+    }
+
+    #[test]
+    fn last_activity_not_awaiting_once_the_question_is_answered() {
+        // The answer arrives as a tool_result user line, which IS an activity
+        // turn — so the pending-question state ends without extra bookkeeping.
+        let p = tmp("last_activity_answered");
+        let mut f = File::create(&p.0).unwrap();
+        writeln!(f, r#"{{"type":"assistant","uuid":"00000000-0000-0000-0000-000000000002","timestamp":"2026-06-22T10:00:09Z","message":{{"stop_reason":"tool_use","content":[{{"type":"tool_use","id":"t1","name":"AskUserQuestion","input":{{}}}}]}}}}"#).unwrap();
+        writeln!(f, r#"{{"type":"user","uuid":"00000000-0000-0000-0000-000000000003","timestamp":"2026-06-22T10:01:00Z","message":{{"role":"user","content":[{{"type":"tool_result","tool_use_id":"t1","content":"picked"}}]}}}}"#).unwrap();
+        drop(f);
+
+        let expected: DateTime<Utc> = "2026-06-22T10:01:00Z".parse().unwrap();
+        assert_eq!(last_activity(&p.0), Some((expected, false)));
+    }
+
+    #[test]
+    fn last_activity_still_mid_turn_for_an_ordinary_tool_call() {
+        // A Bash call blocks on CLAUDE, not the user — that must keep reading as
+        // running, or every long tool would masquerade as "your turn".
+        let p = tmp("last_activity_bash");
+        let mut f = File::create(&p.0).unwrap();
+        writeln!(f, r#"{{"type":"assistant","uuid":"00000000-0000-0000-0000-000000000002","timestamp":"2026-06-22T10:00:09Z","message":{{"stop_reason":"tool_use","content":[{{"type":"tool_use","id":"t1","name":"Bash","input":{{}}}}]}}}}"#).unwrap();
+        drop(f);
+
+        let expected: DateTime<Utc> = "2026-06-22T10:00:09Z".parse().unwrap();
+        assert_eq!(last_activity(&p.0), Some((expected, false)));
+    }
+
+    #[test]
+    fn last_activity_ignores_a_sidechain_question() {
+        // A subagent's question never reaches the user's UI, so it must not mark
+        // the parent session as "your turn".
+        let p = tmp("last_activity_sidechain_q");
+        let mut f = File::create(&p.0).unwrap();
+        writeln!(f, r#"{{"type":"assistant","uuid":"00000000-0000-0000-0000-000000000002","isSidechain":true,"timestamp":"2026-06-22T10:00:09Z","message":{{"stop_reason":"tool_use","content":[{{"type":"tool_use","id":"t1","name":"AskUserQuestion","input":{{}}}}]}}}}"#).unwrap();
+        drop(f);
+
+        let expected: DateTime<Utc> = "2026-06-22T10:00:09Z".parse().unwrap();
+        assert_eq!(last_activity(&p.0), Some((expected, false)));
     }
 
     #[test]
