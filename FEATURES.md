@@ -70,7 +70,7 @@ A tool to browse, search, edit, compact, harvest, and resume Claude Code session
 ## Feedback
 
 - **Inline loading indicators** — a shared `<Spinner>` atom marks every async action while it runs: fork / edit-save / delete-message (on the clicked button), sidebar delete / rename / new-session, the terminal's "Starting claude…" overlay, plus session-open and search. → `2026-06-21-loading-indicators-design`
-- **Session status indicators** — sidebar dots driven by a lightweight focus-gated poll (`session_activity`, tail-reads recent files): a green pulsing dot when claude is mid-turn (steady through thinking pauses — keyed on `awaiting_input` turn-completeness, not write recency), and an accent dot + bold title for **unread** (a completed turn newer than when you last opened it). → `2026-06-22-session-indicators-design`
+- **Session status indicators** — sidebar dots driven by a lightweight focus-gated poll (`session_activity`, tail-reads recent files): a green pulsing dot when claude is mid-turn (steady through thinking pauses — keyed on `awaiting_input` turn-completeness, not write recency), and an accent dot + bold title for **unread** (your turn, newer than when you last opened it). "Your turn" is `Event::awaits_user`: a completed `end_turn`, **or** a turn parked on a user-blocking tool (`AskUserQuestion` / `ExitPlanMode`) — those stop with `tool_use`, so without it a pending question read as claude still working and lost its dot entirely once the staleness window passed. One predicate, shared by the tail probe and the full parse, since the sidebar reads whichever is available. → `2026-06-22-session-indicators-design`
 
 ## Conventions & dev notes
 
