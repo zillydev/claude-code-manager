@@ -82,11 +82,18 @@ export function prefersDark(): boolean {
     : true;
 }
 
-/** Resolve a theme value to a concrete palette, mapping "system" to dark/light
- *  by the OS preference and unknown values to github-dark. */
-export function themePalette(theme: string): Record<string, string> {
+/** Resolve a theme setting to a concrete preset key, mapping "system" to the OS
+ *  preference and anything unknown to github-dark. Everything that needs to know
+ *  which palette is live goes through here — the CSS variables and the
+ *  terminal's xterm theme must never disagree about it. */
+export function resolveThemeKey(theme: string): string {
   const key = theme === "system" ? (prefersDark() ? "github-dark" : "light") : theme;
-  return THEMES[key] ?? THEMES["github-dark"];
+  return key in THEMES ? key : "github-dark";
+}
+
+/** Resolve a theme value to a concrete palette. */
+export function themePalette(theme: string): Record<string, string> {
+  return THEMES[resolveThemeKey(theme)];
 }
 
 const SANS_DEFAULT = `-apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif`;

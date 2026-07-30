@@ -6,6 +6,7 @@ import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import Spinner from "./Spinner";
 import { useConfig } from "../hooks/useConfig";
 import { resolveFont } from "../lib/config";
+import { terminalTheme } from "../lib/terminalTheme";
 
 function b64ToBytes(b64: string): Uint8Array {
   const s = atob(b64);
@@ -68,10 +69,15 @@ export default function TerminalView({
   openPtyRef.current = openPty;
   // Configurable mono font. Read via a ref at terminal creation (so a font change
   // doesn't recreate/kill the terminal); a separate effect updates it live.
-  const { config } = useConfig();
+  const { config, resolvedTheme } = useConfig();
   const monoFont = resolveFont(config.typography.monoFont, "mono");
   const monoRef = useRef(monoFont);
   monoRef.current = monoFont;
+  // xterm renders to a canvas and can't read the `--color-*` variables, so the
+  // palette is handed to it explicitly here and re-pushed by the effect below.
+  const theme = terminalTheme(resolvedTheme);
+  const themeRef = useRef(theme);
+  themeRef.current = theme;
   // Resolves once the terminal-output/exit listeners are attached. terminal_open
   // (which spawns claude) awaits this so claude's first paint can't be emitted
   // before we're listening — otherwise it's lost and the pane sticks on "Starting".
@@ -84,7 +90,7 @@ export default function TerminalView({
     const term = new Terminal({
       fontSize: 13,
       fontFamily: monoRef.current,
-      theme: { background: "#0a0a0a", foreground: "#e6e6e6" },
+      theme: themeRef.current,
     });
     const fit = new FitAddon();
     term.loadAddon(fit);
@@ -215,6 +221,14 @@ export default function TerminalView({
       /* ignore */
     }
   }, [monoFont, sessionId]);
+
+  // Apply a theme change to the live terminal. No refit: colours don't change
+  // cell size. Keyed on the RESOLVED theme so an OS light/dark flip lands too.
+  useEffect(() => {
+    const t = termRef.current;
+    if (!t) return;
+    t.options.theme = terminalTheme(resolvedTheme);
+  }, [resolvedTheme]);
 
   const openedRef = useRef(false);
   // On first activation (pane visible): open the xterm into the now-laid-out
