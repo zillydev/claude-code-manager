@@ -278,6 +278,11 @@ pub struct Usage {
     pub cache_read_input_tokens: u64,
 }
 
+/// Tools whose `tool_use` parks the session on the USER rather than on claude:
+/// the client renders them as a selection / approval UI and nothing advances
+/// until the user acts on it.
+pub const USER_BLOCKING_TOOLS: &[&str] = &["AskUserQuestion", "ExitPlanMode"];
+
 impl Event {
     /// UUID of this event, if any.
     pub fn uuid(&self) -> Option<Uuid> {
@@ -326,6 +331,33 @@ impl Event {
     /// "activity" (sidebar running/unread). A non-meta user turn, or a
     /// non-synthetic assistant turn. Excludes summaries, system lines, titles,
     /// meta turns. Sidechain (sub-agent) turns DO count — that's claude working.
+    /// Whether this turn leaves the conversation waiting on the USER.
+    ///
+    /// True for a completed main-thread assistant turn (`end_turn`), and for one
+    /// parked on a [user-blocking tool](USER_BLOCKING_TOOLS) — those stop with
+    /// `tool_use`, not `end_turn`, so without this they read as claude still
+    /// working: "running" until the staleness window expires, then no indicator
+    /// at all, in the one state that most needs one.
+    ///
+    /// Sidechain turns never count — a subagent's question never reaches the UI.
+    ///
+    /// Single source of truth for the sidebar's running/unread dots: the cheap
+    /// tail probe ([`parse::last_activity`](super::parse::last_activity)) and the
+    /// full parse ([`summary`](super::summary)) both call this, so a session
+    /// can't read differently depending on which one ran.
+    pub fn awaits_user(&self) -> bool {
+        match self {
+            Event::Assistant(a) if !a.is_sidechain => {
+                a.message.stop_reason.as_deref() == Some("end_turn")
+                    || a.message.content.iter().any(|b| {
+                        matches!(b, Block::ToolUse { name, .. }
+                            if USER_BLOCKING_TOOLS.contains(&name.as_str()))
+                    })
+            }
+            _ => false,
+        }
+    }
+
     pub fn is_activity_turn(&self) -> bool {
         match self {
             Event::User(e) => !e.is_meta.unwrap_or(false),
