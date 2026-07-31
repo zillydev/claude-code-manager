@@ -499,11 +499,10 @@ const Turn = memo(function Turn({
     case "user":
       return (
         <div className="group flex flex-col items-end" data-msg-uuids={turn.uuids.join(" ")}>
+          {/* Mirrored from the assistant header: there the role label starts the
+              row at the left edge and the actions trail it, so on this side the
+              label ends the row at the right edge and the actions lead. */}
           <div className="flex items-baseline gap-2 mb-1 justify-end">
-            <span className="text-xs text-[var(--color-text-dim)]" title={tsTitle}>
-              {ts}
-            </span>
-            <span className="font-medium text-[var(--color-user)]">user</span>
             <TurnActions
               onEdit={() => editUuid && onStartEdit(editUuid, turn.text)}
               onFork={() => onFork(turn.fork_uuid)}
@@ -513,6 +512,10 @@ const Turn = memo(function Turn({
               forkPending={forkPending}
               deletePending={deletePending}
             />
+            <span className="text-xs text-[var(--color-text-dim)]" title={tsTitle}>
+              {ts}
+            </span>
+            <span className="font-medium text-[var(--color-user)]">user</span>
           </div>
           {editing ? (
             // Editing needs the room: full width, not the bubble.
