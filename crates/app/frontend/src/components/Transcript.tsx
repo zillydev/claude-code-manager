@@ -492,14 +492,17 @@ const Turn = memo(function Turn({
     "timestamp" in turn && turn.timestamp ? formatFullDate(turn.timestamp) : undefined;
 
   switch (turn.type) {
+    // Right-aligned in a bubble, chat-app style. Assistant turns are long and
+    // full-width, so a small coloured role label was the only thing separating
+    // them — too weak to catch while scrolling fast. Side + surface are both
+    // readable from the shape of the page alone, without reading any text.
     case "user":
       return (
-        <div className="group" data-msg-uuids={turn.uuids.join(" ")}>
-          <div className="flex items-baseline gap-2 mb-1">
-            <span className="text-xs text-[var(--color-text-dim)]" title={tsTitle}>
-              {ts}
-            </span>
-            <span className="font-medium text-[var(--color-user)]">user</span>
+        <div className="group flex flex-col items-end" data-msg-uuids={turn.uuids.join(" ")}>
+          {/* Mirrored from the assistant header: there the role label starts the
+              row at the left edge and the actions trail it, so on this side the
+              label ends the row at the right edge and the actions lead. */}
+          <div className="flex items-baseline gap-2 mb-1 justify-end">
             <TurnActions
               onEdit={() => editUuid && onStartEdit(editUuid, turn.text)}
               onFork={() => onFork(turn.fork_uuid)}
@@ -509,19 +512,26 @@ const Turn = memo(function Turn({
               forkPending={forkPending}
               deletePending={deletePending}
             />
+            <span className="text-xs text-[var(--color-text-dim)]" title={tsTitle}>
+              {ts}
+            </span>
+            <span className="font-medium text-[var(--color-user)]">user</span>
           </div>
           {editing ? (
-            <EditBox
-              draft={draft}
-              onChange={onChangeDraft}
-              onSave={() => editUuid && onSaveEdit(editUuid)}
-              onCancel={onCancelEdit}
-              saving={editPending}
-            />
+            // Editing needs the room: full width, not the bubble.
+            <div className="w-full">
+              <EditBox
+                draft={draft}
+                onChange={onChangeDraft}
+                onSave={() => editUuid && onSaveEdit(editUuid)}
+                onCancel={onCancelEdit}
+                saving={editPending}
+              />
+            </div>
           ) : (
             <div
               data-seg-id={makeSegId(turnIndex, null, "user-text")}
-              className="pl-4 text-sm whitespace-pre-wrap break-words"
+              className="max-w-[75%] rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-sm whitespace-pre-wrap break-words"
             >
               {turn.text}
             </div>
@@ -592,9 +602,11 @@ const Turn = memo(function Turn({
         </div>
       );
 
+    // Also the user's input, so it sits on the same side — otherwise the "mine
+    // is on the right" rule breaks every time a slash command appears.
     case "command":
       return (
-        <div className="flex items-baseline gap-2">
+        <div className="flex items-baseline gap-2 justify-end">
           <span className="text-xs text-[var(--color-text-dim)]" title={tsTitle}>
             {ts}
           </span>
