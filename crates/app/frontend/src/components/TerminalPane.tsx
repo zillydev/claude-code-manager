@@ -33,8 +33,13 @@ export default function TerminalPane({
     );
   }
 
+  // The wrapper's background must match the xterm theme's: xterm fills whole
+  // cells, so the partial row left over at the bottom shows this element
+  // through. Reading the same variable the terminal theme reads keeps them
+  // identical in every theme — the old hardcoded #0a0a0a is what showed as a
+  // black bar once the terminal moved to the palette's #0d1117.
   return (
-    <div className="h-full w-full bg-[#0a0a0a]">
+    <div className="h-full w-full bg-[var(--color-bg)]">
       {Object.entries(opened).map(([sid, v]) => (
         <TerminalView
           key={sid}
