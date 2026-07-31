@@ -5,6 +5,7 @@ import {
   tagColor,
   entryTags,
   matchesTagFilter,
+  pruneTagFilter,
   setAliasIn,
   setNoteIn,
   setSessionTagsIn,
@@ -278,5 +279,46 @@ describe("matchesTagFilter", () => {
     expect(matchesTagFilter({ tags: ["wip", "api"] }, new Set(["api"]))).toBe(true);
     expect(matchesTagFilter({ tags: ["wip"] }, new Set(["api"]))).toBe(false);
     expect(matchesTagFilter(undefined, new Set(["api"]))).toBe(false);
+  });
+});
+
+describe("pruneTagFilter", () => {
+  const tags = [
+    { name: "api", color: "#111" },
+    { name: "wip", color: "#222" },
+  ];
+
+  it("drops a selected tag that was deleted from the registry", () => {
+    // The reported bug: delete a selected tag in Manage Tags and it stayed
+    // selected, matching nothing — with its row gone there was no way to
+    // unselect it.
+    const after = removeTagIn(
+      { ...DEFAULT_META, tags, sessions: {} },
+      "api",
+    );
+    expect([...pruneTagFilter(new Set(["api", "wip"]), after.tags)]).toEqual(["wip"]);
+  });
+
+  it("clears the filter when the last tag is deleted", () => {
+    // The unrecoverable case: with no tags left the whole filter dropdown
+    // unmounts, taking "Clear filter" with it.
+    expect(pruneTagFilter(new Set(["api"]), []).size).toBe(0);
+  });
+
+  it("drops the old name after a rename", () => {
+    const after = renameTagIn({ ...DEFAULT_META, tags, sessions: {} }, "api", "backend");
+    expect([...pruneTagFilter(new Set(["api"]), after.tags)]).toEqual([]);
+  });
+
+  it("returns the SAME set when every selection still exists", () => {
+    // Identity matters: the effect assigns the result back unconditionally, and
+    // React bails out on Object.is, so an unchanged filter must not re-render.
+    const sel = new Set(["api"]);
+    expect(pruneTagFilter(sel, tags)).toBe(sel);
+  });
+
+  it("returns the same empty set when nothing is selected", () => {
+    const sel = new Set<string>();
+    expect(pruneTagFilter(sel, [])).toBe(sel);
   });
 });

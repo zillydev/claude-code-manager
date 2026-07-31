@@ -79,6 +79,32 @@ export function matchesSessionName(
 }
 
 /** Sidebar tag filter: empty selection matches all; else ANY-of semantics. */
+/**
+ * Drop selected tag names that no longer exist in the registry.
+ *
+ * The sidebar's tag filter holds names, but the registry can change underneath
+ * it — a tag deleted or renamed in Manage Tags, in this window or another one.
+ * A leftover name matches no session, so the list silently empties; and once the
+ * registry is empty the whole filter dropdown unmounts, taking "Clear filter"
+ * with it and leaving no way back. Reconciling against the registry is what
+ * keeps the filter's domain and the registry from drifting apart.
+ *
+ * Returns the SAME Set when nothing changed, so callers can assign it back
+ * unconditionally without causing a re-render.
+ */
+export function pruneTagFilter(selected: Set<string>, tags: Tag[]): Set<string> {
+  const known = new Set(tags.map((t) => t.name));
+  let dropped = false;
+  for (const name of selected) {
+    if (!known.has(name)) {
+      dropped = true;
+      break;
+    }
+  }
+  if (!dropped) return selected;
+  return new Set([...selected].filter((name) => known.has(name)));
+}
+
 export function matchesTagFilter(
   entry: SessionEntry | undefined,
   selected: Set<string>,

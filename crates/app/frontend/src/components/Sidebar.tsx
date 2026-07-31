@@ -12,6 +12,7 @@ import {
   entryTags,
   matchesSessionName,
   matchesTagFilter,
+  pruneTagFilter,
   sessionTitle,
   tagColor,
 } from "../lib/sessionMeta";
@@ -61,6 +62,14 @@ export default function Sidebar({
   const [newErr, setNewErr] = useState<string | null>(null);
   const [dateRange, setDateRange] = useState<DateRange>("all");
   const [tagFilter, setTagFilter] = useState<Set<string>>(new Set());
+  // Keep the filter inside the registry. A tag deleted or renamed in Manage
+  // Tags — here or in another window — would otherwise leave a name selected
+  // that matches nothing, emptying the list with its row gone from the menu.
+  // pruneTagFilter returns the same Set when nothing changed, so this is a
+  // no-op re-render in the common case.
+  useEffect(() => {
+    setTagFilter((prev) => pruneTagFilter(prev, meta.tags));
+  }, [meta.tags]);
   const [sortField, setSortField] = useState<SortField>("updated");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
   const [searchHits, setSearchHits] = useState<Set<string> | null>(null);
