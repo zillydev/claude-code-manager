@@ -63,6 +63,21 @@ export default function Transcript({
   // after a turn is appended — appended content grows scrollHeight without
   // firing a scroll, so a post-append measurement would misreport "at bottom".
   const atBottomRef = useRef(true);
+  // The same fact in a form that renders. The ref is what effects and the scroll
+  // listener read synchronously (that listener is attached once and must not
+  // re-subscribe on every change); the state is what shows/hides the jump
+  // button. `setPinned` is the ONLY writer of either, so they cannot drift.
+  const [atBottom, setAtBottom] = useState(true);
+  const setPinned = useCallback((v: boolean) => {
+    atBottomRef.current = v;
+    setAtBottom(v); // same value ⇒ React bails, so scrolling costs no re-render
+  }, []);
+  // Re-pins as well as scrolls: the point of the button is to resume following
+  // the live tail, not just to move the viewport once.
+  const jumpToLatest = useCallback(() => {
+    setPinned(true);
+    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [setPinned]);
   const prevSessionId = useRef<string | null>(null);
 
   const editor = useEditor();
@@ -132,11 +147,11 @@ export default function Transcript({
     const container = turnsRef.current;
     if (!container) return;
     const onScroll = () => {
-      atBottomRef.current = isNearBottom(container);
+      setPinned(isNearBottom(container));
     };
     container.addEventListener("scroll", onScroll, { passive: true });
     return () => container.removeEventListener("scroll", onScroll);
-  }, []);
+  }, [setPinned]);
 
   // On opening/switching a session, jump to the latest — unless we were asked to
   // scroll to a specific message (the effect below handles that). When the
@@ -148,15 +163,15 @@ export default function Transcript({
     prevSessionId.current = session.id;
     if (isNewSession) {
       if (scrollToMessage) {
-        atBottomRef.current = false; // the scroll-to-message effect takes over
+        setPinned(false); // the scroll-to-message effect takes over
       } else {
-        atBottomRef.current = true;
+        setPinned(true);
         bottomRef.current?.scrollIntoView();
       }
     } else if (atBottomRef.current) {
       bottomRef.current?.scrollIntoView({ behavior: "smooth" });
     }
-  }, [session.id, visibleTurns.length, scrollToMessage]);
+  }, [session.id, visibleTurns.length, scrollToMessage, setPinned]);
 
   // Scroll to + flash a specific message (e.g. a fork point opened from the
   // lineage tree). Keyed on the message too, so it also fires when the target is
@@ -175,7 +190,7 @@ export default function Transcript({
           `[data-msg-uuids~="${scrollToMessage}"]`,
         );
         if (!el) return;
-        atBottomRef.current = false;
+        setPinned(false);
         el.scrollIntoView({ block: "center" });
         el.classList.add("ring-2", "ring-[var(--color-accent)]", "rounded");
         setTimeout(
@@ -188,7 +203,7 @@ export default function Transcript({
       cancelAnimationFrame(raf1);
       cancelAnimationFrame(raf2);
     };
-  }, [session.id, scrollToMessage]);
+  }, [session.id, scrollToMessage, setPinned]);
 
   // When this tab becomes visible again, restore the bottom if we were pinned
   // there: display:none can drift the scroll position, and live turns may have
@@ -217,7 +232,7 @@ export default function Transcript({
   const { stats } = session;
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="relative flex flex-col h-full">
       {/* Header bar */}
       <div className="flex items-center gap-3 px-4 py-2.5 border-b border-[var(--color-border)] bg-[var(--color-surface)] shrink-0">
         <span className="font-medium text-[var(--color-accent)]">
@@ -357,6 +372,20 @@ export default function Transcript({
         })}
         <div ref={bottomRef} />
       </div>
+
+      {/* Jump to latest. Absolute rather than sticky so it never occupies layout
+          in the scroller — a sticky footer would shift the transcript every time
+          it appeared. Hidden while pinned, since then it would do nothing. */}
+      {!atBottom && (
+        <button
+          onClick={jumpToLatest}
+          title="Scroll to latest"
+          aria-label="Scroll to latest"
+          className="absolute bottom-4 right-5 z-10 flex h-8 w-8 items-center justify-center rounded-full border border-[var(--color-border)] bg-[var(--color-surface)] text-[var(--color-text-dim)] shadow-md transition-colors hover:border-[var(--color-accent)] hover:text-[var(--color-accent)]"
+        >
+          ↓
+        </button>
+      )}
     </div>
   );
 }
