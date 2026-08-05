@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback, memo, Fragment, type ReactNode } from "react";
+import { useState, useRef, useEffect, useCallback, useMemo, memo, Fragment, type ReactNode } from "react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { openUrl } from "@tauri-apps/plugin-opener";
@@ -26,6 +26,7 @@ import { makeSegId } from "../lib/segments";
 import { isNearBottom } from "../lib/scroll";
 import { filterCompact } from "../lib/compactView";
 import { filterTurns, TURN_FILTER_LABELS, type TurnFilterMode } from "../lib/turnFilter";
+import { extractLinks } from "../lib/links";
 
 interface Props {
   session: RenderedSession;
@@ -126,6 +127,9 @@ export default function Transcript({
   // This session's bookmarks, in transcript order, labelled from the rendered
   // turns — no backend needed while the session is open.
   const bookmarkSet = new Set(metaEntry?.bookmarks ?? []);
+
+  // Every URL the conversation's own text mentioned, deduped, first wins.
+  const links = useMemo(() => extractLinks(session.turns), [session.turns]);
 
   // The kind filter runs FIRST, and find is fed the same filtered list — find
   // searches what you see, so filter + find compose instead of conflicting.
@@ -315,6 +319,50 @@ export default function Transcript({
           </span>
         )}
         <div className="ml-auto flex gap-2 items-center">
+          {links.length > 0 && (
+            <Dropdown
+              trigger={`🔗 ${links.length}`}
+              title="Links mentioned in this session"
+              triggerClassName="text-xs px-2 py-1 rounded border border-[var(--color-border)] text-[var(--color-text-dim)] hover:border-[var(--color-accent)] hover:text-[var(--color-accent)] transition-colors"
+            >
+              {(close) => (
+                <>
+                  {links.map((l) => (
+                    <div key={l.url} className="flex items-center gap-1 max-w-md">
+                      <button
+                        role="menuitem"
+                        className={`${menuItemClass} flex items-baseline gap-2 min-w-0 flex-1`}
+                        title={l.url}
+                        onClick={() => {
+                          close();
+                          openUrl(l.url).catch(() => {});
+                        }}
+                      >
+                        <span className="font-medium text-[var(--color-text)] shrink-0">
+                          {l.domain}
+                        </span>
+                        <span className="truncate text-[var(--color-text-dim)]">
+                          {l.url.slice(l.url.indexOf(l.domain) + l.domain.length) || "/"}
+                        </span>
+                      </button>
+                      {l.uuid && (
+                        <button
+                          className="shrink-0 text-xs px-1 text-[var(--color-text-dim)] hover:text-[var(--color-accent)]"
+                          title="Jump to the message that mentioned this link"
+                          onClick={() => {
+                            close();
+                            jumpToUuid(l.uuid);
+                          }}
+                        >
+                          ⌖
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                </>
+              )}
+            </Dropdown>
+          )}
           {bookmarkItems.length > 0 && (
             <Dropdown
               trigger={`⚑ ${bookmarkItems.length}`}

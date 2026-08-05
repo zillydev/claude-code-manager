@@ -35,6 +35,10 @@ A tool to browse, search, edit, compact, harvest, and resume Claude Code session
 
 - **Message bookmarks** — flag any user/assistant message from its ⋯ menu (metadata-only, so pre-compaction turns work too); stored as the turn's head uuid in `session-meta.json` (`bookmarks: [uuid]`), live across windows. An accent **⚑** marks bookmarked turns; a header `⚑ n` dropdown lists this session's bookmarks in transcript order (click → scroll + flash, auto-expanding compact view if the turn is hidden); a sidebar-header **⚑** opens the all-sessions browser — grouped by session, snippets + times via `message_previews` — where a click opens that session scrolled to the message. Derived sessions do NOT inherit bookmarks. → `2026-08-05-message-bookmarks-design`
 
+## Links
+
+- **Session links panel** — a header **🔗 n** dropdown listing every URL the conversation's own text mentioned (user + assistant text and slash commands; tool results deliberately unscanned — a fetched page dumps hundreds of URLs). Deduped, first occurrence wins; rows show domain + path; click opens externally, **⌖** jumps to the mentioning message (widening compact/filtered views as needed). → `2026-08-05-session-links-design`
+
 ## Editing & surgery
 
 - **Fork from here** — copies the session file **as-is** up to the chosen message (file order), changing only what session identity requires: a new `sessionId` on every line, `forkedFrom` on the cut line, a fresh `last-prompt`, and — only if the copy would otherwise end on an unanswered `tool_use` — one synthesized `tool_result`. Nothing is flattened, trimmed, or re-uuid'd, so abandoned rewind branches and pre-compaction segments (including the `isCompactSummary` bridge) come along. The cut extends over the `tool_result` lines answering it, so a call is never separated from its result. Resolves the target by stable uuid, so the live-tail's batch-local indices can't truncate it. → `2026-05-30-session-editor-design`
