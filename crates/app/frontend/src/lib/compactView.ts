@@ -31,6 +31,16 @@ export function filterCompact(turns: RenderedTurn[]): RenderedTurn[] {
     if (t === "user" || t === "command") {
       closeRun();
       visible.add(i);
+    } else if (t === "task_notification") {
+      // Also a user-ROLE event — claude's machinery injects it as a user
+      // message — so it ends the reply before it, exactly like a prompt does.
+      // A background task that finishes long after the turn is over otherwise
+      // welds two replies into one run: the answer that actually closed the
+      // turn gets demoted to the middle and hidden, and the throwaway "the
+      // killed task was X" note that follows inherits the run's last slot.
+      // The notification itself stays hidden — it is machinery, and a session
+      // can carry dozens of them.
+      closeRun();
     } else if (t === "assistant") {
       run.push(i);
     }
