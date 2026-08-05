@@ -25,6 +25,7 @@ import { entryTags } from "../lib/sessionMeta";
 import { makeSegId } from "../lib/segments";
 import { isNearBottom } from "../lib/scroll";
 import { filterCompact } from "../lib/compactView";
+import { filterTurns, TURN_FILTER_LABELS, type TurnFilterMode } from "../lib/turnFilter";
 
 interface Props {
   session: RenderedSession;
@@ -79,6 +80,8 @@ export default function Transcript({
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [setPinned]);
   const prevSessionId = useRef<string | null>(null);
+  // Read by jumpToUuid, which is declared before the filter state exists.
+  const turnFilterRef = useRef<TurnFilterMode>("all");
   // Scroll to + flash a bookmarked message. Compact view may be hiding the
   // turn (a bookmarked mid-run message) — expand and retry once after the
   // re-render rather than silently doing nothing.
@@ -99,30 +102,42 @@ export default function Transcript({
         return true;
       };
       if (tryScroll()) return;
-      if (compact) {
+      // Compact or a kind filter may be hiding the turn — widen, then retry
+      // once after the re-render rather than silently doing nothing.
+      if (compact || turnFilterRef.current !== "all") {
         setConfig({ ui: { compact: false } });
+        setTurnFilter("all");
         requestAnimationFrame(() => requestAnimationFrame(tryScroll));
       }
     },
     [compact, setConfig, setPinned],
   );
 
+  // View narrowing — a per-view gesture, reset when the session changes.
+  const [turnFilter, setTurnFilter] = useState<TurnFilterMode>("all");
+  useEffect(() => setTurnFilter("all"), [session.id]);
+  turnFilterRef.current = turnFilter;
+
   const editor = useEditor();
   const [editingUuid, setEditingUuid] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
   const sourcePath = session.source_path;
 
-  const find = useFind(turnsRef, session.turns);
+  // This session's bookmarks, in transcript order, labelled from the rendered
+  // turns — no backend needed while the session is open.
+  const bookmarkSet = new Set(metaEntry?.bookmarks ?? []);
+
+  // The kind filter runs FIRST, and find is fed the same filtered list — find
+  // searches what you see, so filter + find compose instead of conflicting.
+  const filteredTurns = filterTurns(session.turns, turnFilter, bookmarkSet);
+
+  const find = useFind(turnsRef, filteredTurns);
   const { openFind, next: findNext, prev: findPrev } = find;
 
   // The turns actually rendered. Suspend compact while find is open so every
   // match is mounted & countable. Declared before the scroll effects because
   // they key on its length — toggling compact reshapes this (not session.turns).
-  const visibleTurns = compact && !find.open ? filterCompact(session.turns) : session.turns;
-
-  // This session's bookmarks, in transcript order, labelled from the rendered
-  // turns — no backend needed while the session is open.
-  const bookmarkSet = new Set(metaEntry?.bookmarks ?? []);
+  const visibleTurns = compact && !find.open ? filterCompact(filteredTurns) : filteredTurns;
   const bookmarkItems = session.turns
     .filter(
       (t): t is Extract<RenderedTurn, { type: "user" } | { type: "assistant" }> =>
@@ -344,6 +359,34 @@ export default function Transcript({
               ⑂ Tree
             </button>
           )}
+          <Dropdown
+            trigger={turnFilter === "all" ? "filter" : TURN_FILTER_LABELS[turnFilter]}
+            title="Show only one kind of turn"
+            triggerClassName={`text-xs px-2 py-1 rounded border transition-colors ${
+              turnFilter !== "all"
+                ? "border-[var(--color-accent)] text-[var(--color-accent)]"
+                : "border-[var(--color-border)] text-[var(--color-text-dim)] hover:border-[var(--color-accent)] hover:text-[var(--color-accent)]"
+            }`}
+          >
+            {(close) => (
+              <>
+                {(Object.keys(TURN_FILTER_LABELS) as TurnFilterMode[]).map((m) => (
+                  <button
+                    key={m}
+                    role="menuitem"
+                    className={`${menuItemClass} flex items-center gap-2`}
+                    onClick={() => {
+                      close();
+                      setTurnFilter(m);
+                    }}
+                  >
+                    <span className={turnFilter === m ? "" : "opacity-0"}>✓</span>
+                    {TURN_FILTER_LABELS[m]}
+                  </button>
+                ))}
+              </>
+            )}
+          </Dropdown>
           <button
             onClick={() => setConfig({ ui: { compact: !compact } })}
             className={`text-xs px-2 py-1 rounded border ${
