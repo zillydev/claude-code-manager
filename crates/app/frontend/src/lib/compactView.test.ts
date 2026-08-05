@@ -12,6 +12,14 @@ const sys = (content: string): RenderedTurn =>
   ({ type: "system", content }) as unknown as RenderedTurn;
 const compaction = (): RenderedTurn =>
   ({ type: "compaction", messages_before: 3 }) as unknown as RenderedTurn;
+const taskNote = (summary = "bg task"): RenderedTurn =>
+  ({
+    type: "task_notification",
+    uuid: "t",
+    status: "killed",
+    summary,
+    result: "",
+  }) as unknown as RenderedTurn;
 
 /** Identify kept turns by their tag/text, in order. */
 const tags = (turns: RenderedTurn[]) =>
@@ -56,6 +64,40 @@ describe("filterCompact", () => {
     // first and last survive — not the pieces on either side of the system turn.
     const turns = [user("q1"), asst("a1"), sys("hook"), asst("a2"), asst("a3")];
     expect(tags(filterCompact(turns))).toEqual(["q1", "a1", "a3"]);
+  });
+
+  it("ends the reply at a task notification, so a late background task can't hide the answer", () => {
+    // A background command finishing long after the turn ended appends a
+    // notification and a short "the killed task was X" note. Without a boundary
+    // both replies are one run, so the answer that actually closed the turn is
+    // demoted to the middle and vanishes, while the throwaway note takes the
+    // run's last slot — leaving compact view showing a reply that refers back
+    // to something it is not showing.
+    const turns = [
+      user("q1"),
+      asst("opening"), asst("middle"), asst("answer"),
+      taskNote("K8s events for the mongosync pod"),
+      asst("the killed task was redundant"),
+    ];
+    expect(tags(filterCompact(turns))).toEqual([
+      "q1",
+      "opening",
+      "answer",
+      "task_notification",
+      "the killed task was redundant",
+    ]);
+  });
+
+  it("shows the notification itself, so the reply after it has a cause", () => {
+    // Without it the follow-up reply appears out of nowhere — it talks about a
+    // background task the reader cannot see.
+    const turns = [user("q1"), asst("a1"), taskNote(), asst("a2")];
+    expect(tags(filterCompact(turns))).toContain("task_notification");
+  });
+
+  it("keeps a single-turn reply on each side of a notification", () => {
+    const turns = [user("q1"), asst("a1"), taskNote(), asst("a2")];
+    expect(tags(filterCompact(turns))).toEqual(["q1", "a1", "task_notification", "a2"]);
   });
 
   it("always keeps compaction dividers", () => {
