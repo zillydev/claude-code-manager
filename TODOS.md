@@ -1,4 +1,4 @@
 - [ ] some place to see all links from a session
-- [ ] better searching and filtering in a session
+- [x] better searching and filtering in a session
 - [ ] better searching and filtering across sessions
 - [x] add bookmarking of messages

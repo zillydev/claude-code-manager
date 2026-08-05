@@ -24,6 +24,7 @@ A tool to browse, search, edit, compact, harvest, and resume Claude Code session
 ## Search
 
 - **In-session find** (⌘F) — case / word / regex toggles, highlight-all + active match via the CSS Custom Highlight API, next/prev wrap, editable jump-to-match counter. Memoized (`React.memo`) so large sessions don't lag. → `2026-06-05-in-session-find-design`
+- **Turn filter** — a header dropdown narrowing the transcript to one kind of turn: user messages (incl. slash commands), assistant replies, tool-calling turns, or ⚑ bookmarked. Runs before compact; the find bar is fed the same filtered list, so **find searches what you see**. Per-view state, reset on session switch; a bookmark jump into a narrowed view widens it automatically. → `2026-08-05-turn-filter-design`
 - Cross-transcript search by content (sidebar search box). The same box also matches a session's project and **both** its names — the local alias and claude's auto-title, since a renamed row shows both. (Sorting by Title uses the alias when set.)
 
 ## Organization
