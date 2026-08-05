@@ -297,6 +297,35 @@ pub fn message_snippets(path: &Path, wanted: &HashSet<Uuid>) -> HashMap<Uuid, St
     out
 }
 
+/// [`message_snippets`] plus each message's timestamp — for views that show a
+/// preview with its time without opening the session (the bookmark browser).
+pub fn message_previews(
+    path: &Path,
+    wanted: &HashSet<Uuid>,
+) -> HashMap<Uuid, (String, Option<chrono::DateTime<chrono::Utc>>)> {
+    let mut out = HashMap::new();
+    if wanted.is_empty() {
+        return out;
+    }
+    let outcome = match parse_file(path) {
+        Ok(o) => o,
+        Err(_) => return out,
+    };
+    for ev in &outcome.events {
+        let Some(id) = ev.uuid() else { continue };
+        if !wanted.contains(&id) || out.contains_key(&id) {
+            continue;
+        }
+        if let Some(text) = preview_text(ev) {
+            let line = one_line_truncated(&text, 60);
+            if !line.is_empty() {
+                out.insert(id, (line, ev.timestamp()));
+            }
+        }
+    }
+    out
+}
+
 fn preview_text(ev: &Event) -> Option<String> {
     match ev {
         Event::User(u) => match &u.message.content {
@@ -444,6 +473,34 @@ pub fn search_sessions(root: &Path, query: &str) -> Result<Vec<Uuid>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn message_previews_carry_the_timestamp() {
+        use std::collections::HashSet;
+        let root = std::env::temp_dir().join(format!("cm-prev-{}", std::process::id()));
+        let proj = root.join("projects").join("-tmp-proj");
+        fs::create_dir_all(&proj).unwrap();
+        let path = proj.join("p.jsonl");
+        let u1 = "00000000-0000-0000-0000-0000000000b1";
+        fs::write(
+            &path,
+            format!(
+                concat!(
+                    r#"{{"type":"user","uuid":"{u}","timestamp":"2026-08-05T10:00:00Z","message":{{"role":"user","content":"bookmark me"}}}}"#,
+                    "\n",
+                ),
+                u = u1,
+            ),
+        )
+        .unwrap();
+
+        let wanted: HashSet<Uuid> = [Uuid::parse_str(u1).unwrap()].into_iter().collect();
+        let got = message_previews(&path, &wanted);
+        let (snippet, ts) = got.get(&Uuid::parse_str(u1).unwrap()).unwrap();
+        assert_eq!(snippet, "bookmark me");
+        assert_eq!(ts.unwrap().timestamp(), 1_785_924_000);
+        std::fs::remove_dir_all(&root).ok();
+    }
 
     #[test]
     fn message_snippets_resolves_text_and_truncates() {

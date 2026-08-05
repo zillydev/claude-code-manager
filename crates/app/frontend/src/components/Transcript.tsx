@@ -54,7 +54,7 @@ export default function Transcript({
   const compact = config.ui.compact;
   const statsOpen = config.ui.detailsOpen;
   // Local alias/note for this session (claude-code-manager metadata, not the .jsonl).
-  const { meta, setSessionTags } = useSessionMeta();
+  const { meta, setSessionTags, toggleBookmark } = useSessionMeta();
   const metaEntry = meta.sessions[session.id];
   const bottomRef = useRef<HTMLDivElement>(null);
   const turnsRef = useRef<HTMLDivElement>(null);
@@ -79,6 +79,33 @@ export default function Transcript({
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [setPinned]);
   const prevSessionId = useRef<string | null>(null);
+  // Scroll to + flash a bookmarked message. Compact view may be hiding the
+  // turn (a bookmarked mid-run message) — expand and retry once after the
+  // re-render rather than silently doing nothing.
+  const jumpToUuid = useCallback(
+    (uuid: string) => {
+      const tryScroll = () => {
+        const el = turnsRef.current?.querySelector<HTMLElement>(
+          `[data-msg-uuids~="${uuid}"]`,
+        );
+        if (!el) return false;
+        setPinned(false);
+        el.scrollIntoView({ block: "center" });
+        el.classList.add("ring-2", "ring-[var(--color-accent)]", "rounded");
+        setTimeout(
+          () => el.classList.remove("ring-2", "ring-[var(--color-accent)]", "rounded"),
+          1600,
+        );
+        return true;
+      };
+      if (tryScroll()) return;
+      if (compact) {
+        setConfig({ ui: { compact: false } });
+        requestAnimationFrame(() => requestAnimationFrame(tryScroll));
+      }
+    },
+    [compact, setConfig, setPinned],
+  );
 
   const editor = useEditor();
   const [editingUuid, setEditingUuid] = useState<string | null>(null);
@@ -92,6 +119,26 @@ export default function Transcript({
   // match is mounted & countable. Declared before the scroll effects because
   // they key on its length — toggling compact reshapes this (not session.turns).
   const visibleTurns = compact && !find.open ? filterCompact(session.turns) : session.turns;
+
+  // This session's bookmarks, in transcript order, labelled from the rendered
+  // turns — no backend needed while the session is open.
+  const bookmarkSet = new Set(metaEntry?.bookmarks ?? []);
+  const bookmarkItems = session.turns
+    .filter(
+      (t): t is Extract<RenderedTurn, { type: "user" } | { type: "assistant" }> =>
+        (t.type === "user" || t.type === "assistant") && bookmarkSet.has(t.uuid),
+    )
+    .map((t) => ({
+      uuid: t.uuid,
+      role: t.type,
+      ts: t.timestamp ? formatTime(t.timestamp) : "--:--",
+      snippet:
+        (t.type === "user"
+          ? t.text
+          : (t.blocks.find((b) => b.type === "text") as { text?: string } | undefined)?.text ??
+            "(no text)"
+        ).slice(0, 80),
+    }));
 
   // Stable handlers so the memoized <Turn>s don't re-render on every find
   // keystroke. useEditor's methods are useCallback([])-stable, and sourcePath
@@ -110,8 +157,14 @@ export default function Transcript({
   // which are props of memoized Turns (see the identity note above) — stay
   // identity-stable: `meta` changes on any tag edit, and the context's
   // setSessionTags is rebuilt on every provider render.
-  const tagSrcRef = useRef({ meta, id: session.id, setSessionTags });
-  tagSrcRef.current = { meta, id: session.id, setSessionTags };
+  const tagSrcRef = useRef({ meta, id: session.id, setSessionTags, toggleBookmark });
+  tagSrcRef.current = { meta, id: session.id, setSessionTags, toggleBookmark };
+  // Stable via the ref for the same reason as inheritTags: context methods are
+  // rebuilt every provider render, and this is a prop of memoized Turns.
+  const handleToggleBookmark = useCallback((uuid: string) => {
+    const { id, toggleBookmark: tb } = tagSrcRef.current;
+    tb(id, uuid);
+  }, []);
   const inheritTags = useCallback((newId: string | undefined) => {
     const { meta: m, id, setSessionTags: set } = tagSrcRef.current;
     const tags = entryTags(m.sessions[id]);
@@ -247,6 +300,41 @@ export default function Transcript({
           </span>
         )}
         <div className="ml-auto flex gap-2 items-center">
+          {bookmarkItems.length > 0 && (
+            <Dropdown
+              trigger={`⚑ ${bookmarkItems.length}`}
+              title="Bookmarks in this session"
+              triggerClassName="text-xs px-2 py-1 rounded border border-[var(--color-border)] text-[var(--color-accent)] hover:border-[var(--color-accent)] transition-colors"
+            >
+              {(close) => (
+                <>
+                  {bookmarkItems.map((b) => (
+                    <button
+                      key={b.uuid}
+                      role="menuitem"
+                      className={`${menuItemClass} flex items-baseline gap-2 max-w-md`}
+                      onClick={() => {
+                        close();
+                        jumpToUuid(b.uuid);
+                      }}
+                    >
+                      <span className="text-xs text-[var(--color-text-dim)] shrink-0">{b.ts}</span>
+                      <span
+                        className={`shrink-0 text-xs font-medium ${
+                          b.role === "user"
+                            ? "text-[var(--color-user)]"
+                            : "text-[var(--color-assistant)]"
+                        }`}
+                      >
+                        {b.role}
+                      </span>
+                      <span className="truncate">{b.snippet}</span>
+                    </button>
+                  ))}
+                </>
+              )}
+            </Dropdown>
+          )}
           {onViewTree && (
             <button
               onClick={onViewTree}
@@ -360,6 +448,8 @@ export default function Transcript({
                 onSaveEdit={handleSaveEdit}
                 onFork={handleFork}
                 onDelete={handleDelete}
+                bookmarked={ownUuid !== null && bookmarkSet.has(ownUuid)}
+                onToggleBookmark={handleToggleBookmark}
                 forkPending={!!forkPending}
                 editPending={!!editPending}
                 deletePending={!!deletePending}
@@ -495,6 +585,8 @@ const Turn = memo(function Turn({
   onSaveEdit,
   onFork,
   onDelete,
+  bookmarked,
+  onToggleBookmark,
   forkPending,
   editPending,
   deletePending,
@@ -511,6 +603,8 @@ const Turn = memo(function Turn({
   onSaveEdit: (uuid: string) => void;
   onFork: (forkUuid: string) => void;
   onDelete: (uuid: string) => void;
+  bookmarked: boolean;
+  onToggleBookmark: (uuid: string) => void;
   forkPending: boolean;
   editPending: boolean;
   deletePending: boolean;
@@ -536,6 +630,8 @@ const Turn = memo(function Turn({
               onEdit={() => editUuid && onStartEdit(editUuid, turn.text)}
               onFork={() => onFork(turn.fork_uuid)}
               onDelete={() => onDelete(turn.uuid)}
+              bookmarked={bookmarked}
+              onToggleBookmark={() => onToggleBookmark(turn.uuid)}
               messageId={turn.uuid}
               canMutate={turn.editable}
               forkPending={forkPending}
@@ -545,6 +641,9 @@ const Turn = memo(function Turn({
               {ts}
             </span>
             <span className="font-medium text-[var(--color-user)]">user</span>
+            {bookmarked && (
+              <span className="text-[var(--color-accent)] text-xs" title="Bookmarked">⚑</span>
+            )}
           </div>
           {editing ? (
             // Editing needs the room: full width, not the bubble.
@@ -583,6 +682,9 @@ const Turn = memo(function Turn({
                 ({shortModel(turn.model)})
               </span>
             )}
+            {bookmarked && (
+              <span className="text-[var(--color-accent)] text-xs" title="Bookmarked">⚑</span>
+            )}
             <TurnActions
               onEdit={() => {
                 if (!editUuid) return;
@@ -591,6 +693,8 @@ const Turn = memo(function Turn({
               }}
               onFork={() => onFork(turn.fork_uuid)}
               onDelete={() => onDelete(turn.uuid)}
+              bookmarked={bookmarked}
+              onToggleBookmark={() => onToggleBookmark(turn.uuid)}
               messageId={turn.uuid}
               canMutate={turn.editable}
               forkPending={forkPending}
@@ -690,6 +794,8 @@ function TurnActions({
   onEdit,
   onFork,
   onDelete,
+  bookmarked,
+  onToggleBookmark,
   messageId,
   canMutate,
   forkPending,
@@ -698,6 +804,8 @@ function TurnActions({
   onEdit: () => void;
   onFork: () => void;
   onDelete: () => void;
+  bookmarked: boolean;
+  onToggleBookmark: () => void;
   messageId: string;
   /// Edit/delete operate on the active path, so they're offered only on the
   /// active segment. Fork (resolves by uuid against the message's own tree) and
@@ -745,6 +853,17 @@ function TurnActions({
               }}
             >
               Fork from here
+            </button>
+            <button
+              role="menuitem"
+              className={menuItemClass}
+              title="Flag this message; find it via the header ⚑ list or the sidebar bookmark browser"
+              onClick={() => {
+                close();
+                onToggleBookmark();
+              }}
+            >
+              {bookmarked ? "Remove bookmark" : "Bookmark"}
             </button>
             {canMutate && (
               <ConfirmMenuItem

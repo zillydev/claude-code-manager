@@ -7,6 +7,7 @@ import TerminalPane from "./components/TerminalPane";
 import TabToggle from "./components/TabToggle";
 import LineageBanner from "./components/LineageBanner";
 import LineageTree from "./components/LineageTree";
+import BookmarkBrowser from "./components/BookmarkBrowser";
 import Settings from "./components/Settings";
 import Spinner from "./components/Spinner";
 import { usePersistentState } from "./hooks/usePersistentState";
@@ -29,6 +30,7 @@ export default function App() {
   const [sidebarWidth, setSidebarWidth] = useState(config.ui.sidebarWidth);
   const [activeTab, setActiveTab] = useState<"manager" | "terminal">("manager");
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [bookmarksOpen, setBookmarksOpen] = useState(false);
   // Per-session terminal liveness for THIS window: drives the Terminal tab dot
   // and enables the close-✕. Fed by TerminalView via TerminalPane's onStatus.
   const [terminalStatus, setTerminalStatus] = useState<
@@ -257,6 +259,7 @@ export default function App() {
               onNewSession={newSession}
               onViewTree={(s) => setLineageFor(s.id)}
               onOpenSettings={() => setSettingsOpen(true)}
+              onOpenBookmarks={() => setBookmarksOpen(true)}
             />
           </div>
           {/* Drag handle */}
@@ -393,6 +396,16 @@ export default function App() {
             setLineageFor(null);
           }}
           onClose={() => setLineageFor(null)}
+        />
+      )}
+      {bookmarksOpen && (
+        <BookmarkBrowser
+          sessions={sessions}
+          onOpen={(s, messageUuid) => {
+            openSession(s, messageUuid);
+            setBookmarksOpen(false);
+          }}
+          onClose={() => setBookmarksOpen(false)}
         />
       )}
       {settingsOpen && <Settings onClose={() => setSettingsOpen(false)} />}

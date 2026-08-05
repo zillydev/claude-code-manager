@@ -13,6 +13,7 @@ import {
   removeTagIn,
   addSessionTagIn,
   renameTagIn,
+  toggleBookmarkIn,
   reconcileMeta,
   nextPaletteColor,
   sessionTitle,
@@ -320,5 +321,36 @@ describe("pruneTagFilter", () => {
   it("returns the same empty set when nothing is selected", () => {
     const sel = new Set<string>();
     expect(pruneTagFilter(sel, [])).toBe(sel);
+  });
+});
+
+describe("toggleBookmarkIn", () => {
+  it("adds then removes, pruning an otherwise-empty entry", () => {
+    const m = toggleBookmarkIn(DEFAULT_META, "x", "u1");
+    expect(m.sessions["x"].bookmarks).toEqual(["u1"]);
+    const m2 = toggleBookmarkIn(m, "x", "u1");
+    expect(m2.sessions["x"]).toBeUndefined();
+  });
+
+  it("keeps insertion order and other bookmarks intact", () => {
+    let m = toggleBookmarkIn(DEFAULT_META, "x", "u1");
+    m = toggleBookmarkIn(m, "x", "u2");
+    m = toggleBookmarkIn(m, "x", "u3");
+    m = toggleBookmarkIn(m, "x", "u2");
+    expect(m.sessions["x"].bookmarks).toEqual(["u1", "u3"]);
+  });
+
+  it("an entry with ONLY bookmarks survives pruning", () => {
+    // The prune rule predates bookmarks; forgetting it here would silently drop
+    // a bookmark-only entry on the next unrelated meta write.
+    const m = toggleBookmarkIn(DEFAULT_META, "x", "u1");
+    const m2 = setAliasIn(m, "x", "");
+    expect(m2.sessions["x"]).toEqual({ bookmarks: ["u1"] });
+  });
+
+  it("does not mutate the input", () => {
+    const m = toggleBookmarkIn(base, "abc", "u1");
+    expect(base.sessions["abc"].bookmarks).toBeUndefined();
+    expect(m.sessions["abc"].bookmarks).toEqual(["u1"]);
   });
 });

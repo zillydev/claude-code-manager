@@ -17,6 +17,7 @@ import {
   upsertTagIn,
   removeTagIn,
   renameTagIn,
+  toggleBookmarkIn,
   addSessionTagIn,
   reconcileMeta,
   type SessionMeta,
@@ -27,6 +28,8 @@ interface SessionMetaCtx {
   setAlias: (id: string, alias: string | null) => void;
   setNote: (id: string, note: string | null) => void;
   setSessionTags: (id: string, names: string[]) => void;
+  /** Toggle a message bookmark (uuid = the turn's head uuid). */
+  toggleBookmark: (id: string, uuid: string) => void;
   /** Atomic create-if-missing + add-to-session (one write; see addSessionTagIn). */
   addSessionTag: (id: string, name: string) => void;
   upsertTag: (name: string, color: string) => void;
@@ -39,6 +42,7 @@ const Ctx = createContext<SessionMetaCtx>({
   setAlias: () => {},
   setNote: () => {},
   setSessionTags: () => {},
+  toggleBookmark: () => {},
   addSessionTag: () => {},
   upsertTag: () => {},
   renameTag: () => {},
@@ -109,6 +113,7 @@ export function SessionMetaProvider({ children }: { children: ReactNode }) {
     setAlias: (id, alias) => apply((m) => setAliasIn(m, id, alias)),
     setNote: (id, note) => apply((m) => setNoteIn(m, id, note)),
     setSessionTags: (id, names) => apply((m) => setSessionTagsIn(m, id, names)),
+    toggleBookmark: (id, uuid) => apply((m) => toggleBookmarkIn(m, id, uuid)),
     addSessionTag: (id, name) => apply((m) => addSessionTagIn(m, id, name)),
     upsertTag: (name, color) => apply((m) => upsertTagIn(m, name, color)),
     renameTag: (oldName, newName) => apply((m) => renameTagIn(m, oldName, newName)),

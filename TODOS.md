@@ -1,37 +1,4 @@
-- UI overhaul
-  - [x] create new session from directory. add two options, create session from pasted directory path, or if a project is already selected, create session in that project
-  - [x] loading indicators on everything
-  - [x] brainstorm on how best to show forked sessions. ideally some tree UI for best visualisation of where a session began, and how many different sessions were forked from it
-    - shipped the **lineage tree** overlay: a session's whole fork/copy family as an indented tree (◀ origin · ⑂ forked / ⧉ copied · N shared · ● you), opened from the transcript ⑂ Tree button or clickable sidebar badges; click a node to open it. A branch label jumps to the **parent scrolled to + flashing the branch message** (matched across merged assistant turns); it's plain text with a tooltip when that point is on an edited-away branch the transcript doesn't render.
-  - [x] move the edit, fork and delete buttons under a three dots menu, so they don't accidentally get clicked
-    - per-turn ⋯ menu (Edit / Fork / Delete-with-confirm); copy-id kept as a separate one-click button. Shares a `Dropdown` component with the sidebar menu below.
-  - [x] when switching to compact view mode, then back to full, the scroll position gets moved to somewhere random in between. if I was scrolled to the bottom before switching, I should still be there after switching
-    - the scroll-follow effect keyed on `session.turns.length` (which a compact toggle doesn't change); re-keyed on the rendered `visibleTurns.length`, so at-bottom re-pins. (Preserving an arbitrary mid-scroll across the toggle left as a non-goal.)
-  - [x] remove the "back" button from the title bar
-  - [x] I'm thinking if there's a better place for the manager and terminal buttons, since they take up unnecessary space at the top. maybe include them in the title bar itself
-    - folded the Manager/Terminal toggle into the session header (right cluster, both views) via a shared `TabToggle`; removed the standalone tab row.
-  - [x] add cmd+b shortcut to open and close sidebar
-  - [x] the collapse/expand sidebar button is way too small and barely visible
-    - enlarged both to clear buttons (bigger «/» glyphs, padding, hover surface, ⌘B in the tooltip).
-  - [x] discuss about where best to add rename session option
-    - first added it to a per-row sidebar ⋯ menu, then **removed rename from the UI entirely**: claude-code-manager's rename only appends a `custom-title` line (claude's own `/rename` format), which a *live* `claude` process in the terminal won't re-read — so it looked out of sync. Use `/rename` in claude when needed. The sidebar ⋯ menu remains (Delete-only).
-  - [x] UI customisation through stored configuration
-    - **Settings panel** (⚙) backed by a JSON config at `~/.config/claude-code-manager/config.json` (override via `$CLAUDE_CODE_MANAGER_CONFIG_DIR`/`$XDG_CONFIG_HOME`): theme (Dark/Light), typography (font size, compact density via Tailwind's `--spacing`, UI + Mono fonts), and behavior defaults (compact/details/sidebar/launch-tab). Live + broadcast across windows. → spec/plan `2026-06-28-ui-customization`.
-  - [x] show indicators for which sessions are currently running, and if claude has stopped/asking for input in a session, which are unread
-    - shipped as two states: **running** (green, live) + **unread** (accent + bold title). The separate "asking for input" state was cut by decision to keep it simple.
-- Concurrency
-  - [x] identify gaps which could cause issues when multiple windows of claude manager are open
-    - audited; the remaining low-impact gaps (rename-during-active-write race; stale transcript when a session open in another window is deleted) are knowingly left.
-  - [x] shouldn't allow two claude terminal sessions to open of the same session as it could cause corruption
-    - one PTY per session app-wide; second window blocks + offers "Switch to it".
-  - [x] avoid recomputing things. keep the state shared so every window feels as snappy as a single window
-    - single backend poller computes discovery + activity once and broadcasts to all windows. (Also fixed: spawned windows lacked the event capability, so multi-window was broken before this.) Watcher-dedup for two windows viewing the same session was a conscious non-goal (negligible gain, dup-turn risk).
-  - [x] add option to close the terminal session of a session. also add an indicator to the terminal tab button whether a terminal session is open or not for that session
-    - a **green dot** on the Terminal tab button (both headers) marks a live claude terminal for the open session; a hover-**✕** closes it. Close reuses the existing process-exit → `[process exited]` + Restart path rather than adding a "closed" state. Also fixed a pre-existing cross-window gap: PTY teardown was signalled only to the owner, so a window blocked on "open in another window" never recovered — a global `terminal-released` broadcast now frees it. → spec/plan `2026-07-08-close-terminal-session`.
-- Session organization
-  - [x] the project selector works well, but I want more options to organize my sessions. I want tags for now, brainstorm on more options
-    - shipped **tags** (global name+color registry, colored chips on rows, per-session via a Tags… editor with autocomplete + palette), a **per-session note** (✎ indicator; full text under the details panel), and a sidebar **tag filter** (any-of, combines with project/date). Pin/archive were considered and deferred. All stored in a separate `~/.config/claude-code-manager/session-meta.json` keyed by session id — claude's `.jsonl` is never touched. → spec/plan `2026-07-06-session-organization`.
-  - [x] I also want to add back a rename option, whose value will be differently stored than what claude code uses to name its sessions. display this in addition to the claude session name value
-    - **local alias** in the same session-meta store (NOT claude's `custom-title`, so no live-terminal desync): row ⋯ menu → Rename, inline input; alias shows as the primary title with claude's auto-name dim beneath (also in the transcript header). Empty alias clears.
-  - [x] rename works, but when I sort sessions on title, the renamed alias should be used instead
-    - sort- and text-filter-by-title now use a shared `sessionTitle(meta, id, claudeTitle)` helper (alias if set, else claude's auto-name) — matching the name the row shows. So renamed sessions order and match by their alias.
+- [ ] some place to see all links from a session
+- [ ] better searching and filtering in a session
+- [ ] better searching and filtering across sessions
+- [x] add bookmarking of messages
