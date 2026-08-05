@@ -8,6 +8,7 @@ import TabToggle from "./components/TabToggle";
 import LineageBanner from "./components/LineageBanner";
 import LineageTree from "./components/LineageTree";
 import BookmarkBrowser from "./components/BookmarkBrowser";
+import GlobalFind from "./components/GlobalFind";
 import Settings from "./components/Settings";
 import Spinner from "./components/Spinner";
 import { usePersistentState } from "./hooks/usePersistentState";
@@ -31,6 +32,7 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<"manager" | "terminal">("manager");
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [bookmarksOpen, setBookmarksOpen] = useState(false);
+  const [findOpen, setFindOpen] = useState(false);
   // Per-session terminal liveness for THIS window: drives the Terminal tab dot
   // and enables the close-✕. Fed by TerminalView via TerminalPane's onStatus.
   const [terminalStatus, setTerminalStatus] = useState<
@@ -202,6 +204,13 @@ export default function App() {
   // claude/shells. Capture phase so it beats xterm when the terminal is focused.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      // ⌘⇧F — global find. Checked before the no-shift guard below.
+      if (e.metaKey && e.shiftKey && !e.ctrlKey && !e.altKey && e.key.toLowerCase() === "f") {
+        e.preventDefault();
+        e.stopPropagation();
+        setFindOpen(true);
+        return;
+      }
       if (!e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
       const k = e.key.toLowerCase();
       if (k === "e") {
@@ -260,6 +269,7 @@ export default function App() {
               onViewTree={(s) => setLineageFor(s.id)}
               onOpenSettings={() => setSettingsOpen(true)}
               onOpenBookmarks={() => setBookmarksOpen(true)}
+              onOpenFind={() => setFindOpen(true)}
             />
           </div>
           {/* Drag handle */}
@@ -396,6 +406,16 @@ export default function App() {
             setLineageFor(null);
           }}
           onClose={() => setLineageFor(null)}
+        />
+      )}
+      {findOpen && (
+        <GlobalFind
+          sessions={sessions}
+          onOpen={(s, messageUuid) => {
+            openSession(s, messageUuid);
+            setFindOpen(false);
+          }}
+          onClose={() => setFindOpen(false)}
         />
       )}
       {bookmarksOpen && (

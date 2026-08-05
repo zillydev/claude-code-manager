@@ -56,29 +56,68 @@ pub async fn refresh_sessions(app: AppHandle) -> Result<Vec<SessionSummary>, Str
     .map_err(|e| e.to_string())?
 }
 
+#[derive(serde::Deserialize)]
+pub struct SearchFileDto {
+    pub file_path: String,
+    pub session_id: String,
+    pub only_uuids: Option<Vec<String>>,
+}
+
 #[derive(Serialize)]
-pub struct SearchHitDto {
-    pub id: String,
-    pub count: usize,
-    pub first_uuid: Option<String>,
+pub struct MessageHitDto {
+    pub session_id: String,
+    pub uuid: Option<String>,
+    pub role: String,
+    pub ts: Option<i64>,
     pub snippet: String,
 }
 
+#[derive(Serialize)]
+pub struct SearchResultDto {
+    pub hits: Vec<MessageHitDto>,
+    pub truncated: bool,
+}
+
+/// The global-find engine: candidate files come prefiltered from the frontend
+/// (project/tag/session/mtime narrowing happens there, where the metadata is).
 #[tauri::command]
-pub async fn search_transcripts(query: String) -> Result<Vec<SearchHitDto>, String> {
-    // Searches every transcript on disk — keep it off the main thread.
-    tauri::async_runtime::spawn_blocking(move || -> Result<Vec<SearchHitDto>, String> {
-        let root = paths::default_claude_root().ok_or("could not locate ~/.claude")?;
-        let hits = store::search_sessions_detailed(&root, &query).map_err(|e| e.to_string())?;
-        Ok(hits
+pub async fn search_messages(
+    files: Vec<SearchFileDto>,
+    text: String,
+    role: Option<String>,
+    after: Option<i64>,
+    before: Option<i64>,
+    tool: Option<String>,
+    has_link: bool,
+) -> Result<SearchResultDto, String> {
+    tauri::async_runtime::spawn_blocking(move || -> Result<SearchResultDto, String> {
+        let files: Vec<store::SearchFile> = files
             .into_iter()
-            .map(|h| SearchHitDto {
-                id: h.id.to_string(),
-                count: h.count,
-                first_uuid: h.first_uuid.map(|u| u.to_string()),
-                snippet: h.snippet,
+            .filter_map(|f| {
+                Some(store::SearchFile {
+                    path: PathBuf::from(f.file_path),
+                    session_id: uuid::Uuid::parse_str(&f.session_id).ok()?,
+                    only_uuids: f.only_uuids.map(|us| {
+                        us.iter().filter_map(|u| uuid::Uuid::parse_str(u).ok()).collect()
+                    }),
+                })
             })
-            .collect())
+            .collect();
+        let filters = store::MessageFilters { text, role, after, before, tool, has_link, limit: 200 };
+        let (hits, truncated) = store::search_messages(&files, &filters);
+        Ok(SearchResultDto {
+            hits: hits
+                .into_iter()
+                .map(|h| MessageHitDto {
+                    session_id: h.session_id.to_string(),
+                    uuid: h.uuid.map(|u| u.to_string()),
+                    role: h.role,
+                    ts: h.ts,
+                    snippet: h.snippet,
+                })
+                .collect(),
+            truncated,
+        })
     })
     .await
     .map_err(|e| e.to_string())?

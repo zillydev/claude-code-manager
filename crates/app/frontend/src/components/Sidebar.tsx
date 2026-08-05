@@ -1,5 +1,4 @@
-import { useState, useMemo, useCallback, useRef, useEffect } from "react";
-import { invoke } from "@tauri-apps/api/core";
+import { useState, useMemo, useEffect } from "react";
 import type { SessionSummary, SortField, SortDir, DateRange } from "../types";
 import Spinner from "./Spinner";
 import Dropdown, { menuItemClass, ConfirmMenuItem } from "./Dropdown";
@@ -36,6 +35,8 @@ interface Props {
   onOpenSettings: () => void;
   /** Open the all-sessions bookmark browser overlay (mounted by App). */
   onOpenBookmarks: () => void;
+  /** Open the global find overlay (⌘⇧F; mounted by App). */
+  onOpenFind: () => void;
 }
 
 export default function Sidebar({
@@ -51,6 +52,7 @@ export default function Sidebar({
   onViewTree,
   onOpenSettings,
   onOpenBookmarks,
+  onOpenFind,
 }: Props) {
   const { meta, setAlias, setSessionTags } = useSessionMeta();
   const [renamingId, setRenamingId] = useState<string | null>(null);
@@ -76,16 +78,9 @@ export default function Sidebar({
   }, [meta.tags]);
   const [sortField, setSortField] = useState<SortField>("updated");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
-  // id → hit detail while a content search is active (why the row matched).
-  const [searchHits, setSearchHits] = useState<Map<
-    string,
-    { count: number; first_uuid: string | null; snippet: string }
-  > | null>(null);
-  const [searching, setSearching] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const [hoveredId, setHoveredId] = useState<string | null>(null);
-  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Fork lineage: look up a session by id, and find children forked from a source.
   const byId = useMemo(
@@ -173,43 +168,6 @@ export default function Sidebar({
     }
   };
 
-  // Deep search: debounce 400ms, run backend search, store matching IDs.
-  const runSearch = useCallback(
-    (q: string) => {
-      if (debounceRef.current) clearTimeout(debounceRef.current);
-      if (!q.trim()) {
-        setSearchHits(null);
-        setSearching(false);
-        return;
-      }
-      setSearching(true);
-      debounceRef.current = setTimeout(async () => {
-        try {
-          const hits = await invoke<
-            { id: string; count: number; first_uuid: string | null; snippet: string }[]
-          >("search_transcripts", { query: q });
-          setSearchHits(new Map(hits.map((h) => [h.id, h])));
-        } catch {
-          setSearchHits(null);
-        } finally {
-          setSearching(false);
-        }
-      }, 400);
-    },
-    []
-  );
-
-  useEffect(() => {
-    return () => {
-      if (debounceRef.current) clearTimeout(debounceRef.current);
-    };
-  }, []);
-
-  const handleTextChange = (val: string) => {
-    setTextFilter(val);
-    runSearch(val);
-  };
-
   const now = Math.floor(Date.now() / 1000);
 
   const filtered = useMemo(() => {
@@ -231,12 +189,11 @@ export default function Sidebar({
         const localMatch =
           s.project_label.toLowerCase().includes(q) ||
           matchesSessionName(meta, s.id, s.title, textFilter);
-        const deepMatch = searchHits ? searchHits.has(s.id) : false;
-        if (!localMatch && !deepMatch) return false;
+        if (!localMatch) return false;
       }
       return true;
     });
-  }, [sessions, filter, dateRange, textFilter, searchHits, now, meta, tagFilter, activity]);
+  }, [sessions, filter, dateRange, textFilter, now, meta, tagFilter, activity]);
 
   const sorted = useMemo(() => {
     const items = [...filtered];
@@ -289,14 +246,14 @@ export default function Sidebar({
             <input
               type="text"
               value={textFilter}
-              onChange={(e) => handleTextChange(e.target.value)}
+              onChange={(e) => setTextFilter(e.target.value)}
               placeholder="Search sessions…"
               className="w-full bg-[var(--color-bg)] text-[var(--color-text)] pl-2 pr-6 py-1 rounded text-xs border border-[var(--color-border)] outline-none focus:border-[var(--color-accent)]"
             />
             {textFilter && (
               <button
                 // Same path as typing: also clears the deep-search hits/spinner.
-                onClick={() => handleTextChange("")}
+                onClick={() => setTextFilter("")}
                 title="Clear search"
                 className="absolute right-1 top-1/2 -translate-y-1/2 text-xs leading-none px-1 text-[var(--color-text-dim)] hover:text-[var(--color-text)]"
               >
@@ -304,6 +261,13 @@ export default function Sidebar({
               </button>
             )}
           </div>
+          <button
+            onClick={onOpenFind}
+            className="text-sm leading-none px-1.5 py-1 rounded text-[var(--color-text-dim)] hover:text-[var(--color-accent)] hover:bg-[var(--color-surface-hover)]"
+            title="Global find (⌘⇧F) — search all sessions with in:, from:, tag:, …"
+          >
+            🔍
+          </button>
           <button
             onClick={onOpenBookmarks}
             className="text-sm leading-none px-1.5 py-1 rounded text-[var(--color-text-dim)] hover:text-[var(--color-accent)] hover:bg-[var(--color-surface-hover)]"
@@ -569,7 +533,7 @@ export default function Sidebar({
               ) : (
               /* Main clickable area */
               <button
-                onClick={() => onSelect(s, searchHits?.get(s.id)?.first_uuid ?? undefined)}
+                onClick={() => onSelect(s)}
                 className="flex-1 text-left px-3 py-2 min-w-0"
               >
                   <div className="flex items-center justify-between">
@@ -600,14 +564,6 @@ export default function Sidebar({
                       }`}
                     >
                       {s.title}
-                    </div>
-                  )}
-                  {textFilter.trim() && searchHits?.get(s.id) && (
-                    <div className="text-[10px] text-[var(--color-text-dim)] truncate mt-0.5">
-                      <span className="text-[var(--color-accent)]">
-                        {searchHits.get(s.id)!.count}×
-                      </span>{" "}
-                      {searchHits.get(s.id)!.snippet}
                     </div>
                   )}
                   <div className="flex items-center gap-2 text-[10px] text-[var(--color-text-dim)] mt-0.5">
@@ -777,11 +733,6 @@ export default function Sidebar({
       {/* Footer */}
       <div className="p-1.5 border-t border-[var(--color-border)] text-[10px] text-[var(--color-text-dim)] text-center">
         {sorted.length}/{sessions.length} sessions
-        {searching && (
-          <span className="inline-flex items-center gap-1 ml-1">
-            · <Spinner /> searching…
-          </span>
-        )}
       </div>
 
       {tagsFor && (

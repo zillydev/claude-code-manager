@@ -127,7 +127,7 @@ pub fn run() {
             commands::resolve_branch_messages,
             commands::open_session,
             commands::stop_watching,
-            commands::search_transcripts,
+            commands::search_messages,
             commands::open_for_edit,
             commands::commit_session,
             commands::fork_session,
