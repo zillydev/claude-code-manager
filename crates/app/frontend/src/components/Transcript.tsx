@@ -40,6 +40,8 @@ interface Props {
   visible?: boolean;
   /** The Manager/Terminal toggle, slotted into the header's right cluster. */
   tabs?: ReactNode;
+  /** ⌘F: open the global find prefilled to this session (App mounts it). */
+  onOpenFind?: (sessionId: string) => void;
 }
 
 export default function Transcript({
@@ -50,6 +52,7 @@ export default function Transcript({
   scrollToMessage,
   visible = true,
   tabs,
+  onOpenFind,
 }: Props) {
   // compact / details are now config-backed (global + persisted), set-and-stick.
   const { config, setConfig } = useConfig();
@@ -144,7 +147,7 @@ export default function Transcript({
   );
 
   const find = useFind(turnsRef, filteredTurns);
-  const { openFind, next: findNext, prev: findPrev } = find;
+  const { next: findNext, prev: findPrev } = find;
 
   // The turns actually rendered. Suspend compact while find is open so every
   // match is mounted & countable. Declared before the scroll effects because
@@ -296,9 +299,10 @@ export default function Transcript({
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "f") {
+      if ((e.metaKey || e.ctrlKey) && !e.shiftKey && e.key.toLowerCase() === "f") {
         e.preventDefault();
-        openFind();
+        // Same UI as ⌘⇧F, pinned to this session by id.
+        onOpenFind?.(session.id);
       } else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "g") {
         e.preventDefault();
         if (e.shiftKey) findPrev();
@@ -307,7 +311,7 @@ export default function Transcript({
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [openFind, findNext, findPrev]);
+  }, [onOpenFind, session.id, findNext, findPrev]);
 
   const { stats } = session;
 

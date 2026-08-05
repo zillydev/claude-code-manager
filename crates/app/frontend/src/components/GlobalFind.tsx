@@ -19,15 +19,18 @@ interface Hit {
  *  metadata lives; the backend walks only the candidate files. */
 export default function GlobalFind({
   sessions,
+  initialQuery,
   onOpen,
   onClose,
 }: {
   sessions: SessionSummary[];
+  /** Prefill (e.g. `session:<id> ` from ⌘F in an open session). */
+  initialQuery?: string;
   onOpen: (s: SessionSummary, messageUuid?: string) => void;
   onClose: () => void;
 }) {
   const { meta } = useSessionMeta();
-  const [input, setInput] = useState("");
+  const [input, setInput] = useState(initialQuery ?? "");
   const [running, setRunning] = useState(false);
   const [result, setResult] = useState<{ hits: Hit[]; truncated: boolean } | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -65,8 +68,15 @@ export default function GlobalFind({
       if (query.project && !s.project_label.toLowerCase().includes(query.project.toLowerCase()))
         return false;
       if (query.session) {
+        const v = query.session.toLowerCase();
         const name = sessionTitle(meta, s.id, s.title).toLowerCase();
-        if (!name.includes(query.session.toLowerCase()) && !s.title.toLowerCase().includes(query.session.toLowerCase()))
+        // An id (prefix) pins one session exactly — what ⌘F prefills — while a
+        // plain word still matches alias/title substrings.
+        if (
+          !s.id.toLowerCase().startsWith(v) &&
+          !name.includes(v) &&
+          !s.title.toLowerCase().includes(v)
+        )
           return false;
       }
       if (query.tags.length) {
