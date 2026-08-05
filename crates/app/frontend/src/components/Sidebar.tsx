@@ -33,6 +33,8 @@ interface Props {
   onNewSession: (cwd: string) => Promise<string>;
   onViewTree: (s: SessionSummary) => void;
   onOpenSettings: () => void;
+  /** Open the all-sessions bookmark browser overlay (mounted by App). */
+  onOpenBookmarks: () => void;
 }
 
 export default function Sidebar({
@@ -47,6 +49,7 @@ export default function Sidebar({
   onNewSession,
   onViewTree,
   onOpenSettings,
+  onOpenBookmarks,
 }: Props) {
   const { meta, setAlias, setSessionTags } = useSessionMeta();
   const [renamingId, setRenamingId] = useState<string | null>(null);
@@ -294,6 +297,13 @@ export default function Sidebar({
               </button>
             )}
           </div>
+          <button
+            onClick={onOpenBookmarks}
+            className="text-sm leading-none px-1.5 py-1 rounded text-[var(--color-text-dim)] hover:text-[var(--color-accent)] hover:bg-[var(--color-surface-hover)]"
+            title="Bookmarks — every flagged message across sessions"
+          >
+            ⚑
+          </button>
           <button
             onClick={onOpenSettings}
             className="text-sm leading-none px-1.5 py-1 rounded text-[var(--color-text-dim)] hover:text-[var(--color-accent)] hover:bg-[var(--color-surface-hover)]"

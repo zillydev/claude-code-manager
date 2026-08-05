@@ -357,6 +357,40 @@ pub async fn fork_session(
     .map_err(|e| e.to_string())?
 }
 
+#[derive(Serialize)]
+pub struct MessagePreview {
+    pub uuid: String,
+    pub snippet: String,
+    /// Epoch seconds of the message, when known.
+    pub timestamp: Option<i64>,
+}
+
+/// One-line previews (+ time) for specific message uuids in one session file —
+/// the bookmark browser labels bookmarks of sessions that aren't open. Uuids
+/// that don't resolve to a text turn are simply omitted; the frontend renders
+/// its own fallback for those.
+#[tauri::command]
+pub async fn message_previews(
+    file_path: String,
+    uuids: Vec<String>,
+) -> Result<Vec<MessagePreview>, String> {
+    tauri::async_runtime::spawn_blocking(move || -> Result<Vec<MessagePreview>, String> {
+        let wanted: std::collections::HashSet<uuid::Uuid> =
+            uuids.iter().filter_map(|u| uuid::Uuid::parse_str(u).ok()).collect();
+        let found = store::message_previews(std::path::Path::new(&file_path), &wanted);
+        Ok(found
+            .into_iter()
+            .map(|(u, (snippet, ts))| MessagePreview {
+                uuid: u.to_string(),
+                snippet,
+                timestamp: ts.map(|t| t.timestamp()),
+            })
+            .collect())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 /// Delete a single message (turn) by its uuid, writing a new flattened session
 /// (copy-on-edit). Reuses the surgery prune path: passing the turn's uuid as
 /// both ends of the range turn-snaps to the whole turn (an assistant turn pulls

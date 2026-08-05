@@ -131,6 +131,7 @@ pub fn run() {
             commands::open_for_edit,
             commands::commit_session,
             commands::fork_session,
+            commands::message_previews,
             commands::delete_session,
             commands::delete_message,
             commands::new_session,

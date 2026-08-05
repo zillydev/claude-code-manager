@@ -11,6 +11,8 @@ export interface SessionEntry {
   alias?: string | null;
   tags?: string[];
   note?: string | null;
+  /** Bookmarked message uuids (the turn's HEAD uuid), insertion order. */
+  bookmarks?: string[];
 }
 
 export interface SessionMeta {
@@ -151,8 +153,13 @@ function withEntry(
   const cur = meta.sessions[id] ?? {};
   const next = patch({ ...cur });
   const sessions = { ...meta.sessions };
-  // Prune: an entry with no alias, no tags, and no note is dropped entirely.
-  if (!next.alias && !next.note && (next.tags?.length ?? 0) === 0) {
+  // Prune: an entry with no alias, tags, note, or bookmarks is dropped entirely.
+  if (
+    !next.alias &&
+    !next.note &&
+    (next.tags?.length ?? 0) === 0 &&
+    (next.bookmarks?.length ?? 0) === 0
+  ) {
     delete sessions[id];
   } else {
     // Normalize away empty fields so the stored JSON stays minimal.
@@ -160,6 +167,7 @@ function withEntry(
     if (next.alias) clean.alias = next.alias;
     if (next.tags && next.tags.length > 0) clean.tags = next.tags;
     if (next.note) clean.note = next.note;
+    if (next.bookmarks && next.bookmarks.length > 0) clean.bookmarks = next.bookmarks;
     sessions[id] = clean;
   }
   return { ...meta, sessions };
@@ -177,6 +185,19 @@ export function setNoteIn(meta: SessionMeta, id: string, note: string | null): S
 
 export function setSessionTagsIn(meta: SessionMeta, id: string, names: string[]): SessionMeta {
   return withEntry(meta, id, (e) => ({ ...e, tags: names }));
+}
+
+/** Toggle a message bookmark on a session. The uuid is the turn's HEAD uuid —
+ *  stable across renders and present in the turn's `data-msg-uuids`, so every
+ *  view (marker, jump list, global browser) resolves it the same way. */
+export function toggleBookmarkIn(meta: SessionMeta, id: string, uuid: string): SessionMeta {
+  return withEntry(meta, id, (e) => {
+    const cur = e.bookmarks ?? [];
+    return {
+      ...e,
+      bookmarks: cur.includes(uuid) ? cur.filter((u) => u !== uuid) : [...cur, uuid],
+    };
+  });
 }
 
 /** Create a tag, or recolor it if the name already exists. */
