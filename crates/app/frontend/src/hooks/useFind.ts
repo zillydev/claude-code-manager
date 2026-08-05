@@ -52,7 +52,10 @@ export function useFind(containerRef: React.RefObject<HTMLElement | null>, turns
   // Recompute matches (exact data-model sources + markdown from the DOM).
   useLayoutEffect(() => {
     if (!open || deferredQuery === "") {
-      setMatches([]);
+      // Functional + bail-if-empty: this effect keys on `turns`, which callers
+      // may derive per render; unconditionally setting a fresh [] here turns
+      // that into an infinite render loop.
+      setMatches((prev) => (prev.length === 0 ? prev : []));
       setError(null);
       clearHighlights();
       return;
@@ -60,7 +63,7 @@ export function useFind(containerRef: React.RefObject<HTMLElement | null>, turns
     const m = compileMatcher(deferredQuery, opts);
     if (!m.ok) {
       setError(m.error);
-      setMatches([]);
+      setMatches((prev) => (prev.length === 0 ? prev : []));
       clearHighlights();
       return;
     }

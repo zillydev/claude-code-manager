@@ -125,15 +125,23 @@ export default function Transcript({
   const sourcePath = session.source_path;
 
   // This session's bookmarks, in transcript order, labelled from the rendered
-  // turns — no backend needed while the session is open.
-  const bookmarkSet = new Set(metaEntry?.bookmarks ?? []);
+  // turns — no backend needed while the session is open. Memoized because the
+  // set feeds filterTurns below, whose result feeds useFind.
+  const bookmarkUuids = metaEntry?.bookmarks;
+  const bookmarkSet = useMemo(() => new Set(bookmarkUuids ?? []), [bookmarkUuids]);
 
   // Every URL the conversation's own text mentioned, deduped, first wins.
   const links = useMemo(() => extractLinks(session.turns), [session.turns]);
 
   // The kind filter runs FIRST, and find is fed the same filtered list — find
   // searches what you see, so filter + find compose instead of conflicting.
-  const filteredTurns = filterTurns(session.turns, turnFilter, bookmarkSet);
+  // MUST be memoized: useFind's recompute effect keys on this list, and its
+  // empty-query branch sets state — an identity that changes every render loops
+  // render → effect → setState → render until React unmounts the tree.
+  const filteredTurns = useMemo(
+    () => filterTurns(session.turns, turnFilter, bookmarkSet),
+    [session.turns, turnFilter, bookmarkSet],
+  );
 
   const find = useFind(turnsRef, filteredTurns);
   const { openFind, next: findNext, prev: findPrev } = find;
