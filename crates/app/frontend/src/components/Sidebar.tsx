@@ -26,7 +26,8 @@ interface Props {
   activeId: string | null;
   activity: Map<string, LiveActivity>;
   lastViewed: Record<string, number>;
-  onSelect: (s: SessionSummary) => void;
+  /** Open a session; with a message uuid, scrolled to + flashing that message. */
+  onSelect: (s: SessionSummary, messageUuid?: string) => void;
   onCollapse: () => void;
   onDelete: (s: SessionSummary) => void | Promise<void>;
   /** Creates the session and resolves with its new id (so we can tag it). */
@@ -75,7 +76,11 @@ export default function Sidebar({
   }, [meta.tags]);
   const [sortField, setSortField] = useState<SortField>("updated");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
-  const [searchHits, setSearchHits] = useState<Set<string> | null>(null);
+  // id → hit detail while a content search is active (why the row matched).
+  const [searchHits, setSearchHits] = useState<Map<
+    string,
+    { count: number; first_uuid: string | null; snippet: string }
+  > | null>(null);
   const [searching, setSearching] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
@@ -180,8 +185,10 @@ export default function Sidebar({
       setSearching(true);
       debounceRef.current = setTimeout(async () => {
         try {
-          const ids = await invoke<string[]>("search_transcripts", { query: q });
-          setSearchHits(new Set(ids));
+          const hits = await invoke<
+            { id: string; count: number; first_uuid: string | null; snippet: string }[]
+          >("search_transcripts", { query: q });
+          setSearchHits(new Map(hits.map((h) => [h.id, h])));
         } catch {
           setSearchHits(null);
         } finally {
@@ -562,7 +569,7 @@ export default function Sidebar({
               ) : (
               /* Main clickable area */
               <button
-                onClick={() => onSelect(s)}
+                onClick={() => onSelect(s, searchHits?.get(s.id)?.first_uuid ?? undefined)}
                 className="flex-1 text-left px-3 py-2 min-w-0"
               >
                   <div className="flex items-center justify-between">
@@ -593,6 +600,14 @@ export default function Sidebar({
                       }`}
                     >
                       {s.title}
+                    </div>
+                  )}
+                  {textFilter.trim() && searchHits?.get(s.id) && (
+                    <div className="text-[10px] text-[var(--color-text-dim)] truncate mt-0.5">
+                      <span className="text-[var(--color-accent)]">
+                        {searchHits.get(s.id)!.count}×
+                      </span>{" "}
+                      {searchHits.get(s.id)!.snippet}
                     </div>
                   )}
                   <div className="flex items-center gap-2 text-[10px] text-[var(--color-text-dim)] mt-0.5">

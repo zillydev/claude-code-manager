@@ -245,7 +245,7 @@ export default function App() {
               activeId={target?.sessionId ?? null}
               activity={activity}
               lastViewed={lastViewed}
-              onSelect={(s) => openSession(s)}
+              onSelect={(s, messageUuid) => openSession(s, messageUuid)}
               onCollapse={() => setConfig({ ui: { sidebarCollapsed: true } })}
               onDelete={async (s) => {
                 try {

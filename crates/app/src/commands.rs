@@ -56,13 +56,29 @@ pub async fn refresh_sessions(app: AppHandle) -> Result<Vec<SessionSummary>, Str
     .map_err(|e| e.to_string())?
 }
 
+#[derive(Serialize)]
+pub struct SearchHitDto {
+    pub id: String,
+    pub count: usize,
+    pub first_uuid: Option<String>,
+    pub snippet: String,
+}
+
 #[tauri::command]
-pub async fn search_transcripts(query: String) -> Result<Vec<String>, String> {
+pub async fn search_transcripts(query: String) -> Result<Vec<SearchHitDto>, String> {
     // Searches every transcript on disk — keep it off the main thread.
-    tauri::async_runtime::spawn_blocking(move || -> Result<Vec<String>, String> {
+    tauri::async_runtime::spawn_blocking(move || -> Result<Vec<SearchHitDto>, String> {
         let root = paths::default_claude_root().ok_or("could not locate ~/.claude")?;
-        let ids = store::search_sessions(&root, &query).map_err(|e| e.to_string())?;
-        Ok(ids.into_iter().map(|u| u.to_string()).collect())
+        let hits = store::search_sessions_detailed(&root, &query).map_err(|e| e.to_string())?;
+        Ok(hits
+            .into_iter()
+            .map(|h| SearchHitDto {
+                id: h.id.to_string(),
+                count: h.count,
+                first_uuid: h.first_uuid.map(|u| u.to_string()),
+                snippet: h.snippet,
+            })
+            .collect())
     })
     .await
     .map_err(|e| e.to_string())?
