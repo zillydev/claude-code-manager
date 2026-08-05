@@ -470,9 +470,160 @@ pub fn search_sessions(root: &Path, query: &str) -> Result<Vec<Uuid>> {
     Ok(matches)
 }
 
+/// One session's content-search result: how many conversation messages matched
+/// and where the first match lives, with a snippet centred on it.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct SearchHit {
+    pub id: Uuid,
+    pub count: usize,
+    pub first_uuid: Option<Uuid>,
+    pub snippet: String,
+}
+
+/// [`search_sessions`] with substance: a hit must appear in conversation TEXT
+/// (a user message's string content or text block, or an assistant text block),
+/// so tool payloads and machinery (uuids, base64) no longer match. The cheap
+/// raw-line prefilter is kept — JSON parsing only happens for lines that
+/// contain the query at all.
+pub fn search_sessions_detailed(root: &Path, query: &str) -> Result<Vec<SearchHit>> {
+    use std::io::{BufRead, BufReader};
+
+    let projects = paths::projects_dir(root);
+    let query_lower = query.to_lowercase();
+    let mut hits = Vec::new();
+
+    for entry in fs::read_dir(&projects)?.flatten() {
+        let path = entry.path();
+        if !path.is_dir() {
+            continue;
+        }
+        let Ok(inner) = fs::read_dir(&path) else { continue };
+        for child in inner.flatten() {
+            let child_path = child.path();
+            if child_path.extension().and_then(|s| s.to_str()) != Some("jsonl") {
+                continue;
+            }
+            let Some(stem) = child_path.file_stem().and_then(|s| s.to_str()) else { continue };
+            let Ok(id) = Uuid::parse_str(stem) else { continue };
+            let Ok(file) = fs::File::open(&child_path) else { continue };
+
+            let mut count = 0usize;
+            let mut first: Option<(Option<Uuid>, String)> = None;
+            for line in BufReader::new(file).lines() {
+                let Ok(line) = line else { continue };
+                if let Some(m) = text_line_match(&line, &query_lower) {
+                    count += 1;
+                    if first.is_none() {
+                        first = Some(m);
+                    }
+                }
+            }
+            if let Some((first_uuid, text)) = first {
+                hits.push(SearchHit {
+                    id,
+                    count,
+                    first_uuid,
+                    snippet: snippet_around(&text, &query_lower),
+                });
+            }
+        }
+    }
+    Ok(hits)
+}
+
+/// If this jsonl line is a user/assistant message whose conversation text
+/// contains `query_lower`, return its uuid and the matching text.
+fn text_line_match(line: &str, query_lower: &str) -> Option<(Option<Uuid>, String)> {
+    if !line.to_lowercase().contains(query_lower) {
+        return None; // prefilter: no JSON work for non-candidate lines
+    }
+    let v: serde_json::Value = serde_json::from_str(line).ok()?;
+    let t = v.get("type")?.as_str()?;
+    if t != "user" && t != "assistant" {
+        return None;
+    }
+    let uuid = v.get("uuid").and_then(|u| u.as_str()).and_then(|s| Uuid::parse_str(s).ok());
+    let content = v.pointer("/message/content")?;
+    let mut texts: Vec<&str> = Vec::new();
+    match content {
+        serde_json::Value::String(s) => texts.push(s),
+        serde_json::Value::Array(blocks) => {
+            for b in blocks {
+                if b.get("type").and_then(|x| x.as_str()) == Some("text") {
+                    if let Some(tx) = b.get("text").and_then(|x| x.as_str()) {
+                        texts.push(tx);
+                    }
+                }
+            }
+        }
+        _ => return None,
+    }
+    texts
+        .into_iter()
+        .find(|tx| tx.to_lowercase().contains(query_lower))
+        .map(|tx| (uuid, tx.to_string()))
+}
+
+/// ~80 chars centred on the first occurrence, whitespace collapsed, ellipses
+/// when clipped. Char-based so multi-byte text can't split a codepoint.
+fn snippet_around(text: &str, query_lower: &str) -> String {
+    let lower = text.to_lowercase();
+    let byte_pos = lower.find(query_lower).unwrap_or(0);
+    let char_pos = lower[..byte_pos].chars().count();
+    let chars: Vec<char> = text.chars().collect();
+    let start = char_pos.saturating_sub(30);
+    let end = (char_pos + query_lower.chars().count() + 50).min(chars.len());
+    let body: String = chars[start..end].iter().collect();
+    let mut out = String::new();
+    if start > 0 {
+        out.push('…');
+    }
+    out.push_str(&body.split_whitespace().collect::<Vec<_>>().join(" "));
+    if end < chars.len() {
+        out.push('…');
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn detailed_search_matches_text_not_tool_payloads() {
+        let root = std::env::temp_dir().join(format!("cm-search-{}", std::process::id()));
+        let proj = root.join("projects").join("-tmp-proj");
+        fs::create_dir_all(&proj).unwrap();
+        let sid = "00000000-0000-0000-0000-00000000aaaa";
+        let u1 = "00000000-0000-0000-0000-0000000000c1";
+        fs::write(
+            proj.join(format!("{sid}.jsonl")),
+            concat!(
+                // matches: user text mentions the needle
+                r#"{"type":"user","uuid":"00000000-0000-0000-0000-0000000000c1","message":{"role":"user","content":"please fix the flaky NEEDLE in ci"}}"#,
+                "
+",
+                // must NOT match: needle only inside a tool_result payload
+                r#"{"type":"user","uuid":"00000000-0000-0000-0000-0000000000c2","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t","content":"log line with needle here"}]}}"#,
+                "
+",
+                // matches: assistant text block
+                r#"{"type":"assistant","uuid":"00000000-0000-0000-0000-0000000000c3","message":{"role":"assistant","content":[{"type":"text","text":"the needle was a race"}]}}"#,
+                "
+",
+            ),
+        )
+        .unwrap();
+
+        let hits = search_sessions_detailed(&root, "needle").unwrap();
+        assert_eq!(hits.len(), 1);
+        let h = &hits[0];
+        assert_eq!(h.id.to_string(), sid);
+        assert_eq!(h.count, 2, "tool_result payload must not count");
+        assert_eq!(h.first_uuid.unwrap().to_string(), u1);
+        assert!(h.snippet.contains("NEEDLE"), "snippet centred on the match: {}", h.snippet);
+        std::fs::remove_dir_all(&root).ok();
+    }
 
     #[test]
     fn message_previews_carry_the_timestamp() {
