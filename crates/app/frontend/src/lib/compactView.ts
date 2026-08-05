@@ -38,9 +38,11 @@ export function filterCompact(turns: RenderedTurn[]): RenderedTurn[] {
       // welds two replies into one run: the answer that actually closed the
       // turn gets demoted to the middle and hidden, and the throwaway "the
       // killed task was X" note that follows inherits the run's last slot.
-      // The notification itself stays hidden — it is machinery, and a session
-      // can carry dozens of them.
+      // Kept visible for the same reason it is a boundary: it is what prompted
+      // the reply after it, and one dim line is cheaper than a reply that
+      // appears out of nowhere.
       closeRun();
+      visible.add(i);
     } else if (t === "assistant") {
       run.push(i);
     }

@@ -83,19 +83,21 @@ describe("filterCompact", () => {
       "q1",
       "opening",
       "answer",
+      "task_notification",
       "the killed task was redundant",
     ]);
   });
 
-  it("does not show the task notification itself", () => {
-    // It is machinery, and a single session can carry dozens of them.
+  it("shows the notification itself, so the reply after it has a cause", () => {
+    // Without it the follow-up reply appears out of nowhere — it talks about a
+    // background task the reader cannot see.
     const turns = [user("q1"), asst("a1"), taskNote(), asst("a2")];
-    expect(tags(filterCompact(turns))).not.toContain("task_notification");
+    expect(tags(filterCompact(turns))).toContain("task_notification");
   });
 
   it("keeps a single-turn reply on each side of a notification", () => {
     const turns = [user("q1"), asst("a1"), taskNote(), asst("a2")];
-    expect(tags(filterCompact(turns))).toEqual(["q1", "a1", "a2"]);
+    expect(tags(filterCompact(turns))).toEqual(["q1", "a1", "task_notification", "a2"]);
   });
 
   it("always keeps compaction dividers", () => {
