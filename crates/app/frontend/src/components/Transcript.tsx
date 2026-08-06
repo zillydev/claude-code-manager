@@ -13,12 +13,10 @@ import type {
 import ToolCall from "./ToolCall";
 import { useEditor } from "../hooks/useEditor";
 import CommitResultBanner from "./CommitResultBanner";
-import FindBar from "./FindBar";
 import ForkMarker from "./ForkMarker";
 import Dropdown, { menuItemClass, ConfirmMenuItem } from "./Dropdown";
 import { splitInsights } from "../lib/insights";
 import Spinner from "./Spinner";
-import { useFind } from "../hooks/useFind";
 import { useConfig } from "../hooks/useConfig";
 import { useSessionMeta } from "../hooks/useSessionMeta";
 import { entryTags } from "../lib/sessionMeta";
@@ -40,6 +38,8 @@ interface Props {
   visible?: boolean;
   /** The Manager/Terminal toggle, slotted into the header's right cluster. */
   tabs?: ReactNode;
+  /** ⌘F: open the global find prefilled to this session (App mounts it). */
+  onOpenFind?: (sessionId: string) => void;
 }
 
 export default function Transcript({
@@ -50,6 +50,7 @@ export default function Transcript({
   scrollToMessage,
   visible = true,
   tabs,
+  onOpenFind,
 }: Props) {
   // compact / details are now config-backed (global + persisted), set-and-stick.
   const { config, setConfig } = useConfig();
@@ -126,30 +127,24 @@ export default function Transcript({
 
   // This session's bookmarks, in transcript order, labelled from the rendered
   // turns — no backend needed while the session is open. Memoized because the
-  // set feeds filterTurns below, whose result feeds useFind.
+  // set feeds the filterTurns memo below.
   const bookmarkUuids = metaEntry?.bookmarks;
   const bookmarkSet = useMemo(() => new Set(bookmarkUuids ?? []), [bookmarkUuids]);
 
   // Every URL the conversation's own text mentioned, deduped, first wins.
   const links = useMemo(() => extractLinks(session.turns), [session.turns]);
 
-  // The kind filter runs FIRST, and find is fed the same filtered list — find
-  // searches what you see, so filter + find compose instead of conflicting.
-  // MUST be memoized: useFind's recompute effect keys on this list, and its
-  // empty-query branch sets state — an identity that changes every render loops
-  // render → effect → setState → render until React unmounts the tree.
+  // The kind filter, memoized so the rendered list's identity only changes
+  // when its inputs do — memoized Turns and the effects keyed on this list
+  // depend on that (a per-render identity once looped an effect to a crash).
   const filteredTurns = useMemo(
     () => filterTurns(session.turns, turnFilter, bookmarkSet),
     [session.turns, turnFilter, bookmarkSet],
   );
 
-  const find = useFind(turnsRef, filteredTurns);
-  const { openFind, next: findNext, prev: findPrev } = find;
-
-  // The turns actually rendered. Suspend compact while find is open so every
-  // match is mounted & countable. Declared before the scroll effects because
+  // The turns actually rendered. Declared before the scroll effects because
   // they key on its length — toggling compact reshapes this (not session.turns).
-  const visibleTurns = compact && !find.open ? filterCompact(filteredTurns) : filteredTurns;
+  const visibleTurns = compact ? filterCompact(filteredTurns) : filteredTurns;
   const bookmarkItems = session.turns
     .filter(
       (t): t is Extract<RenderedTurn, { type: "user" } | { type: "assistant" }> =>
@@ -167,10 +162,9 @@ export default function Transcript({
         ).slice(0, 80),
     }));
 
-  // Stable handlers so the memoized <Turn>s don't re-render on every find
-  // keystroke. useEditor's methods are useCallback([])-stable, and sourcePath
-  // is stable, so these identities only change when `draft` does (during an
-  // edit) — never while typing in the find box.
+  // Stable handlers so the memoized <Turn>s don't re-render needlessly.
+  // useEditor's methods are useCallback([])-stable, and sourcePath is stable,
+  // so these identities only change when `draft` does (during an edit).
   const handleStartEdit = useCallback((uuid: string, text: string) => {
     setEditingUuid(uuid);
     setDraft(text);
@@ -296,18 +290,15 @@ export default function Transcript({
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "f") {
+      if ((e.metaKey || e.ctrlKey) && !e.shiftKey && e.key.toLowerCase() === "f") {
         e.preventDefault();
-        openFind();
-      } else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "g") {
-        e.preventDefault();
-        if (e.shiftKey) findPrev();
-        else findNext();
+        // Same UI as ⌘⇧F, pinned to this session by id.
+        onOpenFind?.(session.id);
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [openFind, findNext, findPrev]);
+  }, [onOpenFind, session.id]);
 
   const { stats } = session;
 
@@ -486,25 +477,6 @@ export default function Transcript({
 
       {/* Turns */}
       <div ref={turnsRef} className="flex-1 overflow-y-auto overflow-x-hidden px-4 py-4 space-y-4">
-        {find.open && (
-          <div className="sticky top-0 z-20 flex justify-end pointer-events-none">
-            <div className="pointer-events-auto">
-              <FindBar
-                query={find.query}
-                setQuery={find.setQuery}
-                opts={find.opts}
-                setOpts={find.setOpts}
-                count={find.count}
-                activeIndex={find.activeIndex}
-                error={find.error}
-                onNext={find.next}
-                onPrev={find.prev}
-                onGoto={find.goTo}
-                onClose={find.close}
-              />
-            </div>
-          </div>
-        )}
         {editor.result && (
           <CommitResultBanner result={editor.result} onDismiss={editor.dismiss} />
         )}
@@ -538,7 +510,6 @@ export default function Transcript({
                 turn={turn}
                 turnIndex={i}
                 editUuid={editUuid}
-                revealedToolKeys={find.revealedToolKeys}
                 editing={editing}
                 draft={editing ? draft : ""}
                 onStartEdit={handleStartEdit}
@@ -675,7 +646,6 @@ const Turn = memo(function Turn({
   turn,
   turnIndex,
   editUuid,
-  revealedToolKeys,
   editing,
   draft,
   onStartEdit,
@@ -693,7 +663,6 @@ const Turn = memo(function Turn({
   turn: RenderedTurn;
   turnIndex: number;
   editUuid: string | null;
-  revealedToolKeys: Set<string>;
   editing: boolean;
   draft: string;
   onStartEdit: (uuid: string, text: string) => void;
@@ -816,7 +785,6 @@ const Turn = memo(function Turn({
                 block={block}
                 turnIndex={turnIndex}
                 blockIndex={j}
-                revealedToolKeys={revealedToolKeys}
               />
             ))}
           </div>
@@ -872,7 +840,6 @@ const Turn = memo(function Turn({
           status={turn.status}
           summary={turn.summary}
           result={turn.result}
-          forceExpand={revealedToolKeys.has(`${turnIndex}:task`)}
         />
       );
 
@@ -1093,10 +1060,10 @@ const TaskNotificationBlock = memo(function TaskNotificationBlock({
   status: string;
   summary: string;
   result: string;
-  forceExpand: boolean;
+  forceExpand?: boolean;
 }) {
   const [expanded, setExpanded] = useState(false);
-  const open = expanded || forceExpand;
+  const open = expanded || !!forceExpand;
   return (
     <div className="my-1 text-sm">
       <button
@@ -1126,12 +1093,10 @@ const BlockRenderer = memo(function BlockRenderer({
   block,
   turnIndex,
   blockIndex,
-  revealedToolKeys,
 }: {
   block: RenderedBlock;
   turnIndex: number;
   blockIndex: number;
-  revealedToolKeys: Set<string>;
 }) {
   switch (block.type) {
     case "text":
@@ -1153,7 +1118,6 @@ const BlockRenderer = memo(function BlockRenderer({
           block={block}
           turnIndex={turnIndex}
           blockIndex={blockIndex}
-          forceExpand={revealedToolKeys.has(`${turnIndex}:${blockIndex}`)}
         />
       );
   }

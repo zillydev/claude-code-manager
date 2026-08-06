@@ -470,98 +470,158 @@ pub fn search_sessions(root: &Path, query: &str) -> Result<Vec<Uuid>> {
     Ok(matches)
 }
 
-/// One session's content-search result: how many conversation messages matched
-/// and where the first match lives, with a snippet centred on it.
+/// A single matching message from a cross-session search.
 #[derive(Debug, Clone, serde::Serialize)]
-pub struct SearchHit {
-    pub id: Uuid,
-    pub count: usize,
-    pub first_uuid: Option<Uuid>,
+pub struct MessageHit {
+    pub session_id: Uuid,
+    pub uuid: Option<Uuid>,
+    pub role: String,
+    /// Epoch seconds, when the line carried a timestamp.
+    pub ts: Option<i64>,
     pub snippet: String,
 }
 
-/// [`search_sessions`] with substance: a hit must appear in conversation TEXT
-/// (a user message's string content or text block, or an assistant text block),
-/// so tool payloads and machinery (uuids, base64) no longer match. The cheap
-/// raw-line prefilter is kept — JSON parsing only happens for lines that
-/// contain the query at all.
-pub fn search_sessions_detailed(root: &Path, query: &str) -> Result<Vec<SearchHit>> {
-    use std::io::{BufRead, BufReader};
-
-    let projects = paths::projects_dir(root);
-    let query_lower = query.to_lowercase();
-    let mut hits = Vec::new();
-
-    for entry in fs::read_dir(&projects)?.flatten() {
-        let path = entry.path();
-        if !path.is_dir() {
-            continue;
-        }
-        let Ok(inner) = fs::read_dir(&path) else { continue };
-        for child in inner.flatten() {
-            let child_path = child.path();
-            if child_path.extension().and_then(|s| s.to_str()) != Some("jsonl") {
-                continue;
-            }
-            let Some(stem) = child_path.file_stem().and_then(|s| s.to_str()) else { continue };
-            let Ok(id) = Uuid::parse_str(stem) else { continue };
-            let Ok(file) = fs::File::open(&child_path) else { continue };
-
-            let mut count = 0usize;
-            let mut first: Option<(Option<Uuid>, String)> = None;
-            for line in BufReader::new(file).lines() {
-                let Ok(line) = line else { continue };
-                if let Some(m) = text_line_match(&line, &query_lower) {
-                    count += 1;
-                    if first.is_none() {
-                        first = Some(m);
-                    }
-                }
-            }
-            if let Some((first_uuid, text)) = first {
-                hits.push(SearchHit {
-                    id,
-                    count,
-                    first_uuid,
-                    snippet: snippet_around(&text, &query_lower),
-                });
-            }
-        }
-    }
-    Ok(hits)
+/// One candidate file for [`search_messages`], with an optional uuid restriction
+/// (the `is:bookmarked` path passes the session's bookmark uuids here so every
+/// query shape flows through one engine).
+#[derive(Debug, Clone)]
+pub struct SearchFile {
+    pub path: std::path::PathBuf,
+    pub session_id: Uuid,
+    pub only_uuids: Option<Vec<Uuid>>,
 }
 
-/// If this jsonl line is a user/assistant message whose conversation text
-/// contains `query_lower`, return its uuid and the matching text.
-fn text_line_match(line: &str, query_lower: &str) -> Option<(Option<Uuid>, String)> {
-    if !line.to_lowercase().contains(query_lower) {
-        return None; // prefilter: no JSON work for non-candidate lines
+/// Message-level filters. `text` empty = no content requirement (some other
+/// filter must narrow instead — callers enforce that).
+#[derive(Debug, Clone, Default)]
+pub struct MessageFilters {
+    pub text: String,
+    pub role: Option<String>,
+    pub after: Option<i64>,
+    pub before: Option<i64>,
+    pub tool: Option<String>,
+    pub has_link: bool,
+    pub limit: usize,
+}
+
+/// The global-find engine: walk the (already prefiltered) candidate files and
+/// return every conversation message passing the filters, capped at `limit`
+/// (second return = truncated). Text matches are confirmed in conversation
+/// TEXT blocks — tool payloads and machinery never match. Raw-line prefilters
+/// keep JSON parsing to candidate lines: the query text for text searches, any
+/// wanted uuid for restricted files.
+pub fn search_messages(files: &[SearchFile], f: &MessageFilters) -> (Vec<MessageHit>, bool) {
+    use std::io::{BufRead, BufReader};
+    let query_lower = f.text.to_lowercase();
+    let mut out = Vec::new();
+
+    'files: for sf in files {
+        let Ok(file) = fs::File::open(&sf.path) else { continue };
+        let uuid_strs: Option<Vec<String>> =
+            sf.only_uuids.as_ref().map(|us| us.iter().map(|u| u.to_string()).collect());
+        for line in BufReader::new(file).lines() {
+            let Ok(line) = line else { continue };
+            if !query_lower.is_empty() && !line.to_lowercase().contains(&query_lower) {
+                continue;
+            }
+            if let Some(us) = &uuid_strs {
+                if !us.iter().any(|u| line.contains(u.as_str())) {
+                    continue;
+                }
+            }
+            let Some(hit) = message_hit(&line, sf.session_id, &query_lower, f) else { continue };
+            out.push(hit);
+            if out.len() >= f.limit {
+                break 'files;
+            }
+        }
     }
+    let truncated = out.len() >= f.limit;
+    (out, truncated)
+}
+
+/// Apply the per-message filters to one jsonl line.
+fn message_hit(
+    line: &str,
+    session_id: Uuid,
+    query_lower: &str,
+    f: &MessageFilters,
+) -> Option<MessageHit> {
     let v: serde_json::Value = serde_json::from_str(line).ok()?;
     let t = v.get("type")?.as_str()?;
     if t != "user" && t != "assistant" {
         return None;
     }
-    let uuid = v.get("uuid").and_then(|u| u.as_str()).and_then(|s| Uuid::parse_str(s).ok());
+    if let Some(role) = &f.role {
+        if t != role {
+            return None;
+        }
+    }
+    let ts = v
+        .get("timestamp")
+        .and_then(|x| x.as_str())
+        .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
+        .map(|d| d.timestamp());
+    if let Some(after) = f.after {
+        if ts.is_none_or(|x| x < after) {
+            return None;
+        }
+    }
+    if let Some(before) = f.before {
+        if ts.is_none_or(|x| x >= before) {
+            return None;
+        }
+    }
     let content = v.pointer("/message/content")?;
     let mut texts: Vec<&str> = Vec::new();
+    let mut tool_names: Vec<&str> = Vec::new();
     match content {
         serde_json::Value::String(s) => texts.push(s),
         serde_json::Value::Array(blocks) => {
             for b in blocks {
-                if b.get("type").and_then(|x| x.as_str()) == Some("text") {
-                    if let Some(tx) = b.get("text").and_then(|x| x.as_str()) {
-                        texts.push(tx);
+                match b.get("type").and_then(|x| x.as_str()) {
+                    Some("text") => {
+                        if let Some(tx) = b.get("text").and_then(|x| x.as_str()) {
+                            texts.push(tx);
+                        }
                     }
+                    Some("tool_use") => {
+                        if let Some(n) = b.get("name").and_then(|x| x.as_str()) {
+                            tool_names.push(n);
+                        }
+                    }
+                    _ => {}
                 }
             }
         }
         _ => return None,
     }
-    texts
-        .into_iter()
-        .find(|tx| tx.to_lowercase().contains(query_lower))
-        .map(|tx| (uuid, tx.to_string()))
+    if let Some(tool) = &f.tool {
+        if !tool_names.iter().any(|n| n.eq_ignore_ascii_case(tool)) {
+            return None;
+        }
+    }
+    if f.has_link && !texts.iter().any(|tx| tx.contains("http://") || tx.contains("https://")) {
+        return None;
+    }
+    let matched = if query_lower.is_empty() {
+        texts.first().copied()
+    } else {
+        texts.iter().copied().find(|tx| tx.to_lowercase().contains(query_lower))
+    };
+    let snippet = match matched {
+        Some(tx) => snippet_around(tx, query_lower),
+        None if query_lower.is_empty() => {
+            if let Some(n) = tool_names.first() {
+                format!("(tool: {n})")
+            } else {
+                return None; // nothing displayable and nothing required it
+            }
+        }
+        None => return None, // text query not satisfied in conversation text
+    };
+    let uuid = v.get("uuid").and_then(|u| u.as_str()).and_then(|s| Uuid::parse_str(s).ok());
+    Some(MessageHit { session_id, uuid, role: t.to_string(), ts, snippet })
 }
 
 /// ~80 chars centred on the first occurrence, whitespace collapsed, ellipses
@@ -590,38 +650,58 @@ mod tests {
     use super::*;
 
     #[test]
-    fn detailed_search_matches_text_not_tool_payloads() {
-        let root = std::env::temp_dir().join(format!("cm-search-{}", std::process::id()));
-        let proj = root.join("projects").join("-tmp-proj");
-        fs::create_dir_all(&proj).unwrap();
-        let sid = "00000000-0000-0000-0000-00000000aaaa";
-        let u1 = "00000000-0000-0000-0000-0000000000c1";
+    fn search_messages_filters_and_caps() {
+        let root = std::env::temp_dir().join(format!("cm-gf-{}", std::process::id()));
+        fs::create_dir_all(&root).unwrap();
+        let sid = Uuid::parse_str("00000000-0000-0000-0000-00000000bbbb").unwrap();
+        let path = root.join(format!("{sid}.jsonl"));
         fs::write(
-            proj.join(format!("{sid}.jsonl")),
+            &path,
             concat!(
-                // matches: user text mentions the needle
-                r#"{"type":"user","uuid":"00000000-0000-0000-0000-0000000000c1","message":{"role":"user","content":"please fix the flaky NEEDLE in ci"}}"#,
+                r#"{"type":"user","uuid":"00000000-0000-0000-0000-0000000000d1","timestamp":"2026-08-01T10:00:00Z","message":{"role":"user","content":"the needle early"}}"#,
                 "
 ",
-                // must NOT match: needle only inside a tool_result payload
-                r#"{"type":"user","uuid":"00000000-0000-0000-0000-0000000000c2","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t","content":"log line with needle here"}]}}"#,
+                r#"{"type":"assistant","uuid":"00000000-0000-0000-0000-0000000000d2","timestamp":"2026-08-03T10:00:00Z","message":{"role":"assistant","content":[{"type":"tool_use","id":"t","name":"Bash","input":{}},{"type":"text","text":"ran the needle command"}]}}"#,
                 "
 ",
-                // matches: assistant text block
-                r#"{"type":"assistant","uuid":"00000000-0000-0000-0000-0000000000c3","message":{"role":"assistant","content":[{"type":"text","text":"the needle was a race"}]}}"#,
+                // needle only in a tool_result payload: must never match a text query
+                r#"{"type":"user","uuid":"00000000-0000-0000-0000-0000000000d3","timestamp":"2026-08-04T10:00:00Z","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t","content":"needle in payload"}]}}"#,
                 "
 ",
             ),
         )
         .unwrap();
+        let files = [SearchFile { path: path.clone(), session_id: sid, only_uuids: None }];
 
-        let hits = search_sessions_detailed(&root, "needle").unwrap();
+        // text + role + date window
+        let (hits, trunc) = search_messages(
+            &files,
+            &MessageFilters {
+                text: "needle".into(),
+                role: Some("assistant".into()),
+                after: Some(1_785_000_000), // < 2026-08-03
+                ..MessageFilters { limit: 10, ..Default::default() }
+            },
+        );
+        assert!(!trunc);
         assert_eq!(hits.len(), 1);
-        let h = &hits[0];
-        assert_eq!(h.id.to_string(), sid);
-        assert_eq!(h.count, 2, "tool_result payload must not count");
-        assert_eq!(h.first_uuid.unwrap().to_string(), u1);
-        assert!(h.snippet.contains("NEEDLE"), "snippet centred on the match: {}", h.snippet);
+        assert_eq!(hits[0].role, "assistant");
+        assert!(hits[0].snippet.contains("needle"));
+
+        // tool filter without text; cap at 1 reports truncated
+        let (hits, trunc) = search_messages(
+            &files,
+            &MessageFilters { tool: Some("bash".into()), limit: 1, ..Default::default() },
+        );
+        assert!(trunc);
+        assert_eq!(hits.len(), 1);
+
+        // uuid restriction (the is:bookmarked path)
+        let only = vec![Uuid::parse_str("00000000-0000-0000-0000-0000000000d1").unwrap()];
+        let files_b = [SearchFile { path, session_id: sid, only_uuids: Some(only) }];
+        let (hits, _) = search_messages(&files_b, &MessageFilters { limit: 10, ..Default::default() });
+        assert_eq!(hits.len(), 1);
+        assert!(hits[0].snippet.contains("early"));
         std::fs::remove_dir_all(&root).ok();
     }
 
