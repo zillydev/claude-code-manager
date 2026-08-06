@@ -6,6 +6,8 @@ import TagChip from "./TagChip";
 import TagEditor from "./TagEditor";
 import NoteEditor from "./NoteEditor";
 import TagManager from "./TagManager";
+import GlobalFind from "./GlobalFind";
+import BookmarkBrowser from "./BookmarkBrowser";
 import { useSessionMeta } from "../hooks/useSessionMeta";
 import {
   entryTags,
@@ -33,10 +35,11 @@ interface Props {
   onNewSession: (cwd: string) => Promise<string>;
   onViewTree: (s: SessionSummary) => void;
   onOpenSettings: () => void;
-  /** Open the all-sessions bookmark browser overlay (mounted by App). */
-  onOpenBookmarks: () => void;
-  /** Open the global find overlay (⌘⇧F; mounted by App). */
-  onOpenFind: () => void;
+  /** Which sidebar pane is showing (Obsidian-style icon tabs). */
+  tab: "sessions" | "bookmarks" | "find";
+  onTabChange: (t: "sessions" | "bookmarks" | "find") => void;
+  /** Focus/prefill request for the find pane (see GlobalFind.activate). */
+  findActivate: { q: string | null; n: number };
 }
 
 export default function Sidebar({
@@ -51,8 +54,9 @@ export default function Sidebar({
   onNewSession,
   onViewTree,
   onOpenSettings,
-  onOpenBookmarks,
-  onOpenFind,
+  tab,
+  onTabChange,
+  findActivate,
 }: Props) {
   const { meta, setAlias, setSessionTags } = useSessionMeta();
   const [renamingId, setRenamingId] = useState<string | null>(null);
@@ -238,6 +242,35 @@ export default function Sidebar({
 
   return (
     <aside className="flex flex-col flex-1 border-r border-[var(--color-border)] bg-[var(--color-surface)] overflow-hidden">
+      {/* Obsidian-style icon tabs. Panes below hide with display:none rather
+          than unmounting, so search results / previews survive tab switches. */}
+      <div className="flex items-center gap-1 px-2 py-1.5 border-b border-[var(--color-border)]">
+        {(
+          [
+            ["sessions", "🗂", "Sessions"],
+            ["bookmarks", "⚑", "Bookmarks — every flagged message"],
+            ["find", "🔍", "Find (⌘⇧F) — search all sessions"],
+          ] as const
+        ).map(([t, icon, title]) => (
+          <button
+            key={t}
+            onClick={() => onTabChange(t)}
+            title={title}
+            className={`flex-1 text-center text-sm leading-none px-2 py-1.5 rounded ${
+              tab === t
+                ? "bg-[var(--color-surface-hover)] text-[var(--color-accent)]"
+                : "text-[var(--color-text-dim)] hover:text-[var(--color-text)] hover:bg-[var(--color-surface-hover)]"
+            }`}
+          >
+            {icon}
+          </button>
+        ))}
+      </div>
+
+      <div
+        className="flex flex-col flex-1 min-h-0"
+        style={{ display: tab === "sessions" ? undefined : "none" }}
+      >
       {/* Search */}
       <div className="p-2 border-b border-[var(--color-border)] space-y-1.5">
         <div className="flex gap-1.5">
@@ -261,20 +294,6 @@ export default function Sidebar({
               </button>
             )}
           </div>
-          <button
-            onClick={onOpenFind}
-            className="text-sm leading-none px-1.5 py-1 rounded text-[var(--color-text-dim)] hover:text-[var(--color-accent)] hover:bg-[var(--color-surface-hover)]"
-            title="Global find (⌘⇧F) — search all sessions with in:, from:, tag:, …"
-          >
-            🔍
-          </button>
-          <button
-            onClick={onOpenBookmarks}
-            className="text-sm leading-none px-1.5 py-1 rounded text-[var(--color-text-dim)] hover:text-[var(--color-accent)] hover:bg-[var(--color-surface-hover)]"
-            title="Bookmarks — every flagged message across sessions"
-          >
-            ⚑
-          </button>
           <button
             onClick={onOpenSettings}
             className="text-sm leading-none px-1.5 py-1 rounded text-[var(--color-text-dim)] hover:text-[var(--color-accent)] hover:bg-[var(--color-surface-hover)]"
@@ -750,6 +769,23 @@ export default function Sidebar({
         />
       )}
       {manageTags && <TagManager onClose={() => setManageTags(false)} />}
+      </div>
+      <div
+        className="flex-1 min-h-0"
+        style={{ display: tab === "bookmarks" ? undefined : "none" }}
+      >
+        <BookmarkBrowser sessions={sessions} onOpen={(s, uuid) => onSelect(s, uuid)} />
+      </div>
+      <div
+        className="flex flex-col flex-1 min-h-0"
+        style={{ display: tab === "find" ? undefined : "none" }}
+      >
+        <GlobalFind
+          sessions={sessions}
+          activate={findActivate}
+          onOpen={(s, uuid) => onSelect(s, uuid)}
+        />
+      </div>
     </aside>
   );
 }
