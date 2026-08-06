@@ -17,11 +17,9 @@ interface Preview {
 export default function BookmarkBrowser({
   sessions,
   onOpen,
-  onClose,
 }: {
   sessions: SessionSummary[];
   onOpen: (s: SessionSummary, messageUuid: string) => void;
-  onClose: () => void;
 }) {
   const { meta } = useSessionMeta();
   // uuid → preview per session id; fetched once per open for the listed groups.
@@ -64,24 +62,7 @@ export default function BookmarkBrowser({
         });
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
-      onClick={onClose}
-    >
-      <div
-        className="w-full max-w-lg max-h-[85vh] overflow-auto rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-4 shadow-xl space-y-3"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="flex items-center justify-between">
-          <span className="text-sm font-medium text-[var(--color-text)]">⚑ Bookmarks</span>
-          <button
-            onClick={onClose}
-            className="text-[var(--color-text-dim)] hover:text-[var(--color-text)]"
-          >
-            ×
-          </button>
-        </div>
-
+    <div className="h-full min-h-0 overflow-y-auto p-2 space-y-3">
         {groups.length === 0 && (
           <div className="text-xs text-[var(--color-text-dim)]">
             No bookmarks yet — use ⋯ → Bookmark on any message.
@@ -119,7 +100,6 @@ export default function BookmarkBrowser({
             </div>
           );
         })}
-      </div>
     </div>
   );
 }

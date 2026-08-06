@@ -19,23 +19,27 @@ interface Hit {
  *  metadata lives; the backend walks only the candidate files. */
 export default function GlobalFind({
   sessions,
-  initialQuery,
+  activate,
   onOpen,
-  onClose,
 }: {
   sessions: SessionSummary[];
-  /** Prefill (e.g. `session:<id> ` from ⌘F in an open session). */
-  initialQuery?: string;
+  /** Focus request from the ⌘F/⌘⇧F shortcuts: bump `n` to focus; `q` non-null
+   *  replaces the input (e.g. `session:<id> `). A nonce because this pane stays
+   *  mounted across tab switches — a plain initial value could never re-apply. */
+  activate: { q: string | null; n: number };
   onOpen: (s: SessionSummary, messageUuid?: string) => void;
-  onClose: () => void;
 }) {
   const { meta } = useSessionMeta();
-  const [input, setInput] = useState(initialQuery ?? "");
+  const [input, setInput] = useState("");
   const [running, setRunning] = useState(false);
   const [result, setResult] = useState<{ hits: Hit[]; truncated: boolean } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
-  useEffect(() => inputRef.current?.focus(), []);
+  useEffect(() => {
+    if (activate.n === 0) return;
+    if (activate.q !== null) setInput(activate.q);
+    inputRef.current?.focus();
+  }, [activate.n, activate.q]);
 
   const q = parseSearchQuery(input);
 
@@ -163,19 +167,14 @@ export default function GlobalFind({
   if (q.text) chips.push(`"${q.text}"`);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/50 pt-[10vh]" onClick={onClose}>
-      <div
-        className="w-full max-w-2xl max-h-[75vh] flex flex-col rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] shadow-xl"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="p-3 border-b border-[var(--color-border)]">
+    <div className="flex flex-col h-full min-h-0">
+        <div className="p-2 border-b border-[var(--color-border)]">
           <input
             ref={inputRef}
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === "Enter") run();
-              if (e.key === "Escape") onClose();
             }}
             placeholder='Search all sessions…  operators: in: from: before: after: tag: is:bookmarked tool: has:link session:'
             className="w-full bg-[var(--color-bg)] text-[var(--color-text)] text-sm px-3 py-2 rounded border border-[var(--color-border)] outline-none focus:border-[var(--color-accent)]"
@@ -206,7 +205,7 @@ export default function GlobalFind({
           {error && <div className="text-xs text-[var(--color-error)] mt-2">{error}</div>}
         </div>
 
-        <div className="flex-1 overflow-y-auto p-3 space-y-3">
+        <div className="flex-1 overflow-y-auto p-2 space-y-3">
           {running && (
             <div className="flex items-center gap-2 text-xs text-[var(--color-text-dim)]">
               <Spinner /> searching…
@@ -251,7 +250,6 @@ export default function GlobalFind({
               </div>
             ))}
         </div>
-      </div>
     </div>
   );
 }

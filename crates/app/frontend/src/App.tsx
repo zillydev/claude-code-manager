@@ -7,8 +7,6 @@ import TerminalPane from "./components/TerminalPane";
 import TabToggle from "./components/TabToggle";
 import LineageBanner from "./components/LineageBanner";
 import LineageTree from "./components/LineageTree";
-import BookmarkBrowser from "./components/BookmarkBrowser";
-import GlobalFind from "./components/GlobalFind";
 import Settings from "./components/Settings";
 import Spinner from "./components/Spinner";
 import { usePersistentState } from "./hooks/usePersistentState";
@@ -31,8 +29,23 @@ export default function App() {
   const [sidebarWidth, setSidebarWidth] = useState(config.ui.sidebarWidth);
   const [activeTab, setActiveTab] = useState<"manager" | "terminal">("manager");
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [bookmarksOpen, setBookmarksOpen] = useState(false);
-  const [findOpen, setFindOpen] = useState<null | { initial: string }>(null);
+  // Obsidian-style sidebar tabs. Tab state lives here (single writer) because
+  // the ⌘F/⌘⇧F shortcuts and the find prefill flow through App.
+  const [sidebarTab, setSidebarTab] = useState<"sessions" | "bookmarks" | "find">("sessions");
+  const [findActivate, setFindActivate] = useState<{ q: string | null; n: number }>({
+    q: null,
+    n: 0,
+  });
+  // Switch to the find tab (expanding a collapsed sidebar) and focus its input;
+  // q non-null replaces the query (⌘F's session pin), null keeps it (⌘⇧F).
+  const openFindTab = useCallback(
+    (q: string | null) => {
+      setConfig({ ui: { sidebarCollapsed: false } });
+      setSidebarTab("find");
+      setFindActivate((a) => ({ q, n: a.n + 1 }));
+    },
+    [setConfig],
+  );
   // Per-session terminal liveness for THIS window: drives the Terminal tab dot
   // and enables the close-✕. Fed by TerminalView via TerminalPane's onStatus.
   const [terminalStatus, setTerminalStatus] = useState<
@@ -204,11 +217,11 @@ export default function App() {
   // claude/shells. Capture phase so it beats xterm when the terminal is focused.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      // ⌘⇧F — global find. Checked before the no-shift guard below.
+      // ⌘⇧F — global find tab. Checked before the no-shift guard below.
       if (e.metaKey && e.shiftKey && !e.ctrlKey && !e.altKey && e.key.toLowerCase() === "f") {
         e.preventDefault();
         e.stopPropagation();
-        setFindOpen({ initial: "" });
+        openFindTab(null);
         return;
       }
       if (!e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
@@ -229,7 +242,7 @@ export default function App() {
     };
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
-  }, [collapsed, setConfig]);
+  }, [collapsed, setConfig, openFindTab]);
 
   const terminalLive = !!target && terminalStatus[target.sessionId] === "live";
 
@@ -268,8 +281,9 @@ export default function App() {
               onNewSession={newSession}
               onViewTree={(s) => setLineageFor(s.id)}
               onOpenSettings={() => setSettingsOpen(true)}
-              onOpenBookmarks={() => setBookmarksOpen(true)}
-              onOpenFind={() => setFindOpen({ initial: "" })}
+              tab={sidebarTab}
+              onTabChange={setSidebarTab}
+              findActivate={findActivate}
             />
           </div>
           {/* Drag handle */}
@@ -330,7 +344,7 @@ export default function App() {
                     onViewTree={hasLineage ? () => setLineageFor(transcript.id) : null}
                     scrollToMessage={target?.scrollToMessage ?? null}
                     visible={activeTab === "manager"}
-                    onOpenFind={(id) => setFindOpen({ initial: `session:${id} ` })}
+                    onOpenFind={(id) => openFindTab(`session:${id} `)}
                     tabs={
                       <TabToggle
                         activeTab={activeTab}
@@ -407,27 +421,6 @@ export default function App() {
             setLineageFor(null);
           }}
           onClose={() => setLineageFor(null)}
-        />
-      )}
-      {findOpen && (
-        <GlobalFind
-          sessions={sessions}
-          initialQuery={findOpen.initial}
-          onOpen={(s, messageUuid) => {
-            openSession(s, messageUuid);
-            setFindOpen(null);
-          }}
-          onClose={() => setFindOpen(null)}
-        />
-      )}
-      {bookmarksOpen && (
-        <BookmarkBrowser
-          sessions={sessions}
-          onOpen={(s, messageUuid) => {
-            openSession(s, messageUuid);
-            setBookmarksOpen(false);
-          }}
-          onClose={() => setBookmarksOpen(false)}
         />
       )}
       {settingsOpen && <Settings onClose={() => setSettingsOpen(false)} />}
