@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import type { SessionSummary } from "../types";
 import Spinner from "./Spinner";
+import MiniCalendar from "./MiniCalendar";
 import { useSessionMeta } from "../hooks/useSessionMeta";
 import { entryTags, sessionTitle } from "../lib/sessionMeta";
 import { parseSearchQuery, isRunnable, type SearchQuery } from "../lib/searchQuery";
@@ -64,6 +65,14 @@ export default function GlobalFind({
   } else if (lastToken.startsWith("is:")) {
     suggestions = sug("is:", ["bookmarked"]);
   }
+  // A bare before:/after: token gets the MiniCalendar instead of value chips.
+  const dateKey =
+    lastToken === "before:" || lastToken === "after:" ? lastToken : null;
+  const acceptDate = (value: string) => {
+    if (!value) return;
+    setInput(input.slice(0, input.length - lastToken.length) + dateKey + value + " ");
+    inputRef.current?.focus();
+  };
   const acceptSuggestion = (v: string) => {
     setInput(input.slice(0, input.length - lastToken.length) + v + " ");
     inputRef.current?.focus();
@@ -190,8 +199,8 @@ export default function GlobalFind({
                 [
                   ["in:", "match project name"],
                   ["from:", "user or assistant messages"],
-                  ["before:", "messages before a date (yyyy-mm-dd)"],
-                  ["after:", "messages after a date (yyyy-mm-dd)"],
+                  ["before:", "messages before a date/time"],
+                  ["after:", "messages after a date/time"],
                   ["tag:", "sessions carrying a tag"],
                   ["is:bookmarked", "bookmarked messages only"],
                   ["tool:", "turns that called a tool (Bash, Write…)"],
@@ -216,6 +225,7 @@ export default function GlobalFind({
               ))}
             </div>
           )}
+          {dateKey && <MiniCalendar onPick={acceptDate} />}
           {suggestions.length > 0 && (
             <div className="flex gap-1 mt-2 flex-wrap">
               {suggestions.map((v) => (

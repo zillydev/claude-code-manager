@@ -3,7 +3,7 @@ export interface SearchQuery {
   text: string;
   project?: string;
   role?: "user" | "assistant";
-  /** Epoch seconds, local midnight. `after` inclusive, `before` exclusive. */
+  /** Epoch seconds (local; midnight for date-only). `after` inclusive, `before` exclusive. */
   after?: number;
   before?: number;
   tags: string[];
@@ -17,10 +17,14 @@ export interface SearchQuery {
 
 const KEYS = new Set(["in", "from", "before", "after", "tag", "is", "tool", "has", "session"]);
 
-function localMidnight(d: string): number | null {
-  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(d);
+/** `yyyy-mm-dd` (local midnight) or `yyyy-mm-ddThh:mm` (local minute). */
+function localDate(d: string): number | null {
+  const m = /^(\d{4})-(\d{2})-(\d{2})(?:T(\d{2}):(\d{2}))?$/.exec(d);
   if (!m) return null;
-  const t = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+  const t = new Date(
+    Number(m[1]), Number(m[2]) - 1, Number(m[3]),
+    Number(m[4] ?? 0), Number(m[5] ?? 0),
+  );
   return Number.isNaN(t.getTime()) ? null : Math.floor(t.getTime() / 1000);
 }
 
@@ -59,8 +63,8 @@ export function parseSearchQuery(input: string): SearchQuery {
           break;
         case "before":
         case "after": {
-          const ts = localMidnight(val);
-          if (ts === null) q.errors.push(`${k}: expects yyyy-mm-dd, got "${val}"`);
+          const ts = localDate(val);
+          if (ts === null) q.errors.push(`${k}: expects yyyy-mm-dd or yyyy-mm-ddThh:mm, got "${val}"`);
           else if (k === "after") q.after = ts;
           else q.before = ts;
           break;
