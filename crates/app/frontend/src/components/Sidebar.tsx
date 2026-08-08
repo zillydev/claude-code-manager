@@ -280,14 +280,14 @@ export default function Sidebar({
               type="text"
               value={textFilter}
               onChange={(e) => setTextFilter(e.target.value)}
-              placeholder="Search sessions…"
+              placeholder="Filter sessions…"
               className="w-full bg-[var(--color-bg)] text-[var(--color-text)] pl-2 pr-6 py-1 rounded text-xs border border-[var(--color-border)] outline-none focus:border-[var(--color-accent)]"
             />
             {textFilter && (
               <button
                 // Same path as typing: also clears the deep-search hits/spinner.
                 onClick={() => setTextFilter("")}
-                title="Clear search"
+                title="Clear filter"
                 className="absolute right-1 top-1/2 -translate-y-1/2 text-xs leading-none px-1 text-[var(--color-text-dim)] hover:text-[var(--color-text)]"
               >
                 ✕
