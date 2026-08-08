@@ -5,11 +5,25 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>claude-code-manager</title>
     <!--
-      In-session find highlights. Served raw here (not via the Tailwind/
-      lightningcss pipeline) because lightningcss does not recognize the
-      ::highlight() pseudo-element and may strip these rules. The CSS Custom
-      Highlight API has no JS styling API, so the rule must reach the browser.
+      Raw styles that must bypass the Tailwind/lightningcss pipeline:
+      lightningcss strips pseudo-elements it does not recognize, which is why
+      styling the datetime picker's focused segment from index.css silently
+      did nothing. The segment defaults to the deep system-accent highlight
+      behind dark text — unreadable — so restyle it to the app accent with
+      bg-colored text (readable in both themes; the vars flip with the theme).
     -->
+    <style>
+      input[type="datetime-local"]::-webkit-datetime-edit-day-field:focus,
+      input[type="datetime-local"]::-webkit-datetime-edit-month-field:focus,
+      input[type="datetime-local"]::-webkit-datetime-edit-year-field:focus,
+      input[type="datetime-local"]::-webkit-datetime-edit-hour-field:focus,
+      input[type="datetime-local"]::-webkit-datetime-edit-minute-field:focus,
+      input[type="datetime-local"]::-webkit-datetime-edit-ampm-field:focus {
+        background-color: var(--color-accent);
+        color: var(--color-bg);
+        outline: none;
+      }
+    </style>
   </head>
   <body>
     <div id="root"></div>
