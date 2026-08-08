@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import type { SessionSummary } from "../types";
 import Spinner from "./Spinner";
+import MiniCalendar from "./MiniCalendar";
 import { useSessionMeta } from "../hooks/useSessionMeta";
 import { entryTags, sessionTitle } from "../lib/sessionMeta";
 import { parseSearchQuery, isRunnable, type SearchQuery } from "../lib/searchQuery";
@@ -64,7 +65,7 @@ export default function GlobalFind({
   } else if (lastToken.startsWith("is:")) {
     suggestions = sug("is:", ["bookmarked"]);
   }
-  // A bare before:/after: token gets a native picker instead of value chips.
+  // A bare before:/after: token gets the MiniCalendar instead of value chips.
   const dateKey =
     lastToken === "before:" || lastToken === "after:" ? lastToken : null;
   const acceptDate = (value: string) => {
@@ -224,17 +225,7 @@ export default function GlobalFind({
               ))}
             </div>
           )}
-          {dateKey && (
-            <div className="flex items-center gap-2 mt-2 text-xs">
-              <code className="text-[var(--color-accent)]">{dateKey}</code>
-              <input
-                type="datetime-local"
-                onChange={(e) => acceptDate(e.target.value)}
-                className="bg-[var(--color-bg)] border border-[var(--color-border)] rounded px-1 py-0.5 text-xs text-[var(--color-text)] outline-none focus:border-[var(--color-accent)]"
-              />
-              <span className="text-[var(--color-text-dim)]">or type yyyy-mm-dd</span>
-            </div>
-          )}
+          {dateKey && <MiniCalendar onPick={acceptDate} />}
           {suggestions.length > 0 && (
             <div className="flex gap-1 mt-2 flex-wrap">
               {suggestions.map((v) => (
