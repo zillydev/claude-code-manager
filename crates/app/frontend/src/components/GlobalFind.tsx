@@ -177,7 +177,7 @@ export default function GlobalFind({
               if (e.key === "Enter") run();
             }}
             placeholder='Search all sessions…  operators: in: from: before: after: tag: is:bookmarked tool: has:link session:'
-            className="w-full bg-[var(--color-bg)] text-[var(--color-text)] text-sm px-3 py-2 rounded border border-[var(--color-border)] outline-none focus:border-[var(--color-accent)]"
+            className="w-full bg-[var(--color-bg)] text-[var(--color-text)] text-xs pl-2 pr-2 py-1 rounded border border-[var(--color-border)] outline-none focus:border-[var(--color-accent)]"
           />
           {suggestions.length > 0 && (
             <div className="flex gap-1 mt-2 flex-wrap">
