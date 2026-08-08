@@ -31,6 +31,8 @@ export default function GlobalFind({
 }) {
   const { meta } = useSessionMeta();
   const [input, setInput] = useState("");
+  // Drives the Obsidian-style "Search options" legend under an empty input.
+  const [focused, setFocused] = useState(false);
   const [running, setRunning] = useState(false);
   const [result, setResult] = useState<{ hits: Hit[]; truncated: boolean } | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -176,9 +178,44 @@ export default function GlobalFind({
             onKeyDown={(e) => {
               if (e.key === "Enter") run();
             }}
-            placeholder='Search all sessions…  operators: in: from: before: after: tag: is:bookmarked tool: has:link session:'
+            onFocus={() => setFocused(true)}
+            onBlur={() => setFocused(false)}
+            placeholder="Search all sessions…"
             className="w-full bg-[var(--color-bg)] text-[var(--color-text)] text-xs pl-2 pr-2 py-1 rounded border border-[var(--color-border)] outline-none focus:border-[var(--color-accent)]"
           />
+          {focused && input.trim() === "" && (
+            <div className="mt-2 rounded border border-[var(--color-border)] bg-[var(--color-bg)] p-2 text-xs space-y-1">
+              <div className="font-medium text-[var(--color-text)]">Search options</div>
+              {(
+                [
+                  ["in:", "match project name"],
+                  ["from:", "user or assistant messages"],
+                  ["before:", "messages before a date (yyyy-mm-dd)"],
+                  ["after:", "messages after a date (yyyy-mm-dd)"],
+                  ["tag:", "sessions carrying a tag"],
+                  ["is:bookmarked", "bookmarked messages only"],
+                  ["tool:", "turns that called a tool (Bash, Write…)"],
+                  ["has:link", "messages containing a URL"],
+                  ["session:", "one session, by name or id"],
+                ] as const
+              ).map(([op, desc]) => (
+                <button
+                  key={op}
+                  // mousedown (not click) so the insert lands before the input's
+                  // blur would hide this panel.
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                    setInput((v) => v + op + (op.endsWith(":") ? "" : " "));
+                    inputRef.current?.focus();
+                  }}
+                  className="w-full text-left flex gap-2 rounded px-1 py-0.5 hover:bg-[var(--color-surface-hover)]"
+                >
+                  <code className="shrink-0 text-[var(--color-accent)]">{op}</code>
+                  <span className="text-[var(--color-text-dim)]">{desc}</span>
+                </button>
+              ))}
+            </div>
+          )}
           {suggestions.length > 0 && (
             <div className="flex gap-1 mt-2 flex-wrap">
               {suggestions.map((v) => (
