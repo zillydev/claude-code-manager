@@ -32,6 +32,12 @@ describe("parseSearchQuery", () => {
     expect(q.after).toBe(Math.floor(new Date(2026, 6, 1).getTime() / 1000));
   });
 
+  it("accepts a datetime value with minute precision", () => {
+    const q = parseSearchQuery("after:2026-07-01T14:30");
+    expect(q.after).toBe(Math.floor(new Date(2026, 6, 1, 14, 30).getTime() / 1000));
+    expect(q.errors).toEqual([]);
+  });
+
   it("surfaces malformed values as inline errors, never throws", () => {
     const q = parseSearchQuery("before:july from:bot is:starred has:image");
     expect(q.errors).toHaveLength(4);
