@@ -32,8 +32,11 @@ export default function GlobalFind({
 }) {
   const { meta } = useSessionMeta();
   const [input, setInput] = useState("");
-  // Drives the Obsidian-style "Search options" legend under an empty input.
+  // Drives the Obsidian-style "Search options" legend under the input.
   const [focused, setFocused] = useState(false);
+  // Enter dismisses the legend until the query is edited again — after a run,
+  // the results deserve the space; while composing, the legend chains operators.
+  const [ranQuery, setRanQuery] = useState(false);
   const [running, setRunning] = useState(false);
   const [result, setResult] = useState<{ hits: Hit[]; truncated: boolean } | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -71,10 +74,12 @@ export default function GlobalFind({
   const acceptDate = (value: string) => {
     if (!value) return;
     setInput(input.slice(0, input.length - lastToken.length) + dateKey + value + " ");
+    setRanQuery(false);
     inputRef.current?.focus();
   };
   const acceptSuggestion = (v: string) => {
     setInput(input.slice(0, input.length - lastToken.length) + v + " ");
+    setRanQuery(false);
     inputRef.current?.focus();
   };
 
@@ -106,6 +111,7 @@ export default function GlobalFind({
     });
 
   const run = async () => {
+    setRanQuery(true);
     const query = parseSearchQuery(input);
     if (query.errors.length) {
       setError(query.errors.join(" · "));
@@ -183,7 +189,10 @@ export default function GlobalFind({
           <input
             ref={inputRef}
             value={input}
-            onChange={(e) => setInput(e.target.value)}
+            onChange={(e) => {
+              setInput(e.target.value);
+              setRanQuery(false);
+            }}
             onKeyDown={(e) => {
               if (e.key === "Enter") run();
             }}
@@ -192,7 +201,10 @@ export default function GlobalFind({
             placeholder="Search all sessions…"
             className="w-full bg-[var(--color-bg)] text-[var(--color-text)] text-xs pl-2 pr-2 py-1 rounded border border-[var(--color-border)] outline-none focus:border-[var(--color-accent)]"
           />
-          {focused && input.trim() === "" && (
+          {/* Between tokens (empty input, or a completed token + space) the
+              legend returns so operators chain — until Enter, when results
+              take the space; editing the query brings it back. */}
+          {focused && !ranQuery && (input === "" || /\s$/.test(input)) && (
             <div className="mt-2 rounded border border-[var(--color-border)] bg-[var(--color-bg)] p-2 text-xs space-y-1">
               <div className="font-medium text-[var(--color-text)]">Search options</div>
               {(
@@ -215,6 +227,7 @@ export default function GlobalFind({
                   onMouseDown={(e) => {
                     e.preventDefault();
                     setInput((v) => v + op + (op.endsWith(":") ? "" : " "));
+                    setRanQuery(false);
                     inputRef.current?.focus();
                   }}
                   className="w-full text-left flex gap-2 rounded px-1 py-0.5 hover:bg-[var(--color-surface-hover)]"
