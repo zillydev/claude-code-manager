@@ -1,5 +1,5 @@
 /target
-crates/app/frontend/node_modules
+node_modules/
 crates/app/frontend/dist
 crates/app/gen
 .DS_Store
