@@ -89,6 +89,7 @@ pub async fn search_messages(
     before: Option<i64>,
     tool: Option<String>,
     has_link: bool,
+    skip: Option<usize>,
 ) -> Result<SearchResultDto, String> {
     tauri::async_runtime::spawn_blocking(move || -> Result<SearchResultDto, String> {
         let files: Vec<store::SearchFile> = files
@@ -103,7 +104,16 @@ pub async fn search_messages(
                 })
             })
             .collect();
-        let filters = store::MessageFilters { text, role, after, before, tool, has_link, limit: 200 };
+        let filters = store::MessageFilters {
+            text,
+            role,
+            after,
+            before,
+            tool,
+            has_link,
+            limit: 200,
+            skip: skip.unwrap_or(0),
+        };
         let (hits, truncated) = store::search_messages(&files, &filters);
         Ok(SearchResultDto {
             hits: hits

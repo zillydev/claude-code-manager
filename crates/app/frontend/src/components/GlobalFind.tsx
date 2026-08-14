@@ -44,6 +44,10 @@ export default function GlobalFind({
   const [result, setResult] = useState<{ hits: Hit[]; truncated: boolean; term: string } | null>(
     null,
   );
+  const [loadingMore, setLoadingMore] = useState(false);
+  // The exact request the current results came from — Load more re-issues it
+  // with a skip, so later edits to the input can't change what page 2 means.
+  const lastReq = useRef<Record<string, unknown> | null>(null);
   const [error, setError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   useEffect(() => {
@@ -134,7 +138,7 @@ export default function GlobalFind({
         session_id: s.id,
         only_uuids: query.bookmarked ? (meta.sessions[s.id]?.bookmarks ?? []) : null,
       }));
-      const res = await invoke<{ hits: Hit[]; truncated: boolean }>("search_messages", {
+      const req = {
         files,
         text: query.text,
         role: query.role ?? null,
@@ -142,12 +146,34 @@ export default function GlobalFind({
         before: query.before ?? null,
         tool: query.tool ?? null,
         hasLink: query.hasLink,
-      });
+      };
+      lastReq.current = req;
+      const res = await invoke<{ hits: Hit[]; truncated: boolean }>("search_messages", req);
       setResult({ ...res, term: query.text });
     } catch (e) {
       setError(String(e));
     } finally {
       setRunning(false);
+    }
+  };
+
+  const loadMore = async () => {
+    if (!result || !lastReq.current || loadingMore) return;
+    setLoadingMore(true);
+    try {
+      const res = await invoke<{ hits: Hit[]; truncated: boolean }>("search_messages", {
+        ...lastReq.current,
+        skip: result.hits.length,
+      });
+      setResult({
+        hits: [...result.hits, ...res.hits],
+        truncated: res.truncated,
+        term: result.term,
+      });
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setLoadingMore(false);
     }
   };
 
@@ -269,9 +295,9 @@ export default function GlobalFind({
           )}
           {!running && result && (
             <div className="text-[10px] text-[var(--color-text-dim)]">
-              {result.truncated
-                ? "200+ results — narrow the query for the rest"
-                : `${result.hits.length} result${result.hits.length === 1 ? "" : "s"}`}
+              {result.hits.length}
+              {result.truncated ? "+" : ""} result
+              {result.hits.length === 1 && !result.truncated ? "" : "s"}
             </div>
           )}
           {!running &&
@@ -337,6 +363,15 @@ export default function GlobalFind({
               </div>
               );
             })}
+          {!running && result?.truncated && (
+            <button
+              onClick={loadMore}
+              disabled={loadingMore}
+              className="w-full text-center text-xs px-2 py-1.5 rounded-md border border-[var(--color-border)] text-[var(--color-text-dim)] hover:border-[var(--color-accent)] hover:text-[var(--color-accent)] disabled:opacity-50"
+            >
+              {loadingMore ? "Loading…" : "Load more"}
+            </button>
+          )}
         </div>
     </div>
   );
