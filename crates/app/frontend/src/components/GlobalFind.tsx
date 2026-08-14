@@ -140,12 +140,14 @@ export default function GlobalFind({
       }));
       const req = {
         files,
-        text: query.text,
-        role: query.role ?? null,
-        after: query.after ?? null,
-        before: query.before ?? null,
-        tool: query.tool ?? null,
-        hasLink: query.hasLink,
+        filters: {
+          text: query.text,
+          role: query.role ?? null,
+          after: query.after ?? null,
+          before: query.before ?? null,
+          tool: query.tool ?? null,
+          hasLink: query.hasLink,
+        },
       };
       lastReq.current = req;
       const res = await invoke<{ hits: Hit[]; truncated: boolean }>("search_messages", req);
@@ -161,9 +163,10 @@ export default function GlobalFind({
     if (!result || !lastReq.current || loadingMore) return;
     setLoadingMore(true);
     try {
+      const prev = lastReq.current as { files: unknown; filters: Record<string, unknown> };
       const res = await invoke<{ hits: Hit[]; truncated: boolean }>("search_messages", {
-        ...lastReq.current,
-        skip: result.hits.length,
+        files: prev.files,
+        filters: { ...prev.filters, skip: result.hits.length },
       });
       setResult({
         hits: [...result.hits, ...res.hits],

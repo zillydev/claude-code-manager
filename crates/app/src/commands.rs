@@ -78,18 +78,25 @@ pub struct SearchResultDto {
     pub truncated: bool,
 }
 
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SearchFiltersDto {
+    pub text: String,
+    pub role: Option<String>,
+    pub after: Option<i64>,
+    pub before: Option<i64>,
+    pub tool: Option<String>,
+    pub has_link: bool,
+    #[serde(default)]
+    pub skip: usize,
+}
+
 /// The global-find engine: candidate files come prefiltered from the frontend
 /// (project/tag/session/mtime narrowing happens there, where the metadata is).
 #[tauri::command]
 pub async fn search_messages(
     files: Vec<SearchFileDto>,
-    text: String,
-    role: Option<String>,
-    after: Option<i64>,
-    before: Option<i64>,
-    tool: Option<String>,
-    has_link: bool,
-    skip: Option<usize>,
+    filters: SearchFiltersDto,
 ) -> Result<SearchResultDto, String> {
     tauri::async_runtime::spawn_blocking(move || -> Result<SearchResultDto, String> {
         let files: Vec<store::SearchFile> = files
@@ -105,14 +112,14 @@ pub async fn search_messages(
             })
             .collect();
         let filters = store::MessageFilters {
-            text,
-            role,
-            after,
-            before,
-            tool,
-            has_link,
+            text: filters.text,
+            role: filters.role,
+            after: filters.after,
+            before: filters.before,
+            tool: filters.tool,
+            has_link: filters.has_link,
             limit: 200,
-            skip: skip.unwrap_or(0),
+            skip: filters.skip,
         };
         let (hits, truncated) = store::search_messages(&files, &filters);
         Ok(SearchResultDto {
