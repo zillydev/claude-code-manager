@@ -313,7 +313,10 @@ export default function GlobalFind({
                       </span>
                       <span className="text-[var(--color-text-dim)]">· {fmt(h.ts)}</span>
                     </div>
-                    <div className="mt-0.5 text-[var(--color-text)] whitespace-normal break-words line-clamp-3">
+                    {/* overflow-hidden stated explicitly: line-clamp only collapses the box's
+                        HEIGHT when overflow:hidden accompanies it — without it the clipped
+                        lines still occupy layout, leaving a blank gap under every card. */}
+                    <div className="mt-0.5 text-[var(--color-text)] whitespace-normal break-words line-clamp-3 overflow-hidden">
                       {splitHighlight(h.snippet, result.term).map((seg, j) =>
                         seg.hit ? (
                           <mark
