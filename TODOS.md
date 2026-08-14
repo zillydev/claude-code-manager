@@ -2,3 +2,5 @@
 - [x] better searching and filtering in a session
 - [x] better searching and filtering across sessions
 - [x] add bookmarking of messages
+- [ ] messages sent as queued messages while the agent is running, are not displayed in the manager tab. ref session id: 6a60abdd-59f6-45fc-93a9-06d3f8c8b03f
+- [ ] prettify output of mcp outputs

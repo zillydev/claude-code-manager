@@ -6,6 +6,7 @@ import MiniCalendar from "./MiniCalendar";
 import { useSessionMeta } from "../hooks/useSessionMeta";
 import { entryTags, sessionTitle } from "../lib/sessionMeta";
 import { parseSearchQuery, isRunnable, type SearchQuery } from "../lib/searchQuery";
+import { splitHighlight } from "../lib/highlight";
 
 interface Hit {
   session_id: string;
@@ -38,7 +39,11 @@ export default function GlobalFind({
   // the results deserve the space; while composing, the legend chains operators.
   const [ranQuery, setRanQuery] = useState(false);
   const [running, setRunning] = useState(false);
-  const [result, setResult] = useState<{ hits: Hit[]; truncated: boolean } | null>(null);
+  // `term` is the text the results were RUN with — highlights key off it, so
+  // editing the input never shifts highlights under old results.
+  const [result, setResult] = useState<{ hits: Hit[]; truncated: boolean; term: string } | null>(
+    null,
+  );
   const [error, setError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   useEffect(() => {
@@ -138,7 +143,7 @@ export default function GlobalFind({
         tool: query.tool ?? null,
         hasLink: query.hasLink,
       });
-      setResult(res);
+      setResult({ ...res, term: query.text });
     } catch (e) {
       setError(String(e));
     } finally {
@@ -271,22 +276,24 @@ export default function GlobalFind({
               <Spinner /> searching…
             </div>
           )}
-          {!running && result && groups.length === 0 && (
-            <div className="text-xs text-[var(--color-text-dim)]">No matches.</div>
-          )}
-          {!running && result?.truncated && (
-            <div className="text-xs text-[var(--color-system)]">
-              Showing the first 200 matches — narrow the query for the rest.
+          {!running && result && (
+            <div className="text-[10px] text-[var(--color-text-dim)]">
+              {result.truncated
+                ? "200+ results — narrow the query for the rest"
+                : `${result.hits.length} result${result.hits.length === 1 ? "" : "s"}`}
             </div>
           )}
           {!running &&
+            result &&
             groups.map(({ s, hits }) => (
               <div key={s.id} className="space-y-1">
-                <div className="flex items-baseline gap-2 text-xs">
-                  <span className="font-medium text-[var(--color-text)] truncate">
+                {/* Channel-style group header: # title … project · count */}
+                <div className="flex items-baseline gap-1.5 text-xs">
+                  <span className="text-[var(--color-text-dim)] shrink-0">#</span>
+                  <span className="font-semibold text-[var(--color-text)] truncate">
                     {sessionTitle(meta, s.id, s.title)}
                   </span>
-                  <span className="text-[var(--color-text-dim)] shrink-0">
+                  <span className="ml-auto text-[var(--color-text-dim)] shrink-0">
                     {s.project_label} · {hits.length}
                   </span>
                 </div>
@@ -294,17 +301,36 @@ export default function GlobalFind({
                   <button
                     key={`${h.uuid ?? i}`}
                     onClick={() => onOpen(s, h.uuid ?? undefined)}
-                    className="w-full text-left text-xs px-2 py-1 rounded border border-[var(--color-border)] bg-[var(--color-bg)] hover:border-[var(--color-accent)] flex items-baseline gap-2"
+                    className="w-full text-left text-xs px-2.5 py-1.5 rounded-md border border-[var(--color-border)] bg-[var(--color-bg)] hover:border-[var(--color-accent)]"
                   >
-                    <span
-                      className={`shrink-0 font-medium ${
-                        h.role === "user" ? "text-[var(--color-user)]" : "text-[var(--color-assistant)]"
-                      }`}
-                    >
-                      {h.role}
-                    </span>
-                    <span className="truncate text-[var(--color-text)]">{h.snippet}</span>
-                    <span className="ml-auto shrink-0 text-[var(--color-text-dim)]">{fmt(h.ts)}</span>
+                    <div className="flex items-baseline gap-1.5">
+                      <span
+                        className={`font-medium ${
+                          h.role === "user" ? "text-[var(--color-user)]" : "text-[var(--color-assistant)]"
+                        }`}
+                      >
+                        {h.role}
+                      </span>
+                      <span className="text-[var(--color-text-dim)]">· {fmt(h.ts)}</span>
+                    </div>
+                    <div className="mt-0.5 text-[var(--color-text)] whitespace-normal break-words line-clamp-3">
+                      {splitHighlight(h.snippet, result.term).map((seg, j) =>
+                        seg.hit ? (
+                          <mark
+                            key={j}
+                            className="text-inherit rounded-[2px] px-px"
+                            style={{
+                              backgroundColor:
+                                "color-mix(in srgb, var(--color-system) 35%, transparent)",
+                            }}
+                          >
+                            {seg.text}
+                          </mark>
+                        ) : (
+                          <span key={j}>{seg.text}</span>
+                        ),
+                      )}
+                    </div>
                   </button>
                 ))}
               </div>

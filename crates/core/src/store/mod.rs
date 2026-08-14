@@ -624,15 +624,16 @@ fn message_hit(
     Some(MessageHit { session_id, uuid, role: t.to_string(), ts, snippet })
 }
 
-/// ~80 chars centred on the first occurrence, whitespace collapsed, ellipses
-/// when clipped. Char-based so multi-byte text can't split a codepoint.
+/// ~180 chars centred on the first occurrence, whitespace collapsed, ellipses
+/// when clipped — sized for the find tab's 2–3-line message cards. Char-based
+/// so multi-byte text can't split a codepoint.
 fn snippet_around(text: &str, query_lower: &str) -> String {
     let lower = text.to_lowercase();
     let byte_pos = lower.find(query_lower).unwrap_or(0);
     let char_pos = lower[..byte_pos].chars().count();
     let chars: Vec<char> = text.chars().collect();
-    let start = char_pos.saturating_sub(30);
-    let end = (char_pos + query_lower.chars().count() + 50).min(chars.len());
+    let start = char_pos.saturating_sub(60);
+    let end = (char_pos + query_lower.chars().count() + 120).min(chars.len());
     let body: String = chars[start..end].iter().collect();
     let mut out = String::new();
     if start > 0 {
