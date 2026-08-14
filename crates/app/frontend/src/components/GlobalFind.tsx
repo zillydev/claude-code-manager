@@ -190,10 +190,15 @@ export default function GlobalFind({
         .sort((a, b) => (b.ts ?? 0) - (a.ts ?? 0))
     : [];
 
-  const fmt = (ts: number | null) =>
-    ts === null
-      ? ""
-      : new Date(ts * 1000).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+  // "15 Aug, 03:00 AM" — date and time joined with a comma ourselves, because
+  // toLocaleString's combined form inserts locale glue ("at") between them.
+  const fmt = (ts: number | null) => {
+    if (ts === null) return "";
+    const d = new Date(ts * 1000);
+    const date = d.toLocaleDateString([], { day: "numeric", month: "short" });
+    const time = d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    return `${date}, ${time}`;
+  };
 
   // Read-only chips showing the parsed interpretation.
   const chips: string[] = [];
