@@ -330,7 +330,7 @@ export default function GlobalFind({
                   <button
                     key={`${h.uuid ?? i}`}
                     onClick={() => onOpen(s, h.uuid ?? undefined)}
-                    className="w-full text-left text-xs px-2.5 py-1.5 rounded-md border border-[var(--color-border)] bg-[var(--color-bg)] hover:border-[var(--color-accent)]"
+                    className="w-full text-left text-xs px-3 py-2 rounded-md border border-[var(--color-border)] bg-[var(--color-bg)] hover:border-[var(--color-accent)]"
                   >
                     <div className="flex items-baseline gap-1.5">
                       <span
@@ -348,7 +348,9 @@ export default function GlobalFind({
                         card (line-clamp and max-h both hit it; Chrome renders the
                         identical DOM fine). The snippet is already length-capped by
                         the backend (~180 chars), so showing it whole is the fix. */}
-                    <div className="mt-0.5 text-[var(--color-text)] whitespace-normal break-words">
+                    {/* Same type + rhythm as transcript message bodies (px-3/py-2 card,
+                        text-sm) so results read like the conversation, not like chrome. */}
+                    <div className="mt-1 text-sm text-[var(--color-text)] whitespace-normal break-words">
                       {splitHighlight(h.snippet, result.term).map((seg, j) =>
                         seg.hit ? (
                           <mark
