@@ -502,6 +502,10 @@ pub struct MessageFilters {
     pub tool: Option<String>,
     pub has_link: bool,
     pub limit: usize,
+    /// Matches to skip before collecting — the "Load more" continuation.
+    /// Stateless by design: a re-scan with the raw-line prefilter is cheap, and
+    /// unlike a cursor it cannot go stale when files grow between pages.
+    pub skip: usize,
 }
 
 /// The global-find engine: walk the (already prefiltered) candidate files and
@@ -514,6 +518,7 @@ pub fn search_messages(files: &[SearchFile], f: &MessageFilters) -> (Vec<Message
     use std::io::{BufRead, BufReader};
     let query_lower = f.text.to_lowercase();
     let mut out = Vec::new();
+    let mut skipped = 0usize;
 
     'files: for sf in files {
         let Ok(file) = fs::File::open(&sf.path) else { continue };
@@ -530,6 +535,10 @@ pub fn search_messages(files: &[SearchFile], f: &MessageFilters) -> (Vec<Message
                 }
             }
             let Some(hit) = message_hit(&line, sf.session_id, &query_lower, f) else { continue };
+            if skipped < f.skip {
+                skipped += 1;
+                continue;
+            }
             out.push(hit);
             if out.len() >= f.limit {
                 break 'files;
@@ -624,15 +633,16 @@ fn message_hit(
     Some(MessageHit { session_id, uuid, role: t.to_string(), ts, snippet })
 }
 
-/// ~80 chars centred on the first occurrence, whitespace collapsed, ellipses
-/// when clipped. Char-based so multi-byte text can't split a codepoint.
+/// ~180 chars centred on the first occurrence, whitespace collapsed, ellipses
+/// when clipped — sized for the find tab's 2–3-line message cards. Char-based
+/// so multi-byte text can't split a codepoint.
 fn snippet_around(text: &str, query_lower: &str) -> String {
     let lower = text.to_lowercase();
     let byte_pos = lower.find(query_lower).unwrap_or(0);
     let char_pos = lower[..byte_pos].chars().count();
     let chars: Vec<char> = text.chars().collect();
-    let start = char_pos.saturating_sub(30);
-    let end = (char_pos + query_lower.chars().count() + 50).min(chars.len());
+    let start = char_pos.saturating_sub(60);
+    let end = (char_pos + query_lower.chars().count() + 120).min(chars.len());
     let body: String = chars[start..end].iter().collect();
     let mut out = String::new();
     if start > 0 {
@@ -695,6 +705,14 @@ mod tests {
         );
         assert!(trunc);
         assert_eq!(hits.len(), 1);
+
+        // skip: the Load-more continuation pages through matches statelessly
+        let (page2, _) = search_messages(
+            &files,
+            &MessageFilters { text: "needle".into(), limit: 1, skip: 1, ..Default::default() },
+        );
+        assert_eq!(page2.len(), 1);
+        assert_eq!(page2[0].role, "assistant", "skip=1 lands on the second match");
 
         // uuid restriction (the is:bookmarked path)
         let only = vec![Uuid::parse_str("00000000-0000-0000-0000-0000000000d1").unwrap()];

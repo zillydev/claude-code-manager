@@ -6,6 +6,7 @@ import MiniCalendar from "./MiniCalendar";
 import { useSessionMeta } from "../hooks/useSessionMeta";
 import { entryTags, sessionTitle } from "../lib/sessionMeta";
 import { parseSearchQuery, isRunnable, type SearchQuery } from "../lib/searchQuery";
+import { splitHighlight } from "../lib/highlight";
 
 interface Hit {
   session_id: string;
@@ -38,7 +39,15 @@ export default function GlobalFind({
   // the results deserve the space; while composing, the legend chains operators.
   const [ranQuery, setRanQuery] = useState(false);
   const [running, setRunning] = useState(false);
-  const [result, setResult] = useState<{ hits: Hit[]; truncated: boolean } | null>(null);
+  // `term` is the text the results were RUN with — highlights key off it, so
+  // editing the input never shifts highlights under old results.
+  const [result, setResult] = useState<{ hits: Hit[]; truncated: boolean; term: string } | null>(
+    null,
+  );
+  const [loadingMore, setLoadingMore] = useState(false);
+  // The exact request the current results came from — Load more re-issues it
+  // with a skip, so later edits to the input can't change what page 2 means.
+  const lastReq = useRef<Record<string, unknown> | null>(null);
   const [error, setError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   useEffect(() => {
@@ -129,16 +138,20 @@ export default function GlobalFind({
         session_id: s.id,
         only_uuids: query.bookmarked ? (meta.sessions[s.id]?.bookmarks ?? []) : null,
       }));
-      const res = await invoke<{ hits: Hit[]; truncated: boolean }>("search_messages", {
+      const req = {
         files,
-        text: query.text,
-        role: query.role ?? null,
-        after: query.after ?? null,
-        before: query.before ?? null,
-        tool: query.tool ?? null,
-        hasLink: query.hasLink,
-      });
-      setResult(res);
+        filters: {
+          text: query.text,
+          role: query.role ?? null,
+          after: query.after ?? null,
+          before: query.before ?? null,
+          tool: query.tool ?? null,
+          hasLink: query.hasLink,
+        },
+      };
+      lastReq.current = req;
+      const res = await invoke<{ hits: Hit[]; truncated: boolean }>("search_messages", req);
+      setResult({ ...res, term: query.text });
     } catch (e) {
       setError(String(e));
     } finally {
@@ -146,29 +159,46 @@ export default function GlobalFind({
     }
   };
 
-  // Group hits by session, newest hit first; transcript order within.
-  const byId = new Map(sessions.map((s) => [s.id, s]));
-  const groups: { s: SessionSummary; hits: Hit[] }[] = [];
-  if (result) {
-    const m = new Map<string, Hit[]>();
-    for (const h of result.hits) {
-      const arr = m.get(h.session_id) ?? [];
-      arr.push(h);
-      m.set(h.session_id, arr);
+  const loadMore = async () => {
+    if (!result || !lastReq.current || loadingMore) return;
+    setLoadingMore(true);
+    try {
+      const prev = lastReq.current as { files: unknown; filters: Record<string, unknown> };
+      const res = await invoke<{ hits: Hit[]; truncated: boolean }>("search_messages", {
+        files: prev.files,
+        filters: { ...prev.filters, skip: result.hits.length },
+      });
+      setResult({
+        hits: [...result.hits, ...res.hits],
+        truncated: res.truncated,
+        term: result.term,
+      });
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setLoadingMore(false);
     }
-    for (const [id, hits] of m) {
-      const s = byId.get(id);
-      if (s) groups.push({ s, hits });
-    }
-    groups.sort(
-      (a, b) => Math.max(...b.hits.map((h) => h.ts ?? 0)) - Math.max(...a.hits.map((h) => h.ts ?? 0)),
-    );
-  }
+  };
 
-  const fmt = (ts: number | null) =>
-    ts === null
-      ? ""
-      : new Date(ts * 1000).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+  // Discord-style flat order: strictly newest message first across ALL
+  // sessions. A session header re-appears whenever consecutive cards come from
+  // different sessions — context without sacrificing the true order.
+  const byId = new Map(sessions.map((s) => [s.id, s]));
+  const ordered = result
+    ? [...result.hits]
+        .filter((h) => byId.has(h.session_id))
+        .sort((a, b) => (b.ts ?? 0) - (a.ts ?? 0))
+    : [];
+
+  // "15 Aug, 03:00 AM" — date and time joined with a comma ourselves, because
+  // toLocaleString's combined form inserts locale glue ("at") between them.
+  const fmt = (ts: number | null) => {
+    if (ts === null) return "";
+    const d = new Date(ts * 1000);
+    const date = d.toLocaleDateString([], { day: "numeric", month: "short" });
+    const time = d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    return `${date}, ${time}`;
+  };
 
   // Read-only chips showing the parsed interpretation.
   const chips: string[] = [];
@@ -271,44 +301,87 @@ export default function GlobalFind({
               <Spinner /> searching…
             </div>
           )}
-          {!running && result && groups.length === 0 && (
-            <div className="text-xs text-[var(--color-text-dim)]">No matches.</div>
-          )}
-          {!running && result?.truncated && (
-            <div className="text-xs text-[var(--color-system)]">
-              Showing the first 200 matches — narrow the query for the rest.
+          {!running && result && (
+            <div className="text-[10px] text-[var(--color-text-dim)]">
+              {result.hits.length}
+              {result.truncated ? "+" : ""} result
+              {result.hits.length === 1 && !result.truncated ? "" : "s"}
             </div>
           )}
           {!running &&
-            groups.map(({ s, hits }) => (
-              <div key={s.id} className="space-y-1">
-                <div className="flex items-baseline gap-2 text-xs">
-                  <span className="font-medium text-[var(--color-text)] truncate">
-                    {sessionTitle(meta, s.id, s.title)}
-                  </span>
-                  <span className="text-[var(--color-text-dim)] shrink-0">
-                    {s.project_label} · {hits.length}
-                  </span>
-                </div>
-                {hits.map((h, i) => (
+            result &&
+            ordered.map((h, i) => {
+              const s = byId.get(h.session_id)!;
+              const newSession = i === 0 || ordered[i - 1].session_id !== h.session_id;
+              return (
+              <div key={`${h.uuid ?? h.session_id}-${i}`} className={newSession && i > 0 ? "pt-2" : ""}>
+                {newSession && (
+                  <div className="flex items-baseline gap-1.5 text-xs mb-1">
+                    <span className="text-[var(--color-text-dim)] shrink-0">#</span>
+                    <span className="font-semibold text-[var(--color-text)] truncate">
+                      {sessionTitle(meta, s.id, s.title)}
+                    </span>
+                    <span className="ml-auto text-[var(--color-text-dim)] shrink-0">
+                      {s.project_label}
+                    </span>
+                  </div>
+                )}
+                {(
                   <button
                     key={`${h.uuid ?? i}`}
                     onClick={() => onOpen(s, h.uuid ?? undefined)}
-                    className="w-full text-left text-xs px-2 py-1 rounded border border-[var(--color-border)] bg-[var(--color-bg)] hover:border-[var(--color-accent)] flex items-baseline gap-2"
+                    className="w-full text-left text-xs px-3 py-2 rounded-md border border-[var(--color-border)] bg-[var(--color-bg)] hover:border-[var(--color-accent)]"
                   >
-                    <span
-                      className={`shrink-0 font-medium ${
-                        h.role === "user" ? "text-[var(--color-user)]" : "text-[var(--color-assistant)]"
-                      }`}
-                    >
-                      {h.role}
-                    </span>
-                    <span className="truncate text-[var(--color-text)]">{h.snippet}</span>
-                    <span className="ml-auto shrink-0 text-[var(--color-text-dim)]">{fmt(h.ts)}</span>
+                    <div className="flex items-baseline gap-1.5">
+                      <span
+                        className={`font-medium ${
+                          h.role === "user" ? "text-[var(--color-user)]" : "text-[var(--color-assistant)]"
+                        }`}
+                      >
+                        {h.role}
+                      </span>
+                      <span className="text-[var(--color-text-dim)]">· {fmt(h.ts)}</span>
+                    </div>
+                    {/* No CSS clipping at all: any hidden overflow inside a <button>
+                        makes WKWebView reserve the full content height while painting
+                        the border around the visible part — phantom gaps below each
+                        card (line-clamp and max-h both hit it; Chrome renders the
+                        identical DOM fine). The snippet is already length-capped by
+                        the backend (~180 chars), so showing it whole is the fix. */}
+                    {/* Same type + rhythm as transcript message bodies (px-3/py-2 card,
+                        text-sm) so results read like the conversation, not like chrome. */}
+                    <div className="mt-1 text-sm text-[var(--color-text)] whitespace-normal break-words">
+                      {splitHighlight(h.snippet, result.term).map((seg, j) =>
+                        seg.hit ? (
+                          <mark
+                            key={j}
+                            className="text-inherit rounded-[2px] px-px"
+                            style={{
+                              backgroundColor:
+                                "color-mix(in srgb, var(--color-system) 35%, transparent)",
+                            }}
+                          >
+                            {seg.text}
+                          </mark>
+                        ) : (
+                          <span key={j}>{seg.text}</span>
+                        ),
+                      )}
+                    </div>
                   </button>
-                ))}
+                )}
               </div>
-            ))}
+              );
+            })}
+          {!running && result?.truncated && (
+            <button
+              onClick={loadMore}
+              disabled={loadingMore}
+              className="w-full text-center text-xs px-2 py-1.5 rounded-md border border-[var(--color-border)] text-[var(--color-text-dim)] hover:border-[var(--color-accent)] hover:text-[var(--color-accent)] disabled:opacity-50"
+            >
+              {loadingMore ? "Loading…" : "Load more"}
+            </button>
+          )}
         </div>
     </div>
   );
