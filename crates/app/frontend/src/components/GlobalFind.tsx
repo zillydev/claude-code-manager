@@ -151,24 +151,15 @@ export default function GlobalFind({
     }
   };
 
-  // Group hits by session, newest hit first; transcript order within.
+  // Discord-style flat order: strictly newest message first across ALL
+  // sessions. A session header re-appears whenever consecutive cards come from
+  // different sessions — context without sacrificing the true order.
   const byId = new Map(sessions.map((s) => [s.id, s]));
-  const groups: { s: SessionSummary; hits: Hit[] }[] = [];
-  if (result) {
-    const m = new Map<string, Hit[]>();
-    for (const h of result.hits) {
-      const arr = m.get(h.session_id) ?? [];
-      arr.push(h);
-      m.set(h.session_id, arr);
-    }
-    for (const [id, hits] of m) {
-      const s = byId.get(id);
-      if (s) groups.push({ s, hits });
-    }
-    groups.sort(
-      (a, b) => Math.max(...b.hits.map((h) => h.ts ?? 0)) - Math.max(...a.hits.map((h) => h.ts ?? 0)),
-    );
-  }
+  const ordered = result
+    ? [...result.hits]
+        .filter((h) => byId.has(h.session_id))
+        .sort((a, b) => (b.ts ?? 0) - (a.ts ?? 0))
+    : [];
 
   const fmt = (ts: number | null) =>
     ts === null
@@ -285,19 +276,23 @@ export default function GlobalFind({
           )}
           {!running &&
             result &&
-            groups.map(({ s, hits }) => (
-              <div key={s.id} className="space-y-1">
-                {/* Channel-style group header: # title … project · count */}
-                <div className="flex items-baseline gap-1.5 text-xs">
-                  <span className="text-[var(--color-text-dim)] shrink-0">#</span>
-                  <span className="font-semibold text-[var(--color-text)] truncate">
-                    {sessionTitle(meta, s.id, s.title)}
-                  </span>
-                  <span className="ml-auto text-[var(--color-text-dim)] shrink-0">
-                    {s.project_label} · {hits.length}
-                  </span>
-                </div>
-                {hits.map((h, i) => (
+            ordered.map((h, i) => {
+              const s = byId.get(h.session_id)!;
+              const newSession = i === 0 || ordered[i - 1].session_id !== h.session_id;
+              return (
+              <div key={`${h.uuid ?? h.session_id}-${i}`} className={newSession && i > 0 ? "pt-2" : ""}>
+                {newSession && (
+                  <div className="flex items-baseline gap-1.5 text-xs mb-1">
+                    <span className="text-[var(--color-text-dim)] shrink-0">#</span>
+                    <span className="font-semibold text-[var(--color-text)] truncate">
+                      {sessionTitle(meta, s.id, s.title)}
+                    </span>
+                    <span className="ml-auto text-[var(--color-text-dim)] shrink-0">
+                      {s.project_label}
+                    </span>
+                  </div>
+                )}
+                {(
                   <button
                     key={`${h.uuid ?? i}`}
                     onClick={() => onOpen(s, h.uuid ?? undefined)}
@@ -338,9 +333,10 @@ export default function GlobalFind({
                       )}
                     </div>
                   </button>
-                ))}
+                )}
               </div>
-            ))}
+              );
+            })}
         </div>
     </div>
   );
