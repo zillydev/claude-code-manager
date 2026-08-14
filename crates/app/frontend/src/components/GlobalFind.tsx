@@ -313,12 +313,13 @@ export default function GlobalFind({
                       </span>
                       <span className="text-[var(--color-text-dim)]">· {fmt(h.ts)}</span>
                     </div>
-                    {/* max-height, NOT line-clamp: WKWebView's legacy-box line-clamp
-                        reserves the FULL content height when the clamped box contains
-                        child elements (the <mark>s), leaving a blank gap under every
-                        card — Chrome renders the same markup fine. max-h-12 = three
-                        text-xs lines, deterministic in every engine. */}
-                    <div className="mt-0.5 text-[var(--color-text)] whitespace-normal break-words max-h-12 overflow-hidden">
+                    {/* No CSS clipping at all: any hidden overflow inside a <button>
+                        makes WKWebView reserve the full content height while painting
+                        the border around the visible part — phantom gaps below each
+                        card (line-clamp and max-h both hit it; Chrome renders the
+                        identical DOM fine). The snippet is already length-capped by
+                        the backend (~180 chars), so showing it whole is the fix. */}
+                    <div className="mt-0.5 text-[var(--color-text)] whitespace-normal break-words">
                       {splitHighlight(h.snippet, result.term).map((seg, j) =>
                         seg.hit ? (
                           <mark
