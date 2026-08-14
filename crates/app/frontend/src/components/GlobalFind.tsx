@@ -313,10 +313,12 @@ export default function GlobalFind({
                       </span>
                       <span className="text-[var(--color-text-dim)]">· {fmt(h.ts)}</span>
                     </div>
-                    {/* overflow-hidden stated explicitly: line-clamp only collapses the box's
-                        HEIGHT when overflow:hidden accompanies it — without it the clipped
-                        lines still occupy layout, leaving a blank gap under every card. */}
-                    <div className="mt-0.5 text-[var(--color-text)] whitespace-normal break-words line-clamp-3 overflow-hidden">
+                    {/* max-height, NOT line-clamp: WKWebView's legacy-box line-clamp
+                        reserves the FULL content height when the clamped box contains
+                        child elements (the <mark>s), leaving a blank gap under every
+                        card — Chrome renders the same markup fine. max-h-12 = three
+                        text-xs lines, deterministic in every engine. */}
+                    <div className="mt-0.5 text-[var(--color-text)] whitespace-normal break-words max-h-12 overflow-hidden">
                       {splitHighlight(h.snippet, result.term).map((seg, j) =>
                         seg.hit ? (
                           <mark
