@@ -60,7 +60,9 @@ export default function App() {
     projectLabel: string;
     cwd?: string;
     /** Message uuid to scroll the transcript to on open (e.g. a fork point). */
-    scrollToMessage?: string;
+    /** Scroll request as an EVENT: `n` bumps on every jump, so clicking the
+     *  same bookmark/result again re-scrolls even though the uuid is equal. */
+    scrollToMessage?: { uuid: string; n: number };
   } | null>(null);
 
   // Live per-session activity (epoch s of last real turn) for the sidebar
@@ -78,12 +80,14 @@ export default function App() {
   // (e.g. a fork point opened from the lineage tree).
   const openSession = useCallback(
     (s: { id: string; file_path: string; project_label: string }, scrollToMessage?: string) => {
-      setTarget({
+      setTarget((prev) => ({
         sessionId: s.id,
         filePath: s.file_path,
         projectLabel: s.project_label,
-        scrollToMessage,
-      });
+        scrollToMessage: scrollToMessage
+          ? { uuid: scrollToMessage, n: (prev?.scrollToMessage?.n ?? 0) + 1 }
+          : undefined,
+      }));
     },
     [],
   );
