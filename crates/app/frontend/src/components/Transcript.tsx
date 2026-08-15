@@ -30,8 +30,9 @@ interface Props {
   onOpenSession?: (s: SessionSummary) => void;
   /** Open the lineage tree for this session; omitted/null when it has no lineage. */
   onViewTree?: (() => void) | null;
-  /** Message uuid to center + flash on open (e.g. a fork point); null = jump to bottom. */
-  scrollToMessage?: string | null;
+  /** Scroll+flash request (uuid + a nonce that bumps per request, so the same
+   *  message can be re-requested); null = jump to bottom on open. */
+  scrollToMessage?: { uuid: string; n: number } | null;
   /** Whether the transcript's tab is currently showing (false when on Terminal). */
   visible?: boolean;
   /** The Manager/Terminal toggle, slotted into the header's right cluster. */
@@ -176,7 +177,7 @@ export default function Transcript({
     } else if (atBottomRef.current) {
       bottomRef.current?.scrollIntoView({ behavior: "smooth" });
     }
-  }, [session.id, visibleTurns.length, scrollToMessage, setPinned]);
+  }, [session.id, visibleTurns.length, scrollToMessage?.n, setPinned]);
 
   // Scroll to + flash a specific message (e.g. a fork point opened from the
   // lineage tree). Keyed on the message too, so it also fires when the target is
@@ -192,7 +193,7 @@ export default function Transcript({
         // in the space-separated uuid list, so a merged assistant turn is found
         // by any of its constituent event uuids, not just head/fork.
         const el = turnsRef.current?.querySelector<HTMLElement>(
-          `[data-msg-uuids~="${scrollToMessage}"]`,
+          `[data-msg-uuids~="${scrollToMessage.uuid}"]`,
         );
         if (!el) return;
         setPinned(false);
@@ -208,7 +209,7 @@ export default function Transcript({
       cancelAnimationFrame(raf1);
       cancelAnimationFrame(raf2);
     };
-  }, [session.id, scrollToMessage, setPinned]);
+  }, [session.id, scrollToMessage?.uuid, scrollToMessage?.n, setPinned]);
 
   // When this tab becomes visible again, restore the bottom if we were pinned
   // there: display:none can drift the scroll position, and live turns may have
