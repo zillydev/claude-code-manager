@@ -311,12 +311,12 @@ pub fn message_previews(
         Ok(o) => o,
         Err(_) => return out,
     };
-    for ev in &outcome.events {
+    for (i, ev) in outcome.events.iter().enumerate() {
         let Some(id) = ev.uuid() else { continue };
         if !wanted.contains(&id) || out.contains_key(&id) {
             continue;
         }
-        if let Some(text) = preview_text(ev) {
+        if let Some(text) = preview_for_turn(&outcome.events, i) {
             let line = one_line_truncated(&text, 60);
             if !line.is_empty() {
                 out.insert(id, (line, ev.timestamp()));
@@ -324,6 +324,61 @@ pub fn message_previews(
         }
     }
     out
+}
+
+/// Preview for the REPLY anchored at `events[i]`, not just that exact line.
+/// A bookmark stores a merged assistant turn's HEAD uuid, and the head line is
+/// often a thinking/tool_use line with no text — sometimes even an EMPTY
+/// redacted thinking block. The reply's text arrives lines later, and real
+/// files interleave tool_result user lines and attachments between the
+/// assistant lines (a pure-assistant scan breaks immediately — that was the
+/// bug). Walk forward until a real user prompt ends the reply: first
+/// non-empty text wins; failing that, the first thinking snippet, then a
+/// "(tool: X)" label.
+fn preview_for_turn(events: &[Event], i: usize) -> Option<String> {
+    if let Some(t) = preview_text(&events[i]) {
+        return Some(t);
+    }
+    if !matches!(events[i], Event::Assistant(_)) {
+        return None;
+    }
+    let mut tool: Option<String> = None;
+    let mut thinking: Option<String> = None;
+    for ev in events[i..].iter() {
+        match ev {
+            Event::Assistant(a) => {
+                for b in &a.message.content {
+                    match b {
+                        Block::Text { text } if !text.trim().is_empty() => {
+                            return Some(text.clone())
+                        }
+                        Block::ToolUse { name, .. } if tool.is_none() => {
+                            tool = Some(name.clone());
+                        }
+                        Block::Thinking { thinking: th }
+                            if thinking.is_none() && !th.trim().is_empty() =>
+                        {
+                            thinking = Some(th.trim().to_string());
+                        }
+                        _ => {}
+                    }
+                }
+            }
+            Event::User(u) => {
+                let pure_result = matches!(
+                    &u.message.content,
+                    MessageContent::Blocks(bs)
+                        if !bs.is_empty()
+                            && bs.iter().all(|b| matches!(b, UserBlock::ToolResult { .. }))
+                );
+                if !pure_result {
+                    break; // a real prompt ends the reply
+                }
+            }
+            _ => {} // attachments/system interleave within a reply
+        }
+    }
+    thinking.or_else(|| tool.map(|n| format!("(tool: {n})")))
 }
 
 fn preview_text(ev: &Event) -> Option<String> {
@@ -720,6 +775,36 @@ mod tests {
         let (hits, _) = search_messages(&files_b, &MessageFilters { limit: 10, ..Default::default() });
         assert_eq!(hits.len(), 1);
         assert!(hits[0].snippet.contains("early"));
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn preview_resolves_a_textless_turn_head() {
+        // A merged assistant turn's head is often a thinking/tool_use line; the
+        // bookmark stores THAT uuid. The preview must come from the run's later
+        // text line — "(message not found)" for a real message is the bug.
+        let root = std::env::temp_dir().join(format!("cm-prevhead-{}", std::process::id()));
+        let proj = root.join("projects").join("-tmp-proj");
+        fs::create_dir_all(&proj).unwrap();
+        let path = proj.join("h.jsonl");
+        let head = "00000000-0000-0000-0000-0000000000e1";
+        // The real shape that broke: empty redacted thinking head, then
+        // tool_use / tool_result / attachment interleaved, text arriving late.
+        let body = [
+            r#"{"type":"assistant","uuid":"00000000-0000-0000-0000-0000000000e1","timestamp":"2026-08-15T10:00:00Z","message":{"role":"assistant","content":[{"type":"thinking","thinking":""}]}}"#,
+            r#"{"type":"assistant","uuid":"00000000-0000-0000-0000-0000000000e2","timestamp":"2026-08-15T10:00:01Z","message":{"role":"assistant","content":[{"type":"tool_use","id":"t1","name":"Bash","input":{}}]}}"#,
+            r#"{"type":"user","uuid":"00000000-0000-0000-0000-0000000000e3","timestamp":"2026-08-15T10:00:02Z","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t1","content":"ok"}]}}"#,
+            r#"{"type":"attachment","uuid":"00000000-0000-0000-0000-0000000000e4","timestamp":"2026-08-15T10:00:02Z"}"#,
+            r#"{"type":"assistant","uuid":"00000000-0000-0000-0000-0000000000e5","timestamp":"2026-08-15T10:00:05Z","message":{"role":"assistant","content":[{"type":"text","text":"the actual reply text"}]}}"#,
+            r#"{"type":"user","uuid":"00000000-0000-0000-0000-0000000000e6","timestamp":"2026-08-15T10:01:00Z","message":{"role":"user","content":"next question"}}"#,
+        ]
+        .join("\n");
+        fs::write(&path, body + "\n").unwrap();
+        let wanted: std::collections::HashSet<Uuid> =
+            [Uuid::parse_str(head).unwrap()].into_iter().collect();
+        let got = message_previews(&path, &wanted);
+        let (snippet, _) = got.get(&Uuid::parse_str(head).unwrap()).expect("resolves");
+        assert_eq!(snippet, "the actual reply text");
         std::fs::remove_dir_all(&root).ok();
     }
 

@@ -34,6 +34,14 @@ pub struct SessionEntry {
     pub tags: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub note: Option<String>,
+    /// Bookmarked message uuids (the turn's head uuid), insertion order.
+    /// MUST mirror the frontend's SessionEntry: this struct is what
+    /// set_session_meta deserializes into, so any frontend field missing here
+    /// is silently dropped by serde — the write "succeeds", the broadcast
+    /// echoes the stripped meta back, and the UI watches its change revert.
+    /// That is exactly how bookmarks were lost for a week.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub bookmarks: Vec<String>,
 }
 
 fn default_version() -> u32 {
@@ -105,6 +113,7 @@ mod tests {
                 alias: Some("auth refactor".into()),
                 tags: vec!["wip".into()],
                 note: Some("blocked on X".into()),
+                bookmarks: vec!["00000000-0000-0000-0000-0000000000b1".into()],
             },
         );
         save_to(&path, &meta).unwrap();
@@ -163,8 +172,22 @@ mod tests {
             alias: None,
             tags: vec![],
             note: None,
+            bookmarks: vec![],
         })
         .unwrap();
         assert_eq!(json, "{}");
+    }
+
+    #[test]
+    fn bookmarks_survive_the_deserialize_round_trip() {
+        // Regression: this struct is what set_session_meta deserializes into,
+        // and a frontend field missing here is silently dropped — the write
+        // "succeeds", the broadcast echoes stripped meta, and the UI watches
+        // its toggle revert. Bookmarks were lost exactly this way.
+        let json = r##"{ "sessions": { "abc": { "bookmarks": ["u1", "u2"] } } }"##;
+        let meta: SessionMeta = serde_json::from_str(json).unwrap();
+        assert_eq!(meta.sessions["abc"].bookmarks, vec!["u1", "u2"]);
+        let back = serde_json::to_string(&meta).unwrap();
+        assert!(back.contains("bookmarks"), "must serialize back out: {back}");
     }
 }

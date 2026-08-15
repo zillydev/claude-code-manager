@@ -118,7 +118,11 @@ export default function App() {
   // Load `target` into the Manager. An existing session's file is there immediately;
   // a new session's appears only after claude writes the first turn — so poll for it,
   // clearing any stale transcript meanwhile, and refresh the sidebar once it lands.
-  // Keyed on `target`: switching sessions cancels the previous (possibly polling) run.
+  // Keyed on target's IDENTIFYING values, not the object: openSession builds a
+  // fresh object every call, and a same-session jump (bookmark/find hit) only
+  // changes scrollToMessage — re-running this effect then re-parses the whole
+  // file and flashes "Loading session…" instead of just scrolling. Transcript's
+  // scroll effect handles the jump; this one must only care WHICH session.
   useEffect(() => {
     if (!target) {
       close();
@@ -144,7 +148,8 @@ export default function App() {
     return () => {
       cancelled = true;
     };
-  }, [target, open, close, refresh, setLastViewed]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- see comment above
+  }, [target?.sessionId, target?.filePath, target?.projectLabel, open, close, refresh, setLastViewed]);
 
   // While a session is open, keep its last-viewed time abreast of incoming turns
   // so live-tailed content in the session you're watching isn't flagged unread.
