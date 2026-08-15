@@ -49,6 +49,12 @@ export const THEMES: Record<string, Record<string, string>> = {
     "--color-tool-result-bg": "#0d1117",
     "--color-error": "#f85149",
     "--color-thinking": "#484f58",
+    "--syn-keyword": "#ff7b72",
+    "--syn-func": "#d2a8ff",
+    "--syn-string": "#a5d6ff",
+    "--syn-comment": "#8b949e",
+    "--syn-const": "#79c0ff",
+    "--syn-tag": "#7ee787",
   },
   light: {
     "--color-bg": "#ffffff",
@@ -65,6 +71,12 @@ export const THEMES: Record<string, Record<string, string>> = {
     "--color-tool-result-bg": "#eaeef2",
     "--color-error": "#cf222e",
     "--color-thinking": "#afb8c1",
+    "--syn-keyword": "#cf222e",
+    "--syn-func": "#8250df",
+    "--syn-string": "#0a3069",
+    "--syn-comment": "#6e7781",
+    "--syn-const": "#0550ae",
+    "--syn-tag": "#116329",
   },
 };
 

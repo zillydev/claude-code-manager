@@ -1,6 +1,7 @@
 import { useState } from "react";
 import type { RenderedBlock, ToolCallResult } from "../types";
 import { makeSegId } from "../lib/segments";
+import { prettyToolName, prettyResultText } from "../lib/toolDisplay";
 
 interface Props {
   block: Extract<RenderedBlock, { type: "tool_call" }>;
@@ -26,7 +27,7 @@ export default function ToolCall({ block, turnIndex, blockIndex, forceExpand }: 
           data-seg-id={makeSegId(turnIndex, blockIndex, "tool-name")}
           className="text-[var(--color-tool)] font-semibold text-sm shrink-0 mr-1.5"
         >
-          {block.name}:
+          {prettyToolName(block.name)}:
         </span>
         <span className="text-[var(--color-text-dim)] text-xs truncate min-w-0">
           {block.input_summary}
@@ -72,7 +73,7 @@ function ToolResult({ result, segId }: { result: ToolCallResult; segId: string }
       }`}
       style={{ maxHeight: "400px", overflowY: "auto" }}
     >
-      {result.text}
+      {prettyResultText(result.text)}
     </pre>
   );
 }

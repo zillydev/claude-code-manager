@@ -3,9 +3,9 @@ import { THEMES, resolveFont, themePalette, DEFAULT_CONFIG, type Config } from "
 import { applyConfig } from "./applyConfig";
 
 describe("themes", () => {
-  it("every theme defines the same 14 color vars", () => {
+  it("every theme defines the same vars (14 color + 6 syntax)", () => {
     const keys = Object.keys(THEMES["github-dark"]).sort();
-    expect(keys).toHaveLength(14);
+    expect(keys).toHaveLength(20);
     for (const [name, palette] of Object.entries(THEMES)) {
       expect(Object.keys(palette).sort(), `theme ${name}`).toEqual(keys);
     }
