@@ -311,12 +311,12 @@ pub fn message_previews(
         Ok(o) => o,
         Err(_) => return out,
     };
-    for ev in &outcome.events {
+    for (i, ev) in outcome.events.iter().enumerate() {
         let Some(id) = ev.uuid() else { continue };
         if !wanted.contains(&id) || out.contains_key(&id) {
             continue;
         }
-        if let Some(text) = preview_text(ev) {
+        if let Some(text) = preview_for_turn(&outcome.events, i) {
             let line = one_line_truncated(&text, 60);
             if !line.is_empty() {
                 out.insert(id, (line, ev.timestamp()));
@@ -324,6 +324,40 @@ pub fn message_previews(
         }
     }
     out
+}
+
+/// Preview for the TURN anchored at `events[i]`, not just that exact line.
+/// A bookmark stores a merged assistant turn's HEAD uuid, and the head line is
+/// often thinking/tool_use with no text — the turn's text arrives in a later
+/// line of the same assistant run (exactly what the transcript merges). Scan
+/// forward through the run; if the whole run has no text, describe the head's
+/// first block instead of reporting the message missing.
+fn preview_for_turn(events: &[Event], i: usize) -> Option<String> {
+    if let Some(t) = preview_text(&events[i]) {
+        return Some(t);
+    }
+    if let Event::Assistant(head) = &events[i] {
+        for ev in events[i + 1..].iter() {
+            match ev {
+                Event::Assistant(_) => {
+                    if let Some(t) = preview_text(ev) {
+                        return Some(t);
+                    }
+                }
+                _ => break,
+            }
+        }
+        for b in &head.message.content {
+            match b {
+                Block::ToolUse { name, .. } => return Some(format!("(tool: {name})")),
+                Block::Thinking { thinking } if !thinking.trim().is_empty() => {
+                    return Some(thinking.trim().to_string())
+                }
+                _ => {}
+            }
+        }
+    }
+    None
 }
 
 fn preview_text(ev: &Event) -> Option<String> {
@@ -720,6 +754,36 @@ mod tests {
         let (hits, _) = search_messages(&files_b, &MessageFilters { limit: 10, ..Default::default() });
         assert_eq!(hits.len(), 1);
         assert!(hits[0].snippet.contains("early"));
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn preview_resolves_a_textless_turn_head() {
+        // A merged assistant turn's head is often a thinking/tool_use line; the
+        // bookmark stores THAT uuid. The preview must come from the run's later
+        // text line — "(message not found)" for a real message is the bug.
+        let root = std::env::temp_dir().join(format!("cm-prevhead-{}", std::process::id()));
+        let proj = root.join("projects").join("-tmp-proj");
+        fs::create_dir_all(&proj).unwrap();
+        let path = proj.join("h.jsonl");
+        let head = "00000000-0000-0000-0000-0000000000e1";
+        fs::write(
+            &path,
+            concat!(
+                r#"{"type":"assistant","uuid":"00000000-0000-0000-0000-0000000000e1","timestamp":"2026-08-15T10:00:00Z","message":{"role":"assistant","content":[{"type":"tool_use","id":"t1","name":"Bash","input":{}}]}}"#,
+                "
+",
+                r#"{"type":"assistant","uuid":"00000000-0000-0000-0000-0000000000e2","timestamp":"2026-08-15T10:00:05Z","message":{"role":"assistant","content":[{"type":"text","text":"the actual reply text"}]}}"#,
+                "
+",
+            ),
+        )
+        .unwrap();
+        let wanted: std::collections::HashSet<Uuid> =
+            [Uuid::parse_str(head).unwrap()].into_iter().collect();
+        let got = message_previews(&path, &wanted);
+        let (snippet, _) = got.get(&Uuid::parse_str(head).unwrap()).expect("resolves");
+        assert_eq!(snippet, "the actual reply text");
         std::fs::remove_dir_all(&root).ok();
     }
 
