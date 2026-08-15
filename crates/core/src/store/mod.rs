@@ -326,38 +326,59 @@ pub fn message_previews(
     out
 }
 
-/// Preview for the TURN anchored at `events[i]`, not just that exact line.
+/// Preview for the REPLY anchored at `events[i]`, not just that exact line.
 /// A bookmark stores a merged assistant turn's HEAD uuid, and the head line is
-/// often thinking/tool_use with no text — the turn's text arrives in a later
-/// line of the same assistant run (exactly what the transcript merges). Scan
-/// forward through the run; if the whole run has no text, describe the head's
-/// first block instead of reporting the message missing.
+/// often a thinking/tool_use line with no text — sometimes even an EMPTY
+/// redacted thinking block. The reply's text arrives lines later, and real
+/// files interleave tool_result user lines and attachments between the
+/// assistant lines (a pure-assistant scan breaks immediately — that was the
+/// bug). Walk forward until a real user prompt ends the reply: first
+/// non-empty text wins; failing that, the first thinking snippet, then a
+/// "(tool: X)" label.
 fn preview_for_turn(events: &[Event], i: usize) -> Option<String> {
     if let Some(t) = preview_text(&events[i]) {
         return Some(t);
     }
-    if let Event::Assistant(head) = &events[i] {
-        for ev in events[i + 1..].iter() {
-            match ev {
-                Event::Assistant(_) => {
-                    if let Some(t) = preview_text(ev) {
-                        return Some(t);
+    if !matches!(events[i], Event::Assistant(_)) {
+        return None;
+    }
+    let mut tool: Option<String> = None;
+    let mut thinking: Option<String> = None;
+    for ev in events[i..].iter() {
+        match ev {
+            Event::Assistant(a) => {
+                for b in &a.message.content {
+                    match b {
+                        Block::Text { text } if !text.trim().is_empty() => {
+                            return Some(text.clone())
+                        }
+                        Block::ToolUse { name, .. } if tool.is_none() => {
+                            tool = Some(name.clone());
+                        }
+                        Block::Thinking { thinking: th }
+                            if thinking.is_none() && !th.trim().is_empty() =>
+                        {
+                            thinking = Some(th.trim().to_string());
+                        }
+                        _ => {}
                     }
                 }
-                _ => break,
             }
-        }
-        for b in &head.message.content {
-            match b {
-                Block::ToolUse { name, .. } => return Some(format!("(tool: {name})")),
-                Block::Thinking { thinking } if !thinking.trim().is_empty() => {
-                    return Some(thinking.trim().to_string())
+            Event::User(u) => {
+                let pure_result = matches!(
+                    &u.message.content,
+                    MessageContent::Blocks(bs)
+                        if !bs.is_empty()
+                            && bs.iter().all(|b| matches!(b, UserBlock::ToolResult { .. }))
+                );
+                if !pure_result {
+                    break; // a real prompt ends the reply
                 }
-                _ => {}
             }
+            _ => {} // attachments/system interleave within a reply
         }
     }
-    None
+    thinking.or_else(|| tool.map(|n| format!("(tool: {n})")))
 }
 
 fn preview_text(ev: &Event) -> Option<String> {
@@ -767,18 +788,18 @@ mod tests {
         fs::create_dir_all(&proj).unwrap();
         let path = proj.join("h.jsonl");
         let head = "00000000-0000-0000-0000-0000000000e1";
-        fs::write(
-            &path,
-            concat!(
-                r#"{"type":"assistant","uuid":"00000000-0000-0000-0000-0000000000e1","timestamp":"2026-08-15T10:00:00Z","message":{"role":"assistant","content":[{"type":"tool_use","id":"t1","name":"Bash","input":{}}]}}"#,
-                "
-",
-                r#"{"type":"assistant","uuid":"00000000-0000-0000-0000-0000000000e2","timestamp":"2026-08-15T10:00:05Z","message":{"role":"assistant","content":[{"type":"text","text":"the actual reply text"}]}}"#,
-                "
-",
-            ),
-        )
-        .unwrap();
+        // The real shape that broke: empty redacted thinking head, then
+        // tool_use / tool_result / attachment interleaved, text arriving late.
+        let body = [
+            r#"{"type":"assistant","uuid":"00000000-0000-0000-0000-0000000000e1","timestamp":"2026-08-15T10:00:00Z","message":{"role":"assistant","content":[{"type":"thinking","thinking":""}]}}"#,
+            r#"{"type":"assistant","uuid":"00000000-0000-0000-0000-0000000000e2","timestamp":"2026-08-15T10:00:01Z","message":{"role":"assistant","content":[{"type":"tool_use","id":"t1","name":"Bash","input":{}}]}}"#,
+            r#"{"type":"user","uuid":"00000000-0000-0000-0000-0000000000e3","timestamp":"2026-08-15T10:00:02Z","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t1","content":"ok"}]}}"#,
+            r#"{"type":"attachment","uuid":"00000000-0000-0000-0000-0000000000e4","timestamp":"2026-08-15T10:00:02Z"}"#,
+            r#"{"type":"assistant","uuid":"00000000-0000-0000-0000-0000000000e5","timestamp":"2026-08-15T10:00:05Z","message":{"role":"assistant","content":[{"type":"text","text":"the actual reply text"}]}}"#,
+            r#"{"type":"user","uuid":"00000000-0000-0000-0000-0000000000e6","timestamp":"2026-08-15T10:01:00Z","message":{"role":"user","content":"next question"}}"#,
+        ]
+        .join("\n");
+        fs::write(&path, body + "\n").unwrap();
         let wanted: std::collections::HashSet<Uuid> =
             [Uuid::parse_str(head).unwrap()].into_iter().collect();
         let got = message_previews(&path, &wanted);
