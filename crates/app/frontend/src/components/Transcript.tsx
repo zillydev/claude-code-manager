@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect, useCallback, useMemo, memo, Fragment, type ReactNode } from "react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import rehypeHighlight from "rehype-highlight";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import type {
   RenderedSession,
@@ -834,6 +835,11 @@ const MD_COMPONENTS = { a: ExternalLink };
 // GFM adds tables, strikethrough, task lists, and autolinks (react-markdown is
 // CommonMark-only by default). Module-level for a stable identity (memoization).
 const MD_REMARK = [remarkGfm];
+// Syntax highlighting for fenced code blocks (highlight.js via rehype).
+// `detect` off: only explicitly-tagged fences highlight — auto-detection on
+// arbitrary tool output guesses wrong more than it helps. Colors come from the
+// --syn-* theme vars (see index.css), so both themes are covered.
+const MD_REHYPE = [[rehypeHighlight, { detect: false }] as unknown as import("unified").Pluggable];
 
 // An Explanatory-style insight, rendered like the terminal: an accent "★ Insight"
 // header rule + the points as markdown + a closing rule (CSS borders fill the
@@ -846,7 +852,7 @@ function InsightBlock({ content }: { content: string }) {
         <span className="flex-1 border-t border-[var(--color-accent)] opacity-50" />
       </div>
       <div className="py-1">
-        <Markdown remarkPlugins={MD_REMARK} components={MD_COMPONENTS}>{content}</Markdown>
+        <Markdown remarkPlugins={MD_REMARK} rehypePlugins={MD_REHYPE} components={MD_COMPONENTS}>{content}</Markdown>
       </div>
       <div className="border-t border-[var(--color-accent)] opacity-50" />
     </div>
@@ -857,7 +863,7 @@ const MarkdownBlock = memo(function MarkdownBlock({ text }: { text: string }) {
   const segs = splitInsights(text);
   // Fast path: no insight block → one Markdown render (unchanged behavior).
   if (segs.length === 1 && segs[0].kind === "md") {
-    return <Markdown remarkPlugins={MD_REMARK} components={MD_COMPONENTS}>{text}</Markdown>;
+    return <Markdown remarkPlugins={MD_REMARK} rehypePlugins={MD_REHYPE} components={MD_COMPONENTS}>{text}</Markdown>;
   }
   return (
     <>
@@ -865,7 +871,7 @@ const MarkdownBlock = memo(function MarkdownBlock({ text }: { text: string }) {
         s.kind === "insight" ? (
           <InsightBlock key={i} content={s.content} />
         ) : (
-          <Markdown key={i} remarkPlugins={MD_REMARK} components={MD_COMPONENTS}>
+          <Markdown key={i} remarkPlugins={MD_REMARK} rehypePlugins={MD_REHYPE} components={MD_COMPONENTS}>
             {s.text}
           </Markdown>
         ),

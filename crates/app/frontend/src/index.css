@@ -128,3 +128,37 @@ html, body, #root {
 }
 
 
+
+/* Syntax highlighting (rehype-highlight / highlight.js) — token classes mapped
+   onto the theme's --syn-* vars (GitHub's own syntax palette per theme). */
+.hljs-keyword, .hljs-selector-tag, .hljs-meta .hljs-keyword, .hljs-doctag,
+.hljs-template-tag, .hljs-type {
+  color: var(--syn-keyword);
+}
+.hljs-title, .hljs-title.function_, .hljs-title.class_,
+.hljs-title.class_.inherited__, .hljs-section {
+  color: var(--syn-func);
+}
+.hljs-string, .hljs-regexp, .hljs-meta .hljs-string, .hljs-char.escape_ {
+  color: var(--syn-string);
+}
+.hljs-comment, .hljs-quote, .hljs-code {
+  color: var(--syn-comment);
+}
+.hljs-number, .hljs-literal, .hljs-variable, .hljs-template-variable,
+.hljs-built_in, .hljs-attr, .hljs-operator, .hljs-meta {
+  color: var(--syn-const);
+}
+.hljs-tag, .hljs-name, .hljs-attribute, .hljs-symbol, .hljs-bullet,
+.hljs-selector-id, .hljs-selector-class, .hljs-addition {
+  color: var(--syn-tag);
+}
+.hljs-deletion {
+  color: var(--color-error);
+}
+.hljs-emphasis {
+  font-style: italic;
+}
+.hljs-strong {
+  font-weight: 600;
+}
