@@ -326,39 +326,41 @@ pub fn message_previews(
     out
 }
 
-/// Preview for the REPLY anchored at `events[i]`, not just that exact line.
-/// A bookmark stores a merged assistant turn's HEAD uuid, and the head line is
-/// often a thinking/tool_use line with no text — sometimes even an EMPTY
-/// redacted thinking block. The reply's text arrives lines later, and real
-/// files interleave tool_result user lines and attachments between the
-/// assistant lines (a pure-assistant scan breaks immediately — that was the
-/// bug). Walk forward until a real user prompt ends the reply: first
-/// non-empty text wins; failing that, the first thinking snippet, then a
-/// "(tool: X)" label.
-fn preview_for_turn(events: &[Event], i: usize) -> Option<String> {
-    if let Some(t) = preview_text(&events[i]) {
-        return Some(t);
+/// Everything a turn-level consumer needs from the reply anchored at
+/// `events[i]`: its texts, tool names, and first thinking snippet. Walks over
+/// interleaved tool_result user lines and attachments, stopping at a real
+/// user prompt (the shape real files actually have).
+struct TurnScan {
+    texts: Vec<String>,
+    tools: Vec<String>,
+    thinking: Option<String>,
+}
+
+fn turn_scan(events: &[Event], i: usize) -> TurnScan {
+    let mut scan = TurnScan { texts: Vec::new(), tools: Vec::new(), thinking: None };
+    // A user head is its own single-event turn.
+    if let Event::User(_) = &events[i] {
+        if let Some(t) = preview_text(&events[i]) {
+            scan.texts.push(t);
+        }
+        return scan;
     }
     if !matches!(events[i], Event::Assistant(_)) {
-        return None;
+        return scan;
     }
-    let mut tool: Option<String> = None;
-    let mut thinking: Option<String> = None;
     for ev in events[i..].iter() {
         match ev {
             Event::Assistant(a) => {
                 for b in &a.message.content {
                     match b {
                         Block::Text { text } if !text.trim().is_empty() => {
-                            return Some(text.clone())
+                            scan.texts.push(text.clone());
                         }
-                        Block::ToolUse { name, .. } if tool.is_none() => {
-                            tool = Some(name.clone());
-                        }
+                        Block::ToolUse { name, .. } => scan.tools.push(name.clone()),
                         Block::Thinking { thinking: th }
-                            if thinking.is_none() && !th.trim().is_empty() =>
+                            if scan.thinking.is_none() && !th.trim().is_empty() =>
                         {
-                            thinking = Some(th.trim().to_string());
+                            scan.thinking = Some(th.trim().to_string());
                         }
                         _ => {}
                     }
@@ -378,7 +380,25 @@ fn preview_for_turn(events: &[Event], i: usize) -> Option<String> {
             _ => {} // attachments/system interleave within a reply
         }
     }
-    thinking.or_else(|| tool.map(|n| format!("(tool: {n})")))
+    scan
+}
+
+/// Label for a turn with no matched text: first text, else thinking, else a
+/// "(tool: X)" tag.
+fn preview_from_scan(scan: &TurnScan) -> Option<String> {
+    scan.texts
+        .first()
+        .cloned()
+        .or_else(|| scan.thinking.clone())
+        .or_else(|| scan.tools.first().map(|n| format!("(tool: {n})")))
+}
+
+/// Preview for the REPLY anchored at `events[i]` — see [`turn_scan`].
+fn preview_for_turn(events: &[Event], i: usize) -> Option<String> {
+    if let Some(t) = preview_text(&events[i]) {
+        return Some(t);
+    }
+    preview_from_scan(&turn_scan(events, i))
 }
 
 fn preview_text(ev: &Event) -> Option<String> {
@@ -576,18 +596,84 @@ pub fn search_messages(files: &[SearchFile], f: &MessageFilters) -> (Vec<Message
     let mut skipped = 0usize;
 
     'files: for sf in files {
+        // Restricted files (is:bookmarked) get a TURN-aware event walk: a
+        // bookmark stores the merged turn's head uuid, often a textless
+        // thinking/tool line — the cheap line walk below would silently drop
+        // it. Bookmarked sessions are few and their uuid sets tiny, so the
+        // full parse is affordable exactly where it's needed.
+        if let Some(us) = &sf.only_uuids {
+            let Ok(outcome) = parse_file(&sf.path) else { continue };
+            for (i, ev) in outcome.events.iter().enumerate() {
+                let Some(id) = ev.uuid() else { continue };
+                if !us.contains(&id) {
+                    continue;
+                }
+                let role = match ev {
+                    Event::User(_) => "user",
+                    Event::Assistant(_) => "assistant",
+                    _ => continue,
+                };
+                if let Some(want) = &f.role {
+                    if role != want {
+                        continue;
+                    }
+                }
+                let ts = ev.timestamp().map(|d| d.timestamp());
+                if let Some(after) = f.after {
+                    if ts.is_none_or(|x| x < after) {
+                        continue;
+                    }
+                }
+                if let Some(before) = f.before {
+                    if ts.is_none_or(|x| x >= before) {
+                        continue;
+                    }
+                }
+                let scan = turn_scan(&outcome.events, i);
+                if let Some(tool) = &f.tool {
+                    if !scan.tools.iter().any(|n| n.eq_ignore_ascii_case(tool)) {
+                        continue;
+                    }
+                }
+                if f.has_link
+                    && !scan.texts.iter().any(|t| t.contains("http://") || t.contains("https://"))
+                {
+                    continue;
+                }
+                let matched = if query_lower.is_empty() {
+                    None
+                } else {
+                    match scan.texts.iter().find(|t| t.to_lowercase().contains(&query_lower)) {
+                        Some(t) => Some(t.clone()),
+                        None => continue, // text query unsatisfied in this turn
+                    }
+                };
+                let snippet = matched
+                    .map(|t| snippet_around(&t, &query_lower))
+                    .or_else(|| preview_from_scan(&scan))
+                    .unwrap_or_else(|| "(no text)".to_string());
+                if skipped < f.skip {
+                    skipped += 1;
+                    continue;
+                }
+                out.push(MessageHit {
+                    session_id: sf.session_id,
+                    uuid: Some(id),
+                    role: role.to_string(),
+                    ts,
+                    snippet,
+                });
+                if out.len() >= f.limit {
+                    break 'files;
+                }
+            }
+            continue;
+        }
         let Ok(file) = fs::File::open(&sf.path) else { continue };
-        let uuid_strs: Option<Vec<String>> =
-            sf.only_uuids.as_ref().map(|us| us.iter().map(|u| u.to_string()).collect());
         for line in BufReader::new(file).lines() {
             let Ok(line) = line else { continue };
             if !query_lower.is_empty() && !line.to_lowercase().contains(&query_lower) {
                 continue;
-            }
-            if let Some(us) = &uuid_strs {
-                if !us.iter().any(|u| line.contains(u.as_str())) {
-                    continue;
-                }
             }
             let Some(hit) = message_hit(&line, sf.session_id, &query_lower, f) else { continue };
             if skipped < f.skip {
@@ -775,6 +861,44 @@ mod tests {
         let (hits, _) = search_messages(&files_b, &MessageFilters { limit: 10, ..Default::default() });
         assert_eq!(hits.len(), 1);
         assert!(hits[0].snippet.contains("early"));
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn bookmarked_search_resolves_a_textless_turn_head() {
+        // is:bookmarked flows through only_uuids; a bookmark on a turn whose
+        // head line is a textless thinking/tool line must still appear in
+        // results (the line walk silently dropped it — that was the gap that
+        // made "query bookmarks from the find tab" a false claim).
+        let root = std::env::temp_dir().join(format!("cm-bmsearch-{}", std::process::id()));
+        fs::create_dir_all(&root).unwrap();
+        let sid = Uuid::parse_str("00000000-0000-0000-0000-00000000cccc").unwrap();
+        let path = root.join(format!("{sid}.jsonl"));
+        let body = [
+            r#"{"type":"assistant","uuid":"00000000-0000-0000-0000-0000000000f1","timestamp":"2026-08-15T10:00:00Z","message":{"role":"assistant","content":[{"type":"thinking","thinking":""}]}}"#,
+            r#"{"type":"assistant","uuid":"00000000-0000-0000-0000-0000000000f2","timestamp":"2026-08-15T10:00:01Z","message":{"role":"assistant","content":[{"type":"tool_use","id":"t1","name":"Bash","input":{}}]}}"#,
+            r#"{"type":"user","uuid":"00000000-0000-0000-0000-0000000000f3","timestamp":"2026-08-15T10:00:02Z","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t1","content":"ok"}]}}"#,
+            r#"{"type":"assistant","uuid":"00000000-0000-0000-0000-0000000000f4","timestamp":"2026-08-15T10:00:05Z","message":{"role":"assistant","content":[{"type":"text","text":"bookmark landed here"}]}}"#,
+        ]
+        .join("\n");
+        fs::write(&path, body + "\n").unwrap();
+        let head = Uuid::parse_str("00000000-0000-0000-0000-0000000000f1").unwrap();
+        let files =
+            [SearchFile { path, session_id: sid, only_uuids: Some(vec![head]) }];
+
+        // No text query: the bookmark lists with the turn's text as snippet.
+        let (hits, _) =
+            search_messages(&files, &MessageFilters { limit: 10, ..Default::default() });
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].snippet, "bookmark landed here");
+
+        // Text query matches the TURN's text, not just the head line.
+        let (hits, _) = search_messages(
+            &files,
+            &MessageFilters { text: "landed".into(), limit: 10, ..Default::default() },
+        );
+        assert_eq!(hits.len(), 1);
+        assert!(hits[0].snippet.contains("landed"));
         std::fs::remove_dir_all(&root).ok();
     }
 

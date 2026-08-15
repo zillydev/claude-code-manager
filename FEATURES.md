@@ -35,7 +35,7 @@ A tool to browse, search, edit, compact, harvest, and resume Claude Code session
 
 ## Bookmarks
 
-- **Message bookmarks** — flag any user/assistant message from its ⋯ menu (metadata-only, so pre-compaction turns work too); stored as the turn's head uuid in `session-meta.json` (`bookmarks: [uuid]`), live across windows. An accent **⚑** marks bookmarked turns; a header `⚑ n` dropdown lists this session's bookmarks in transcript order (click → scroll + flash, auto-expanding compact view if the turn is hidden); the sidebar's **⚑ tab** shows the all-sessions browser — grouped by session, snippets + times via `message_previews` — where a click opens that session scrolled to the message. Derived sessions do NOT inherit bookmarks. → `2026-08-05-message-bookmarks-design`
+- **Message bookmarks** — flag any user/assistant message from its ⋯ menu (metadata-only, so pre-compaction turns work too); stored as the turn's head uuid in `session-meta.json` (`bookmarks: [uuid]`), live across windows. An accent **⚑** marks bookmarked turns; the sidebar's **⚑ tab** shows the all-sessions browser — grouped by session, snippets + times via `message_previews` — where a click opens that session scrolled to the message (instantly when it's already open). Query them too: `is:bookmarked` in the find tab, which resolves textless turn heads via a turn-aware walk. Derived sessions do NOT inherit bookmarks. → `2026-08-05-message-bookmarks-design`
 
 ## Editing & surgery
 

@@ -80,36 +80,6 @@ export default function Transcript({
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [setPinned]);
   const prevSessionId = useRef<string | null>(null);
-  // Scroll to + flash a bookmarked message. Compact view may be hiding the
-  // turn (a bookmarked mid-run message) — expand and retry once after the
-  // re-render rather than silently doing nothing.
-  const jumpToUuid = useCallback(
-    (uuid: string) => {
-      const tryScroll = () => {
-        const el = turnsRef.current?.querySelector<HTMLElement>(
-          `[data-msg-uuids~="${uuid}"]`,
-        );
-        if (!el) return false;
-        setPinned(false);
-        el.scrollIntoView({ block: "center" });
-        el.classList.add("ring-2", "ring-[var(--color-accent)]", "rounded");
-        setTimeout(
-          () => el.classList.remove("ring-2", "ring-[var(--color-accent)]", "rounded"),
-          1600,
-        );
-        return true;
-      };
-      if (tryScroll()) return;
-      // Compact view may be hiding the turn — expand, then retry once after
-      // the re-render rather than silently doing nothing.
-      if (compact) {
-        setConfig({ ui: { compact: false } });
-        requestAnimationFrame(() => requestAnimationFrame(tryScroll));
-      }
-    },
-    [compact, setConfig, setPinned],
-  );
-
   const editor = useEditor();
   const [editingUuid, setEditingUuid] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
@@ -123,23 +93,6 @@ export default function Transcript({
   // The turns actually rendered. Declared before the scroll effects because
   // they key on its length — toggling compact reshapes this (not session.turns).
   const visibleTurns = compact ? filterCompact(session.turns) : session.turns;
-  const bookmarkItems = session.turns
-    .filter(
-      (t): t is Extract<RenderedTurn, { type: "user" } | { type: "assistant" }> =>
-        (t.type === "user" || t.type === "assistant") && bookmarkSet.has(t.uuid),
-    )
-    .map((t) => ({
-      uuid: t.uuid,
-      role: t.type,
-      ts: t.timestamp ? formatTime(t.timestamp) : "--:--",
-      snippet:
-        (t.type === "user"
-          ? t.text
-          : (t.blocks.find((b) => b.type === "text") as { text?: string } | undefined)?.text ??
-            "(no text)"
-        ).slice(0, 80),
-    }));
-
   // Stable handlers so the memoized <Turn>s don't re-render needlessly.
   // useEditor's methods are useCallback([])-stable, and sourcePath is stable,
   // so these identities only change when `draft` does (during an edit).
@@ -296,41 +249,6 @@ export default function Transcript({
           </span>
         )}
         <div className="ml-auto flex gap-2 items-center">
-          {bookmarkItems.length > 0 && (
-            <Dropdown
-              trigger={`⚑ ${bookmarkItems.length}`}
-              title="Bookmarks in this session"
-              triggerClassName="text-xs px-2 py-1 rounded border border-[var(--color-border)] text-[var(--color-accent)] hover:border-[var(--color-accent)] transition-colors"
-            >
-              {(close) => (
-                <>
-                  {bookmarkItems.map((b) => (
-                    <button
-                      key={b.uuid}
-                      role="menuitem"
-                      className={`${menuItemClass} flex items-baseline gap-2 max-w-md`}
-                      onClick={() => {
-                        close();
-                        jumpToUuid(b.uuid);
-                      }}
-                    >
-                      <span className="text-xs text-[var(--color-text-dim)] shrink-0">{b.ts}</span>
-                      <span
-                        className={`shrink-0 text-xs font-medium ${
-                          b.role === "user"
-                            ? "text-[var(--color-user)]"
-                            : "text-[var(--color-assistant)]"
-                        }`}
-                      >
-                        {b.role}
-                      </span>
-                      <span className="truncate">{b.snippet}</span>
-                    </button>
-                  ))}
-                </>
-              )}
-            </Dropdown>
-          )}
           {onViewTree && (
             <button
               onClick={onViewTree}
