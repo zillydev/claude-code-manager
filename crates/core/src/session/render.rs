@@ -361,6 +361,58 @@ fn render_path_turns(path: &[&Event], editable: bool) -> Vec<RenderedTurn> {
                     editable,
                 });
             }
+            Event::Attachment(at) => {
+                // A message typed while the agent was running: Claude Code
+                // delivers it as an attachment line `{attachment: {type:
+                // "queued_command", prompt, origin}}` (paired queue-operation
+                // enqueue/remove lines are bookkeeping) — there is NO ordinary
+                // user line for it, so skipping attachments silently dropped
+                // the user's own words from the transcript. Render it as a
+                // user turn; not editable, since edit/delete rewrite message
+                // lines and this isn't one (forking by uuid still works).
+                let att = &at.attachment;
+                if att.get("type").and_then(|v| v.as_str()) == Some("queued_command") {
+                    // The queue also carries task-notifications (870 of 1050 in
+                    // the corpus) — those already render from their own user
+                    // lines, so only genuine typed prompts pass. Content-based,
+                    // not origin-based: pre-`origin` lines exist. A block-list
+                    // prompt (text + pasted image) contributes its text blocks.
+                    let text = match att.get("prompt") {
+                        Some(serde_json::Value::String(t))
+                            if !t.trim_start().starts_with("<task-notification>") =>
+                        {
+                            Some(t.clone())
+                        }
+                        Some(serde_json::Value::Array(blocks)) => {
+                            let joined: Vec<&str> = blocks
+                                .iter()
+                                .filter(|b| {
+                                    b.get("type").and_then(|v| v.as_str()) == Some("text")
+                                })
+                                .filter_map(|b| b.get("text").and_then(|v| v.as_str()))
+                                .collect();
+                            if joined.is_empty() { None } else { Some(joined.join("\n")) }
+                        }
+                        _ => None,
+                    };
+                    if let Some(prompt) = text {
+                        let prompt = prompt.as_str();
+                        let uuid = at.uuid.map(|u| u.to_string()).unwrap_or_default();
+                        turns.push(RenderedTurn::User {
+                            timestamp: at.timestamp,
+                            text: prompt.to_string(),
+                            uuid: uuid.clone(),
+                            edit_index: 0,
+                            fork_index: 0,
+                            edit_uuid: uuid.clone(),
+                            fork_uuid: uuid.clone(),
+                            uuids: vec![uuid],
+                            editable: false,
+                        });
+                    }
+                }
+                i += 1;
+            }
             Event::System(s) => {
                 if s.subtype.as_deref() == Some("local_command")
                     && s.content.contains("<command-name>")
@@ -777,6 +829,43 @@ mod render_tests {
         assert_eq!(got.0, b, "head uuid");
         assert_eq!(got.1, b, "edit target = first text-bearing event");
         assert_eq!(got.2, c, "fork cutoff = last merged event");
+    }
+
+    #[test]
+    fn queued_command_attachment_renders_as_a_user_turn() {
+        // A message typed while the agent runs arrives ONLY as a
+        // queued_command attachment (no ordinary user line) — skipping
+        // attachments dropped the user's own words. Task-notification
+        // payloads in the queue stay hidden (their real user lines render).
+        let a = "00000000-0000-0000-0000-0000000000a1";
+        let b = "00000000-0000-0000-0000-0000000000b2";
+        let c = "00000000-0000-0000-0000-0000000000c3";
+        let mk_att = |uuid: &str, parent: &str, prompt: &str| {
+            Event::Attachment(crate::session::event::AttachmentEvent {
+                uuid: Some(uuid.parse().unwrap()),
+                parent_uuid: Some(parent.parse().unwrap()),
+                timestamp: Some(Utc::now()),
+                attachment: serde_json::json!({
+                    "type": "queued_command",
+                    "prompt": prompt,
+                    "origin": { "kind": "human" }
+                }),
+            })
+        };
+        let r = render_session(&sess(vec![
+            uev(a, None, "start"),
+            mk_att(b, a, "queued while running"),
+            mk_att(c, b, "<task-notification>\n<task-id>x</task-id>"),
+        ]));
+        let users: Vec<&str> = r
+            .turns
+            .iter()
+            .filter_map(|t| match t {
+                RenderedTurn::User { text, .. } => Some(text.as_str()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(users, vec!["start", "queued while running"]);
     }
 
     #[test]
