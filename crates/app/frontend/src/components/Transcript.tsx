@@ -23,8 +23,6 @@ import { entryTags } from "../lib/sessionMeta";
 import { makeSegId } from "../lib/segments";
 import { isNearBottom } from "../lib/scroll";
 import { filterCompact } from "../lib/compactView";
-import { filterTurns, TURN_FILTER_LABELS, type TurnFilterMode } from "../lib/turnFilter";
-import { extractLinks } from "../lib/links";
 
 interface Props {
   session: RenderedSession;
@@ -82,8 +80,6 @@ export default function Transcript({
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [setPinned]);
   const prevSessionId = useRef<string | null>(null);
-  // Read by jumpToUuid, which is declared before the filter state exists.
-  const turnFilterRef = useRef<TurnFilterMode>("all");
   // Scroll to + flash a bookmarked message. Compact view may be hiding the
   // turn (a bookmarked mid-run message) — expand and retry once after the
   // re-render rather than silently doing nothing.
@@ -104,21 +100,15 @@ export default function Transcript({
         return true;
       };
       if (tryScroll()) return;
-      // Compact or a kind filter may be hiding the turn — widen, then retry
-      // once after the re-render rather than silently doing nothing.
-      if (compact || turnFilterRef.current !== "all") {
+      // Compact view may be hiding the turn — expand, then retry once after
+      // the re-render rather than silently doing nothing.
+      if (compact) {
         setConfig({ ui: { compact: false } });
-        setTurnFilter("all");
         requestAnimationFrame(() => requestAnimationFrame(tryScroll));
       }
     },
     [compact, setConfig, setPinned],
   );
-
-  // View narrowing — a per-view gesture, reset when the session changes.
-  const [turnFilter, setTurnFilter] = useState<TurnFilterMode>("all");
-  useEffect(() => setTurnFilter("all"), [session.id]);
-  turnFilterRef.current = turnFilter;
 
   const editor = useEditor();
   const [editingUuid, setEditingUuid] = useState<string | null>(null);
@@ -126,25 +116,13 @@ export default function Transcript({
   const sourcePath = session.source_path;
 
   // This session's bookmarks, in transcript order, labelled from the rendered
-  // turns — no backend needed while the session is open. Memoized because the
-  // set feeds the filterTurns memo below.
+  // turns — no backend needed while the session is open.
   const bookmarkUuids = metaEntry?.bookmarks;
   const bookmarkSet = useMemo(() => new Set(bookmarkUuids ?? []), [bookmarkUuids]);
 
-  // Every URL the conversation's own text mentioned, deduped, first wins.
-  const links = useMemo(() => extractLinks(session.turns), [session.turns]);
-
-  // The kind filter, memoized so the rendered list's identity only changes
-  // when its inputs do — memoized Turns and the effects keyed on this list
-  // depend on that (a per-render identity once looped an effect to a crash).
-  const filteredTurns = useMemo(
-    () => filterTurns(session.turns, turnFilter, bookmarkSet),
-    [session.turns, turnFilter, bookmarkSet],
-  );
-
   // The turns actually rendered. Declared before the scroll effects because
   // they key on its length — toggling compact reshapes this (not session.turns).
-  const visibleTurns = compact ? filterCompact(filteredTurns) : filteredTurns;
+  const visibleTurns = compact ? filterCompact(session.turns) : session.turns;
   const bookmarkItems = session.turns
     .filter(
       (t): t is Extract<RenderedTurn, { type: "user" } | { type: "assistant" }> =>
@@ -318,50 +296,6 @@ export default function Transcript({
           </span>
         )}
         <div className="ml-auto flex gap-2 items-center">
-          {links.length > 0 && (
-            <Dropdown
-              trigger={`🔗 ${links.length}`}
-              title="Links mentioned in this session"
-              triggerClassName="text-xs px-2 py-1 rounded border border-[var(--color-border)] text-[var(--color-text-dim)] hover:border-[var(--color-accent)] hover:text-[var(--color-accent)] transition-colors"
-            >
-              {(close) => (
-                <>
-                  {links.map((l) => (
-                    <div key={l.url} className="flex items-center gap-1 max-w-md">
-                      <button
-                        role="menuitem"
-                        className={`${menuItemClass} flex items-baseline gap-2 min-w-0 flex-1`}
-                        title={l.url}
-                        onClick={() => {
-                          close();
-                          openUrl(l.url).catch(() => {});
-                        }}
-                      >
-                        <span className="font-medium text-[var(--color-text)] shrink-0">
-                          {l.domain}
-                        </span>
-                        <span className="truncate text-[var(--color-text-dim)]">
-                          {l.url.slice(l.url.indexOf(l.domain) + l.domain.length) || "/"}
-                        </span>
-                      </button>
-                      {l.uuid && (
-                        <button
-                          className="shrink-0 text-xs px-1 text-[var(--color-text-dim)] hover:text-[var(--color-accent)]"
-                          title="Jump to the message that mentioned this link"
-                          onClick={() => {
-                            close();
-                            jumpToUuid(l.uuid);
-                          }}
-                        >
-                          ⌖
-                        </button>
-                      )}
-                    </div>
-                  ))}
-                </>
-              )}
-            </Dropdown>
-          )}
           {bookmarkItems.length > 0 && (
             <Dropdown
               trigger={`⚑ ${bookmarkItems.length}`}
@@ -406,34 +340,6 @@ export default function Transcript({
               ⑂ Tree
             </button>
           )}
-          <Dropdown
-            trigger={turnFilter === "all" ? "filter" : TURN_FILTER_LABELS[turnFilter]}
-            title="Show only one kind of turn"
-            triggerClassName={`text-xs px-2 py-1 rounded border transition-colors ${
-              turnFilter !== "all"
-                ? "border-[var(--color-accent)] text-[var(--color-accent)]"
-                : "border-[var(--color-border)] text-[var(--color-text-dim)] hover:border-[var(--color-accent)] hover:text-[var(--color-accent)]"
-            }`}
-          >
-            {(close) => (
-              <>
-                {(Object.keys(TURN_FILTER_LABELS) as TurnFilterMode[]).map((m) => (
-                  <button
-                    key={m}
-                    role="menuitem"
-                    className={`${menuItemClass} flex items-center gap-2`}
-                    onClick={() => {
-                      close();
-                      setTurnFilter(m);
-                    }}
-                  >
-                    <span className={turnFilter === m ? "" : "opacity-0"}>✓</span>
-                    {TURN_FILTER_LABELS[m]}
-                  </button>
-                ))}
-              </>
-            )}
-          </Dropdown>
           <button
             onClick={() => setConfig({ ui: { compact: !compact } })}
             className={`text-xs px-2 py-1 rounded border ${
