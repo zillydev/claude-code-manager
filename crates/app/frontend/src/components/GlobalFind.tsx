@@ -3,8 +3,9 @@ import { invoke } from "@tauri-apps/api/core";
 import type { SessionSummary } from "../types";
 import Spinner from "./Spinner";
 import MiniCalendar from "./MiniCalendar";
+import TagChip from "./TagChip";
 import { useSessionMeta } from "../hooks/useSessionMeta";
-import { activeTags, archivedTags, entryTags, sessionTitle } from "../lib/sessionMeta";
+import { activeTags, archivedTags, entryTags, sessionTitle, tagColor } from "../lib/sessionMeta";
 import { parseSearchQuery, isRunnable, type SearchQuery } from "../lib/searchQuery";
 import { splitHighlight } from "../lib/highlight";
 
@@ -360,11 +361,20 @@ export default function GlobalFind({
               return (
               <div key={`${h.uuid ?? h.session_id}-${i}`} className={newSession && i > 0 ? "pt-2" : ""}>
                 {newSession && (
-                  <div className="flex items-baseline gap-1.5 text-xs mb-1">
+                  <div className="flex items-baseline gap-1.5 text-xs mb-1 min-w-0">
                     <span className="text-[var(--color-text-dim)] shrink-0">#</span>
                     <span className="font-semibold text-[var(--color-text)] truncate">
                       {sessionTitle(meta, s.id, s.title)}
                     </span>
+                    {/* The session's tags — the same chips as its sidebar row.
+                        Chips don't shrink; the title truncates instead. */}
+                    {entryTags(meta.sessions[s.id]).length > 0 && (
+                      <span className="flex gap-1 shrink-0">
+                        {entryTags(meta.sessions[s.id]).map((t) => (
+                          <TagChip key={t} name={t} color={tagColor(meta, t)} />
+                        ))}
+                      </span>
+                    )}
                     <span className="ml-auto text-[var(--color-text-dim)] shrink-0">
                       {s.project_label}
                     </span>
