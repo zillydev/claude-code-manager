@@ -14,6 +14,9 @@ import {
   addSessionTagIn,
   renameTagIn,
   toggleBookmarkIn,
+  setTagArchivedIn,
+  activeTags,
+  archivedTags,
   reconcileMeta,
   nextPaletteColor,
   sessionTitle,
@@ -352,5 +355,54 @@ describe("toggleBookmarkIn", () => {
     const m = toggleBookmarkIn(base, "abc", "u1");
     expect(base.sessions["abc"].bookmarks).toBeUndefined();
     expect(m.sessions["abc"].bookmarks).toEqual(["u1"]);
+  });
+});
+
+describe("archived tags", () => {
+  const two: SessionMeta = {
+    version: 1,
+    tags: [{ name: "wip", color: "#111" }, { name: "old", color: "#222" }],
+    sessions: { s1: { tags: ["old"] } },
+  };
+
+  it("archives and unarchives without touching sessions", () => {
+    const m = setTagArchivedIn(two, "old", true);
+    expect(m.tags.find((t) => t.name === "old")?.archived).toBe(true);
+    expect(m.sessions.s1.tags).toEqual(["old"]); // still applied
+    const back = setTagArchivedIn(m, "old", false);
+    expect(back.tags.find((t) => t.name === "old")).toEqual({ name: "old", color: "#222" });
+  });
+
+  it("choosers read activeTags; archived stays in the registry", () => {
+    const m = setTagArchivedIn(two, "old", true);
+    expect(activeTags(m).map((t) => t.name)).toEqual(["wip"]);
+    expect(archivedTags(m).map((t) => t.name)).toEqual(["old"]);
+    expect(m.tags).toHaveLength(2);
+  });
+
+  it("tagSuggestions hides archived by default and offers them on request", () => {
+    const m = setTagArchivedIn(two, "old", true);
+    expect(tagSuggestions(m, [], "").map((t) => t.name)).toEqual(["wip"]);
+    expect(tagSuggestions(m, [], "", { includeArchived: true }).map((t) => t.name)).toEqual([
+      "wip", "old",
+    ]);
+  });
+
+  it("an archived tag stays selectable in the filter (only unknown names prune)", () => {
+    // Deliberately selected via "show archived": the menu re-lists it so it can
+    // always be unselected; pruning it would silently widen the list.
+    const m = setTagArchivedIn(two, "old", true);
+    const sel = new Set(["wip", "old"]);
+    expect(pruneTagFilter(sel, m.tags)).toBe(sel);
+  });
+
+  it("rename and recolor keep the archived flag", () => {
+    const m = setTagArchivedIn(two, "old", true);
+    expect(renameTagIn(m, "old", "older").tags.find((t) => t.name === "older")?.archived).toBe(true);
+    expect(upsertTagIn(m, "old", "#333").tags.find((t) => t.name === "old")?.archived).toBe(true);
+  });
+
+  it("unknown name is a no-op", () => {
+    expect(setTagArchivedIn(two, "nope", true)).toBe(two);
   });
 });

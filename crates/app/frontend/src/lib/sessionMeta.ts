@@ -5,6 +5,9 @@
 export interface Tag {
   name: string;
   color: string;
+  /** Retired from choosers (filter menu, editor suggestions, find autocomplete)
+   *  but still applied wherever it was. Mirrors the Rust Tag struct. */
+  archived?: boolean;
 }
 
 export interface SessionEntry {
@@ -95,6 +98,9 @@ export function matchesSessionName(
  * unconditionally without causing a re-render.
  */
 export function pruneTagFilter(selected: Set<string>, tags: Tag[]): Set<string> {
+  // Archived tags are NOT pruned: a selection made via "show archived" is
+  // deliberate, and the menu re-lists any selected archived tag so it can
+  // always be unselected. Only names the registry no longer knows are ghosts.
   const known = new Set(tags.map((t) => t.name));
   let dropped = false;
   for (const name of selected) {
@@ -127,11 +133,41 @@ export function tagSuggestions(
   meta: SessionMeta,
   current: string[],
   query: string,
+  opts: { includeArchived?: boolean } = {},
 ): Tag[] {
   const q = query.trim().toLowerCase();
   return meta.tags
+    .filter((t) => opts.includeArchived || !t.archived)
     .filter((t) => !current.includes(t.name))
     .filter((t) => !q || t.name.toLowerCase().includes(q));
+}
+
+/** Registry tags that choosers should offer by default — the ONE derivation
+ *  every filter menu / suggestion list / autocomplete reads, so archived tags
+ *  disappear from all of them together. Archived tags stay in `meta.tags`
+ *  (and on every session carrying them); "show archived" surfaces read the
+ *  full registry instead. */
+export function activeTags(meta: SessionMeta): Tag[] {
+  return meta.tags.filter((t) => !t.archived);
+}
+
+export function archivedTags(meta: SessionMeta): Tag[] {
+  return meta.tags.filter((t) => t.archived);
+}
+
+/** Archive/unarchive a registry tag. Sessions are untouched — the tag stays
+ *  applied; it just leaves the choosers. Unknown names are a no-op. */
+export function setTagArchivedIn(meta: SessionMeta, name: string, archived: boolean): SessionMeta {
+  if (!meta.tags.some((t) => t.name === name)) return meta;
+  return {
+    ...meta,
+    tags: meta.tags.map((t) => {
+      if (t.name !== name) return t;
+      const next: Tag = { name: t.name, color: t.color };
+      if (archived) next.archived = true;
+      return next;
+    }),
+  };
 }
 
 /** Least-used palette color, so new tags spread across the palette. */

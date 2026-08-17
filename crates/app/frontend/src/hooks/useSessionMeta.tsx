@@ -17,6 +17,7 @@ import {
   upsertTagIn,
   removeTagIn,
   renameTagIn,
+  setTagArchivedIn,
   toggleBookmarkIn,
   addSessionTagIn,
   reconcileMeta,
@@ -35,6 +36,8 @@ interface SessionMetaCtx {
   upsertTag: (name: string, color: string) => void;
   renameTag: (oldName: string, newName: string) => void;
   removeTag: (name: string) => void;
+  /** Archive/unarchive a tag: it leaves the choosers but stays on sessions. */
+  setTagArchived: (name: string, archived: boolean) => void;
 }
 
 const Ctx = createContext<SessionMetaCtx>({
@@ -47,6 +50,7 @@ const Ctx = createContext<SessionMetaCtx>({
   upsertTag: () => {},
   renameTag: () => {},
   removeTag: () => {},
+  setTagArchived: () => {},
 });
 
 export function useSessionMeta() {
@@ -118,6 +122,7 @@ export function SessionMetaProvider({ children }: { children: ReactNode }) {
     upsertTag: (name, color) => apply((m) => upsertTagIn(m, name, color)),
     renameTag: (oldName, newName) => apply((m) => renameTagIn(m, oldName, newName)),
     removeTag: (name) => apply((m) => removeTagIn(m, name)),
+    setTagArchived: (name, archived) => apply((m) => setTagArchivedIn(m, name, archived)),
   };
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;

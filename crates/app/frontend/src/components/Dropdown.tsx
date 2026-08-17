@@ -13,6 +13,7 @@ export default function Dropdown({
   align = "left",
   disabled = false,
   triggerClassName = "",
+  onOpenChange,
   children,
 }: {
   trigger: ReactNode;
@@ -20,11 +21,18 @@ export default function Dropdown({
   align?: "left" | "right";
   disabled?: boolean;
   triggerClassName?: string;
+  /** Observe open/close — e.g. to reset per-open state like "show archived". */
+  onOpenChange?: (open: boolean) => void;
   children: (close: () => void) => ReactNode;
 }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   const close = useCallback(() => setOpen(false), []);
+  const onOpenChangeRef = useRef(onOpenChange);
+  onOpenChangeRef.current = onOpenChange;
+  useEffect(() => {
+    onOpenChangeRef.current?.(open);
+  }, [open]);
 
   useEffect(() => {
     if (!open) return;
