@@ -24,6 +24,12 @@ pub struct SessionMeta {
 pub struct Tag {
     pub name: String,
     pub color: String,
+    /// Retired from every chooser (filter menu, editor suggestions, find
+    /// autocomplete) but still applied wherever it was; unarchive in Manage
+    /// tags. MUST mirror the frontend Tag — a field missing here is silently
+    /// dropped by serde on save (how bookmarks were lost once).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub archived: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -106,7 +112,7 @@ mod tests {
     fn roundtrip_save_load() {
         let path = tmp("roundtrip");
         let mut meta = SessionMeta::default();
-        meta.tags.push(Tag { name: "wip".into(), color: "#e5534b".into() });
+        meta.tags.push(Tag { name: "wip".into(), color: "#e5534b".into(), archived: false });
         meta.sessions.insert(
             "abc".into(),
             SessionEntry {
@@ -176,6 +182,17 @@ mod tests {
         })
         .unwrap();
         assert_eq!(json, "{}");
+    }
+
+    #[test]
+    fn archived_tag_flag_round_trips_and_defaults_false() {
+        let json = r##"{ "tags": [{"name":"old","color":"#111","archived":true},{"name":"wip","color":"#222"}] }"##;
+        let meta: SessionMeta = serde_json::from_str(json).unwrap();
+        assert!(meta.tags[0].archived);
+        assert!(!meta.tags[1].archived, "absent ⇒ active (existing meta reads unchanged)");
+        let back = serde_json::to_string(&meta).unwrap();
+        assert!(back.contains("\"archived\":true"), "{back}");
+        assert_eq!(back.matches("archived").count(), 1, "false is not written: {back}");
     }
 
     #[test]

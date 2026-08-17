@@ -4,7 +4,7 @@ import type { SessionSummary } from "../types";
 import Spinner from "./Spinner";
 import MiniCalendar from "./MiniCalendar";
 import { useSessionMeta } from "../hooks/useSessionMeta";
-import { entryTags, sessionTitle } from "../lib/sessionMeta";
+import { activeTags, archivedTags, entryTags, sessionTitle } from "../lib/sessionMeta";
 import { parseSearchQuery, isRunnable, type SearchQuery } from "../lib/searchQuery";
 import { splitHighlight } from "../lib/highlight";
 
@@ -49,6 +49,9 @@ export default function GlobalFind({
   // with a skip, so later edits to the input can't change what page 2 means.
   const lastReq = useRef<Record<string, unknown> | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // tag: autocomplete offers active tags; a "…N archived" chip reveals the rest
+  // for the current query only (reset when the token stops being a tag: token).
+  const [tagShowArchived, setTagShowArchived] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   useEffect(() => {
     if (activate.n === 0) return;
@@ -71,12 +74,22 @@ export default function GlobalFind({
   if (lastToken.startsWith("in:")) {
     suggestions = sug("in:", [...new Set(sessions.map((s) => s.project_label))]);
   } else if (lastToken.startsWith("tag:")) {
-    suggestions = sug("tag:", meta.tags.map((t) => t.name));
+    suggestions = sug(
+      "tag:",
+      (tagShowArchived ? meta.tags : activeTags(meta)).map((t) => t.name),
+    );
   } else if (lastToken.startsWith("from:")) {
     suggestions = sug("from:", ["user", "assistant"]);
   } else if (lastToken.startsWith("is:")) {
     suggestions = sug("is:", ["bookmarked"]);
   }
+  const isTagToken = lastToken.startsWith("tag:");
+  // Archived tags that WOULD match the typed prefix but are hidden — surfaced
+  // as a "…N archived" chip so they're one click away without cluttering.
+  const hiddenArchivedCount =
+    isTagToken && !tagShowArchived
+      ? sug("tag:", archivedTags(meta).map((t) => t.name)).length
+      : 0;
   // A bare before:/after: token gets the MiniCalendar instead of value chips.
   const dateKey =
     lastToken === "before:" || lastToken === "after:" ? lastToken : null;
@@ -89,6 +102,7 @@ export default function GlobalFind({
   const acceptSuggestion = (v: string) => {
     setInput(input.slice(0, input.length - lastToken.length) + v + " ");
     setRanQuery(false);
+    setTagShowArchived(false); // reveal was for that one token
     inputRef.current?.focus();
   };
 
@@ -269,17 +283,47 @@ export default function GlobalFind({
             </div>
           )}
           {dateKey && <MiniCalendar onPick={acceptDate} />}
-          {suggestions.length > 0 && (
+          {(suggestions.length > 0 || hiddenArchivedCount > 0) && (
             <div className="flex gap-1 mt-2 flex-wrap">
-              {suggestions.map((v) => (
+              {(() => {
+                const isArchived = (v: string) =>
+                  !!(isTagToken &&
+                    meta.tags.find((t) => `tag:${t.name}` === v || `tag:"${t.name}"` === v)?.archived);
+                const chip = (v: string, dim: boolean) => (
+                  <button
+                    key={v}
+                    onClick={() => acceptSuggestion(v)}
+                    className={`text-xs px-1.5 py-0.5 rounded border border-[var(--color-border)] text-[var(--color-accent)] hover:border-[var(--color-accent)] ${
+                      dim ? "opacity-60" : ""
+                    }`}
+                  >
+                    {v}
+                  </button>
+                );
+                const active = suggestions.filter((v) => !isArchived(v));
+                const archived = suggestions.filter(isArchived);
+                // Archived chips sit after a divider so they don't mix in.
+                return (
+                  <>
+                    {active.map((v) => chip(v, false))}
+                    {archived.length > 0 && (
+                      <span className="self-center text-[10px] text-[var(--color-text-dim)] px-1">
+                        · archived:
+                      </span>
+                    )}
+                    {archived.map((v) => chip(v, true))}
+                  </>
+                );
+              })()}
+              {hiddenArchivedCount > 0 && (
                 <button
-                  key={v}
-                  onClick={() => acceptSuggestion(v)}
-                  className="text-xs px-1.5 py-0.5 rounded border border-[var(--color-border)] text-[var(--color-accent)] hover:border-[var(--color-accent)]"
+                  onClick={() => setTagShowArchived(true)}
+                  className="text-xs px-1.5 py-0.5 rounded border border-dashed border-[var(--color-border)] text-[var(--color-text-dim)] hover:border-[var(--color-accent)]"
+                  title="Also offer archived tags for this query"
                 >
-                  {v}
+                  …{hiddenArchivedCount} archived
                 </button>
-              ))}
+              )}
             </div>
           )}
           {chips.length > 0 && suggestions.length === 0 && (

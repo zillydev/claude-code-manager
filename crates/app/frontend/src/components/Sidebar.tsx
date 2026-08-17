@@ -10,6 +10,7 @@ import GlobalFind from "./GlobalFind";
 import BookmarkBrowser from "./BookmarkBrowser";
 import { useSessionMeta } from "../hooks/useSessionMeta";
 import {
+  archivedTags,
   entryTags,
   matchesSessionName,
   matchesTagFilter,
@@ -72,6 +73,9 @@ export default function Sidebar({
   const [newErr, setNewErr] = useState<string | null>(null);
   const [dateRange, setDateRange] = useState<DateRange>("all");
   const [tagFilter, setTagFilter] = useState<Set<string>>(new Set());
+  // "Show archived" inside the tag-filter menu — per-open, so it's temporary:
+  // reset whenever the menu opens (via the Dropdown's render prop mount).
+  const [filterShowArchived, setFilterShowArchived] = useState(false);
   // Keep the filter inside the registry. A tag deleted or renamed in Manage
   // Tags — here or in another window — would otherwise leave a name selected
   // that matches nothing, emptying the list with its row gone from the menu.
@@ -407,6 +411,7 @@ export default function Sidebar({
 
           {meta.tags.length > 0 && (
             <Dropdown
+              onOpenChange={(o) => { if (o) setFilterShowArchived(false); }}
               trigger={tagFilter.size > 0 ? `tags · ${tagFilter.size}` : "tags"}
               title="Filter by tag"
               triggerClassName={`text-xs px-1.5 py-1 rounded border outline-none ${
@@ -417,28 +422,67 @@ export default function Sidebar({
             >
               {(close) => (
                 <>
-                  {meta.tags.map((t) => {
-                    const on = tagFilter.has(t.name);
-                    return (
-                      <button
-                        key={t.name}
-                        role="menuitem"
-                        className={`${menuItemClass} flex items-center gap-2`}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setTagFilter((prev) => {
-                            const next = new Set(prev);
-                            if (next.has(t.name)) next.delete(t.name);
-                            else next.add(t.name);
-                            return next;
-                          });
-                        }}
-                      >
-                        <span className={on ? "" : "opacity-0"}>✓</span>
-                        <TagChip name={t.name} color={t.color} />
-                      </button>
+                  {/* Active tags first. Archived tags render in their OWN
+                      section below a divider — when revealed, or for any
+                      archived tag that is currently SELECTED (so it can always
+                      be unselected without hunting for the reveal). */}
+                  {(() => {
+                    const row = (t: (typeof meta.tags)[number]) => {
+                      const on = tagFilter.has(t.name);
+                      return (
+                        <button
+                          key={t.name}
+                          role="menuitem"
+                          className={`${menuItemClass} flex items-center gap-2 ${
+                            t.archived ? "opacity-60" : ""
+                          }`}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setTagFilter((prev) => {
+                              const next = new Set(prev);
+                              if (next.has(t.name)) next.delete(t.name);
+                              else next.add(t.name);
+                              return next;
+                            });
+                          }}
+                        >
+                          <span className={on ? "" : "opacity-0"}>✓</span>
+                          <TagChip name={t.name} color={t.color} />
+                        </button>
+                      );
+                    };
+                    const active = meta.tags.filter((t) => !t.archived);
+                    const archivedShown = meta.tags.filter(
+                      (t) => t.archived && (filterShowArchived || tagFilter.has(t.name)),
                     );
-                  })}
+                    return (
+                      <>
+                        {active.map(row)}
+                        {archivedShown.length > 0 && (
+                          <>
+                            <div className="mt-1 border-t border-[var(--color-border)] px-3 pt-1.5 pb-0.5 text-[10px] uppercase tracking-wide text-[var(--color-text-dim)]">
+                              Archived
+                            </div>
+                            {archivedShown.map(row)}
+                          </>
+                        )}
+                      </>
+                    );
+                  })()}
+                  {archivedTags(meta).length > 0 && (
+                    <button
+                      role="menuitem"
+                      className={`${menuItemClass} text-[var(--color-text-dim)]`}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setFilterShowArchived((v) => !v);
+                      }}
+                    >
+                      {filterShowArchived
+                        ? "Hide archived"
+                        : `Show archived (${archivedTags(meta).length})`}
+                    </button>
+                  )}
                   {tagFilter.size > 0 && (
                     <button
                       role="menuitem"

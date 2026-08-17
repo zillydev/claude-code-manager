@@ -6,7 +6,7 @@ import { TAG_PALETTE, nextPaletteColor, type Tag } from "../lib/sessionMeta";
  *  create new ones. Centered modal, Esc/backdrop close. Opened from the sidebar
  *  tag-filter dropdown's "Manage tags…" item. */
 export default function TagManager({ onClose }: { onClose: () => void }) {
-  const { meta, upsertTag, renameTag, removeTag } = useSessionMeta();
+  const { meta, upsertTag, renameTag, removeTag, setTagArchived } = useSessionMeta();
   const [newName, setNewName] = useState("");
 
   useEffect(() => {
@@ -57,7 +57,7 @@ export default function TagManager({ onClose }: { onClose: () => void }) {
         )}
 
         <div className="space-y-1.5">
-          {meta.tags.map((t) => (
+          {meta.tags.filter((t) => !t.archived).map((t) => (
             <TagRow
               key={t.name}
               tag={t}
@@ -65,9 +65,32 @@ export default function TagManager({ onClose }: { onClose: () => void }) {
               onRecolor={(c) => upsertTag(t.name, c)}
               onRename={(n) => renameTag(t.name, n)}
               onDelete={() => removeTag(t.name)}
+              onArchive={() => setTagArchived(t.name, true)}
             />
           ))}
         </div>
+
+        {/* Archived: retired from every chooser, still applied on sessions.
+            The permanent home for unarchive — the choosers only offer a
+            temporary "show archived". */}
+        {meta.tags.some((t) => t.archived) && (
+          <div className="border-t border-[var(--color-border)] pt-3 space-y-1.5">
+            <div className="text-[10px] uppercase tracking-wide text-[var(--color-text-dim)]">
+              Archived ({meta.tags.filter((t) => t.archived).length})
+            </div>
+            {meta.tags.filter((t) => t.archived).map((t) => (
+              <TagRow
+                key={t.name}
+                tag={t}
+                count={usage[t.name] ?? 0}
+                onRecolor={(c) => upsertTag(t.name, c)}
+                onRename={(n) => renameTag(t.name, n)}
+                onDelete={() => removeTag(t.name)}
+                onUnarchive={() => setTagArchived(t.name, false)}
+              />
+            ))}
+          </div>
+        )}
 
         <div className="flex gap-1.5 border-t border-[var(--color-border)] pt-3">
           <input
@@ -101,12 +124,16 @@ function TagRow({
   onRecolor,
   onRename,
   onDelete,
+  onArchive,
+  onUnarchive,
 }: {
   tag: Tag;
   count: number;
   onRecolor: (color: string) => void;
   onRename: (name: string) => void;
   onDelete: () => void;
+  onArchive?: () => void;
+  onUnarchive?: () => void;
 }) {
   const [name, setName] = useState(tag.name);
   const [paletteOpen, setPaletteOpen] = useState(false);
@@ -122,7 +149,7 @@ function TagRow({
   };
 
   return (
-    <div className="flex items-center gap-2">
+    <div className={`flex items-center gap-2 ${tag.archived ? "opacity-60" : ""}`}>
       <div className="relative shrink-0">
         <button
           onClick={() => setPaletteOpen((o) => !o)}
@@ -167,6 +194,25 @@ function TagRow({
       <span className="text-[10px] text-[var(--color-text-dim)] shrink-0">
         {count} {count === 1 ? "session" : "sessions"}
       </span>
+
+      {onArchive && (
+        <button
+          onClick={onArchive}
+          className="shrink-0 text-[10px] px-1.5 py-0.5 rounded border border-[var(--color-border)] text-[var(--color-text-dim)] hover:border-[var(--color-accent)] hover:text-[var(--color-accent)]"
+          title="Archive: hide from tag menus and suggestions; keeps the tag on every session"
+        >
+          archive
+        </button>
+      )}
+      {onUnarchive && (
+        <button
+          onClick={onUnarchive}
+          className="shrink-0 text-[10px] px-1.5 py-0.5 rounded border border-[var(--color-border)] text-[var(--color-accent)] hover:border-[var(--color-accent)]"
+          title="Unarchive: offer this tag in menus and suggestions again"
+        >
+          unarchive
+        </button>
+      )}
 
       {confirming ? (
         <span className="flex items-center gap-1 shrink-0">

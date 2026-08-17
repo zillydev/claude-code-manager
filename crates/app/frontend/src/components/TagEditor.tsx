@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import TagChip from "./TagChip";
 import { useSessionMeta } from "../hooks/useSessionMeta";
-import { entryTags, tagColor, tagSuggestions } from "../lib/sessionMeta";
+import { archivedTags, entryTags, tagColor, tagSuggestions } from "../lib/sessionMeta";
 
 /** Edit a session's tags: current tags as removable chips + an input that
  *  autocompletes registry tags; a new name is created with the next palette
@@ -17,6 +17,8 @@ export default function TagEditor({
 }) {
   const { meta, setSessionTags, addSessionTag } = useSessionMeta();
   const [input, setInput] = useState("");
+  // Temporary reveal of archived tags in the suggestion list (per editor open).
+  const [showArchived, setShowArchived] = useState(false);
   const current = entryTags(meta.sessions[sessionId]);
 
   useEffect(() => {
@@ -30,8 +32,8 @@ export default function TagEditor({
   // Every registry tag not already on the session (narrowed by the input) — the
   // list scrolls rather than truncating, so no tag is unreachable here.
   const suggestions = useMemo(
-    () => tagSuggestions(meta, current, input),
-    [meta, current, input],
+    () => tagSuggestions(meta, current, input, { includeArchived: showArchived }),
+    [meta, current, input, showArchived],
   );
 
   const addTag = (name: string) => {
@@ -96,14 +98,41 @@ export default function TagEditor({
           className="w-full bg-[var(--color-bg)] text-[var(--color-text)] text-xs px-2 py-1.5 rounded border border-[var(--color-border)] outline-none focus:border-[var(--color-accent)]"
         />
 
-        {suggestions.length > 0 && (
+        {suggestions.some((t) => !t.archived) && (
           <div className="flex flex-wrap gap-1 max-h-32 overflow-y-auto">
-            {suggestions.map((t) => (
-              <button key={t.name} onClick={() => addTag(t.name)} title="Add this tag">
-                <TagChip name={t.name} color={t.color} />
-              </button>
-            ))}
+            {suggestions
+              .filter((t) => !t.archived)
+              .map((t) => (
+                <button key={t.name} onClick={() => addTag(t.name)} title="Add this tag">
+                  <TagChip name={t.name} color={t.color} />
+                </button>
+              ))}
           </div>
+        )}
+        {/* Archived suggestions in their own group, not mixed with active ones. */}
+        {suggestions.some((t) => t.archived) && (
+          <div className="border-t border-[var(--color-border)] pt-1.5">
+            <div className="text-[10px] uppercase tracking-wide text-[var(--color-text-dim)] mb-1">
+              Archived
+            </div>
+            <div className="flex flex-wrap gap-1 max-h-24 overflow-y-auto opacity-60">
+              {suggestions
+                .filter((t) => t.archived)
+                .map((t) => (
+                  <button key={t.name} onClick={() => addTag(t.name)} title="Add this (archived) tag">
+                    <TagChip name={t.name} color={t.color} />
+                  </button>
+                ))}
+            </div>
+          </div>
+        )}
+        {archivedTags(meta).some((t) => !current.includes(t.name)) && (
+          <button
+            onClick={() => setShowArchived((v) => !v)}
+            className="text-[10px] text-[var(--color-text-dim)] hover:text-[var(--color-accent)]"
+          >
+            {showArchived ? "Hide archived" : `Show archived (${archivedTags(meta).length})`}
+          </button>
         )}
       </div>
     </div>
