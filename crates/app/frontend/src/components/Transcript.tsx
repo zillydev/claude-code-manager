@@ -18,6 +18,7 @@ import ForkMarker from "./ForkMarker";
 import Dropdown, { menuItemClass } from "./Dropdown";
 import { splitInsights } from "../lib/insights";
 import Spinner from "./Spinner";
+import { ArrowDown, Ellipsis, GitFork } from "lucide-react";
 import { useConfig } from "../hooks/useConfig";
 import { useSessionMeta } from "../hooks/useSessionMeta";
 import { entryTags } from "../lib/sessionMeta";
@@ -230,10 +231,10 @@ export default function Transcript({
           {onViewTree && (
             <button
               onClick={onViewTree}
-              className="text-xs px-2 py-1 rounded border border-[var(--color-border)] text-[var(--color-text-dim)] hover:border-[var(--color-accent)] hover:text-[var(--color-accent)] transition-colors"
+              className="flex items-center gap-1 text-xs px-2 py-1 rounded border border-[var(--color-border)] text-[var(--color-text-dim)] hover:border-[var(--color-accent)] hover:text-[var(--color-accent)] transition-colors"
               title="View this session's fork/copy lineage"
             >
-              ⑂ Tree
+              <GitFork size={12} strokeWidth={1.75} /> Tree
             </button>
           )}
           <button
@@ -326,7 +327,7 @@ export default function Transcript({
           aria-label="Scroll to latest"
           className="absolute bottom-4 right-5 z-10 flex h-8 w-8 items-center justify-center rounded-full border border-[var(--color-border)] bg-[var(--color-surface)] text-[var(--color-text-dim)] shadow-md transition-colors hover:border-[var(--color-accent)] hover:text-[var(--color-accent)]"
         >
-          ↓
+          <ArrowDown size={16} strokeWidth={1.75} />
         </button>
       )}
     </div>
@@ -600,7 +601,7 @@ function TurnActions({
 }) {
   const [copied, setCopied] = useState(false);
   const btn =
-    "text-[10px] px-1.5 py-0.5 rounded border border-[var(--color-border)] text-[var(--color-text-dim)] hover:border-[var(--color-accent)] hover:text-[var(--color-accent)] disabled:opacity-50";
+    "inline-flex items-center text-[10px] px-1.5 py-0.5 rounded border border-[var(--color-border)] text-[var(--color-text-dim)] hover:border-[var(--color-accent)] hover:text-[var(--color-accent)] disabled:opacity-50";
   const busy = forkPending;
 
   return (
@@ -609,7 +610,7 @@ function TurnActions({
           resolve by uuid and work on any turn, including pre-compaction ones.
           (Edit / Delete were removed pending a reimplementation.) */}
       <Dropdown
-        trigger={busy ? <Spinner /> : "⋯"}
+        trigger={busy ? <Spinner /> : <Ellipsis size={13} />}
         title="Message actions"
         disabled={busy}
         triggerClassName={btn}

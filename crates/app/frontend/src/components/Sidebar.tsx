@@ -1,6 +1,16 @@
 import { useState, useMemo, useEffect, useRef } from "react";
 import type { SessionSummary, SortField, SortDir, DateRange } from "../types";
 import Spinner from "./Spinner";
+import {
+  Bookmark,
+  ChevronsLeft,
+  Ellipsis,
+  FolderOpen,
+  Search,
+  Settings as SettingsIcon,
+  StickyNote,
+  X,
+} from "lucide-react";
 import Dropdown, { menuItemClass, ConfirmMenuItem } from "./Dropdown";
 import TagChip from "./TagChip";
 import TagEditor from "./TagEditor";
@@ -268,22 +278,22 @@ export default function Sidebar({
       <div className="flex items-center gap-1 px-2 py-1.5 border-b border-[var(--color-border)]">
         {(
           [
-            ["sessions", "🗂", "Sessions"],
-            ["bookmarks", "⚑", "Bookmarks — every flagged message"],
-            ["find", "🔍", "Find (⌘⇧F) — search all sessions"],
+            ["sessions", FolderOpen, "Sessions"],
+            ["bookmarks", Bookmark, "Bookmarks — every flagged message"],
+            ["find", Search, "Find (⌘⇧F) — search all sessions"],
           ] as const
-        ).map(([t, icon, title]) => (
+        ).map(([t, Icon, title]) => (
           <button
             key={t}
             onClick={() => onTabChange(t)}
             title={title}
-            className={`flex-1 text-center text-sm leading-none px-2 py-1.5 rounded ${
+            className={`flex-1 flex items-center justify-center px-2 py-1.5 rounded ${
               tab === t
                 ? "bg-[var(--color-surface-hover)] text-[var(--color-accent)]"
                 : "text-[var(--color-text-dim)] hover:text-[var(--color-text)] hover:bg-[var(--color-surface-hover)]"
             }`}
           >
-            {icon}
+            <Icon size={15} strokeWidth={1.75} />
           </button>
         ))}
       </div>
@@ -309,25 +319,25 @@ export default function Sidebar({
                 // Same path as typing: also clears the deep-search hits/spinner.
                 onClick={() => setTextFilter("")}
                 title="Clear filter"
-                className="absolute right-1 top-1/2 -translate-y-1/2 text-xs leading-none px-1 text-[var(--color-text-dim)] hover:text-[var(--color-text)]"
+                className="absolute right-1 top-1/2 -translate-y-1/2 flex items-center px-1 text-[var(--color-text-dim)] hover:text-[var(--color-text)]"
               >
-                ✕
+                <X size={12} strokeWidth={2} />
               </button>
             )}
           </div>
           <button
             onClick={onOpenSettings}
-            className="text-sm leading-none px-1.5 py-1 rounded text-[var(--color-text-dim)] hover:text-[var(--color-accent)] hover:bg-[var(--color-surface-hover)]"
+            className="flex items-center px-1.5 py-1 rounded text-[var(--color-text-dim)] hover:text-[var(--color-accent)] hover:bg-[var(--color-surface-hover)]"
             title="Settings (⌘,)"
           >
-            ⚙
+            <SettingsIcon size={15} strokeWidth={1.75} />
           </button>
           <button
             onClick={onCollapse}
-            className="text-base leading-none px-1.5 py-1 rounded text-[var(--color-text-dim)] hover:text-[var(--color-accent)] hover:bg-[var(--color-surface-hover)]"
+            className="flex items-center px-1.5 py-1 rounded text-[var(--color-text-dim)] hover:text-[var(--color-accent)] hover:bg-[var(--color-surface-hover)]"
             title="Collapse sidebar (⌘B)"
           >
-            «
+            <ChevronsLeft size={15} strokeWidth={1.75} />
           </button>
         </div>
 
@@ -679,8 +689,8 @@ export default function Sidebar({
                       </span>
                     )}
                     {entry?.note && (
-                      <span title={entry.note} className="shrink-0">
-                        ✎
+                      <span title={entry.note} className="shrink-0 inline-flex">
+                        <StickyNote size={11} strokeWidth={1.75} />
                       </span>
                     )}
                   </div>
@@ -745,11 +755,11 @@ export default function Sidebar({
               {!renaming && (
               <div className={`flex items-center shrink-0 pr-1.5 transition-opacity ${deletingId === s.id ? "opacity-100" : "opacity-0 group-hover:opacity-100"}`}>
                   <Dropdown
-                    trigger={deletingId === s.id ? <Spinner /> : "⋯"}
+                    trigger={deletingId === s.id ? <Spinner /> : <Ellipsis size={14} />}
                     title="Session actions"
                     align="right"
                     disabled={deletingId === s.id}
-                    triggerClassName="text-[13px] leading-none px-1.5 py-0.5 rounded text-[var(--color-text-dim)] hover:text-[var(--color-accent)] hover:bg-[var(--color-surface-hover)]"
+                    triggerClassName="flex items-center px-1.5 py-0.5 rounded text-[var(--color-text-dim)] hover:text-[var(--color-accent)] hover:bg-[var(--color-surface-hover)]"
                   >
                     {(close) => (
                       <>

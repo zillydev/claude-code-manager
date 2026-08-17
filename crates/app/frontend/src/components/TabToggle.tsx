@@ -1,3 +1,4 @@
+import { X } from "lucide-react";
 /** The Manager ↔ Terminal switch. Lives in the session header (right cluster on
  *  Manager, slim header on Terminal) rather than its own bar, to save a row.
  *  The Terminal button carries a live-terminal dot and a hover-✕ to close it. */
@@ -50,13 +51,13 @@ export default function TabToggle({
             }}
             title="Close terminal session (stops claude)"
             className={
-              "absolute right-1.5 opacity-0 group-hover:opacity-100 text-xs leading-none px-0.5 " +
+              "absolute right-1.5 opacity-0 group-hover:opacity-100 flex items-center px-0.5 " +
               (activeTab === "terminal"
                 ? "text-white/80 hover:text-white"
                 : "text-[var(--color-text-dim)] hover:text-[var(--color-text)]")
             }
           >
-            ✕
+            <X size={12} strokeWidth={2} />
           </button>
         )}
       </div>

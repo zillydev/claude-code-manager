@@ -9,6 +9,7 @@ import LineageBanner from "./components/LineageBanner";
 import LineageTree from "./components/LineageTree";
 import Settings from "./components/Settings";
 import Spinner from "./components/Spinner";
+import { ChevronsRight } from "lucide-react";
 import { usePersistentState } from "./hooks/usePersistentState";
 import { useActivity } from "./hooks/useActivity";
 import { useConfig } from "./hooks/useConfig";
@@ -261,10 +262,10 @@ export default function App() {
         <div className="flex flex-col border-r border-[var(--color-border)] bg-[var(--color-surface)]">
           <button
             onClick={() => setConfig({ ui: { sidebarCollapsed: false } })}
-            className="px-3 py-3 text-lg leading-none text-[var(--color-text-dim)] hover:text-[var(--color-accent)] hover:bg-[var(--color-surface-hover)]"
+            className="flex items-center px-3 py-3 text-[var(--color-text-dim)] hover:text-[var(--color-accent)] hover:bg-[var(--color-surface-hover)]"
             title="Expand sidebar (⌘B)"
           >
-            »
+            <ChevronsRight size={15} strokeWidth={1.75} />
           </button>
         </div>
       ) : (
