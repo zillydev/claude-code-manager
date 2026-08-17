@@ -422,39 +422,53 @@ export default function Sidebar({
             >
               {(close) => (
                 <>
-                  {/* Active tags, plus archived ones when revealed — and any
-                      archived tag that is currently SELECTED, so it can always be
-                      unselected without hunting for the reveal. */}
-                  {(filterShowArchived
-                    ? meta.tags
-                    : meta.tags.filter((t) => !t.archived || tagFilter.has(t.name))
-                  ).map((t) => {
-                    const on = tagFilter.has(t.name);
-                    return (
-                      <button
-                        key={t.name}
-                        role="menuitem"
-                        className={`${menuItemClass} flex items-center gap-2 ${
-                          t.archived ? "opacity-60" : ""
-                        }`}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setTagFilter((prev) => {
-                            const next = new Set(prev);
-                            if (next.has(t.name)) next.delete(t.name);
-                            else next.add(t.name);
-                            return next;
-                          });
-                        }}
-                      >
-                        <span className={on ? "" : "opacity-0"}>✓</span>
-                        <TagChip name={t.name} color={t.color} />
-                        {t.archived && (
-                          <span className="text-[10px] text-[var(--color-text-dim)]">· archived</span>
-                        )}
-                      </button>
+                  {/* Active tags first. Archived tags render in their OWN
+                      section below a divider — when revealed, or for any
+                      archived tag that is currently SELECTED (so it can always
+                      be unselected without hunting for the reveal). */}
+                  {(() => {
+                    const row = (t: (typeof meta.tags)[number]) => {
+                      const on = tagFilter.has(t.name);
+                      return (
+                        <button
+                          key={t.name}
+                          role="menuitem"
+                          className={`${menuItemClass} flex items-center gap-2 ${
+                            t.archived ? "opacity-60" : ""
+                          }`}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setTagFilter((prev) => {
+                              const next = new Set(prev);
+                              if (next.has(t.name)) next.delete(t.name);
+                              else next.add(t.name);
+                              return next;
+                            });
+                          }}
+                        >
+                          <span className={on ? "" : "opacity-0"}>✓</span>
+                          <TagChip name={t.name} color={t.color} />
+                        </button>
+                      );
+                    };
+                    const active = meta.tags.filter((t) => !t.archived);
+                    const archivedShown = meta.tags.filter(
+                      (t) => t.archived && (filterShowArchived || tagFilter.has(t.name)),
                     );
-                  })}
+                    return (
+                      <>
+                        {active.map(row)}
+                        {archivedShown.length > 0 && (
+                          <>
+                            <div className="mt-1 border-t border-[var(--color-border)] px-3 pt-1.5 pb-0.5 text-[10px] uppercase tracking-wide text-[var(--color-text-dim)]">
+                              Archived
+                            </div>
+                            {archivedShown.map(row)}
+                          </>
+                        )}
+                      </>
+                    );
+                  })()}
                   {archivedTags(meta).length > 0 && (
                     <button
                       role="menuitem"

@@ -285,21 +285,36 @@ export default function GlobalFind({
           {dateKey && <MiniCalendar onPick={acceptDate} />}
           {(suggestions.length > 0 || hiddenArchivedCount > 0) && (
             <div className="flex gap-1 mt-2 flex-wrap">
-              {suggestions.map((v) => {
-                const archived =
-                  isTagToken && meta.tags.find((t) => `tag:${t.name}` === v || `tag:"${t.name}"` === v)?.archived;
-                return (
+              {(() => {
+                const isArchived = (v: string) =>
+                  !!(isTagToken &&
+                    meta.tags.find((t) => `tag:${t.name}` === v || `tag:"${t.name}"` === v)?.archived);
+                const chip = (v: string, dim: boolean) => (
                   <button
                     key={v}
                     onClick={() => acceptSuggestion(v)}
                     className={`text-xs px-1.5 py-0.5 rounded border border-[var(--color-border)] text-[var(--color-accent)] hover:border-[var(--color-accent)] ${
-                      archived ? "opacity-60" : ""
+                      dim ? "opacity-60" : ""
                     }`}
                   >
                     {v}
                   </button>
                 );
-              })}
+                const active = suggestions.filter((v) => !isArchived(v));
+                const archived = suggestions.filter(isArchived);
+                // Archived chips sit after a divider so they don't mix in.
+                return (
+                  <>
+                    {active.map((v) => chip(v, false))}
+                    {archived.length > 0 && (
+                      <span className="self-center text-[10px] text-[var(--color-text-dim)] px-1">
+                        · archived:
+                      </span>
+                    )}
+                    {archived.map((v) => chip(v, true))}
+                  </>
+                );
+              })()}
               {hiddenArchivedCount > 0 && (
                 <button
                   onClick={() => setTagShowArchived(true)}

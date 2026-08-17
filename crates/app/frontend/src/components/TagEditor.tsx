@@ -98,18 +98,32 @@ export default function TagEditor({
           className="w-full bg-[var(--color-bg)] text-[var(--color-text)] text-xs px-2 py-1.5 rounded border border-[var(--color-border)] outline-none focus:border-[var(--color-accent)]"
         />
 
-        {suggestions.length > 0 && (
+        {suggestions.some((t) => !t.archived) && (
           <div className="flex flex-wrap gap-1 max-h-32 overflow-y-auto">
-            {suggestions.map((t) => (
-              <button
-                key={t.name}
-                onClick={() => addTag(t.name)}
-                title={t.archived ? "Add this (archived) tag" : "Add this tag"}
-                className={t.archived ? "opacity-60" : ""}
-              >
-                <TagChip name={t.name} color={t.color} />
-              </button>
-            ))}
+            {suggestions
+              .filter((t) => !t.archived)
+              .map((t) => (
+                <button key={t.name} onClick={() => addTag(t.name)} title="Add this tag">
+                  <TagChip name={t.name} color={t.color} />
+                </button>
+              ))}
+          </div>
+        )}
+        {/* Archived suggestions in their own group, not mixed with active ones. */}
+        {suggestions.some((t) => t.archived) && (
+          <div className="border-t border-[var(--color-border)] pt-1.5">
+            <div className="text-[10px] uppercase tracking-wide text-[var(--color-text-dim)] mb-1">
+              Archived
+            </div>
+            <div className="flex flex-wrap gap-1 max-h-24 overflow-y-auto opacity-60">
+              {suggestions
+                .filter((t) => t.archived)
+                .map((t) => (
+                  <button key={t.name} onClick={() => addTag(t.name)} title="Add this (archived) tag">
+                    <TagChip name={t.name} color={t.color} />
+                  </button>
+                ))}
+            </div>
           </div>
         )}
         {archivedTags(meta).some((t) => !current.includes(t.name)) && (
