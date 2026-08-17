@@ -86,14 +86,15 @@ export default function Sidebar({
   // scroll away isn't fought — it re-centers only when the selection changes.
   // The pane may be display:none at that moment (another tab showing); a
   // scrollIntoView on a hidden element is a no-op, so also re-run when the
-  // pane becomes visible.
+  // pane becomes visible. Centered (not "nearest") so the row lands mid-pane
+  // with its neighbours around it, rather than pinned to an edge.
   const listRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (!activeId || tab !== "sessions") return;
     const el = listRef.current?.querySelector<HTMLElement>(
       `[data-session-id="${activeId}"]`,
     );
-    el?.scrollIntoView({ block: "nearest" });
+    el?.scrollIntoView({ block: "center" });
   }, [activeId, tab]);
 
   const [sortField, setSortField] = useState<SortField>("updated");
