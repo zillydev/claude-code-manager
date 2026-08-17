@@ -5,9 +5,9 @@ use std::sync::Mutex;
 use crate::terminal::{self, TerminalState};
 
 use claude_code_manager_core::session::clone::{clone_prefix, CloneOpts};
-use claude_code_manager_core::session::edit::{commit, CommitOpts, CommitResult};
+use claude_code_manager_core::session::edit::CommitResult;
 use claude_code_manager_core::session::parse::parse_tail;
-use claude_code_manager_core::session::raw::{active_path, first_cwd, read_raw, RawLine};
+use claude_code_manager_core::session::raw::{first_cwd, read_raw};
 use claude_code_manager_core::session::render::{render_session, RenderedSession, RenderedTurn};
 use claude_code_manager_core::session::summary::SessionSummary;
 use claude_code_manager_core::session::tree;
@@ -267,122 +267,6 @@ fn tail_loop(
     }
 }
 
-/// One editable turn surfaced to the UI. `index` is the position on the active
-/// path among message turns (used as the fork point and the edit target).
-#[derive(Serialize)]
-pub struct EditableTurn {
-    pub index: usize,
-    pub uuid: String,
-    pub role: String,
-    pub text: String,
-}
-
-#[derive(Serialize)]
-pub struct EditableSession {
-    pub source_path: String,
-    pub cwd: String,
-    pub git_branch: Option<String>,
-    pub turns: Vec<EditableTurn>,
-}
-
-fn line_text(l: &RawLine) -> String {
-    let content = l.value.pointer("/message/content");
-    if let Some(s) = content.and_then(|v| v.as_str()) {
-        return s.to_string();
-    }
-    if let Some(arr) = content.and_then(|v| v.as_array()) {
-        for b in arr {
-            if b.get("type").and_then(|v| v.as_str()) == Some("text") {
-                if let Some(t) = b.get("text").and_then(|v| v.as_str()) {
-                    return t.to_string();
-                }
-            }
-        }
-    }
-    String::new()
-}
-
-#[tauri::command]
-pub async fn open_for_edit(file_path: String) -> Result<EditableSession, String> {
-    // read_raw parses the whole file — off the main thread.
-    tauri::async_runtime::spawn_blocking(move || -> Result<EditableSession, String> {
-        let path = PathBuf::from(&file_path);
-        let lines = read_raw(&path).map_err(|e| e.to_string())?;
-        let active = active_path(&lines);
-        let cwd = active
-            .iter()
-            .find_map(|l| l.value.get("cwd").and_then(|v| v.as_str()).map(|s| s.to_string()))
-            .unwrap_or_default();
-        let git_branch = active
-            .iter()
-            .find_map(|l| l.value.get("gitBranch").and_then(|v| v.as_str()).map(|s| s.to_string()));
-        let turns = active
-            .iter()
-            .filter(|l| l.kind == "user" || l.kind == "assistant")
-            .enumerate()
-            .map(|(index, l)| EditableTurn {
-                index,
-                uuid: l.uuid.map(|u| u.to_string()).unwrap_or_default(),
-                role: l.kind.clone(),
-                text: line_text(l),
-            })
-            .collect();
-        Ok(EditableSession { source_path: file_path, cwd, git_branch, turns })
-    })
-    .await
-    .map_err(|e| e.to_string())?
-}
-
-/// Commit an edit: optionally set the text of the message-turn identified by
-/// `edit_uuid`, then write the full active path as a new flattened session
-/// (copy-on-edit). Resolving by uuid (not a positional index) is required: the
-/// live-tail renders streamed turns with batch-local indices, so an index can
-/// point at the wrong message; the uuid is stable.
-#[tauri::command]
-pub async fn commit_session(
-    file_path: String,
-    edit_uuid: Option<String>,
-    new_text: Option<String>,
-    custom_title: Option<String>,
-) -> Result<CommitResult, String> {
-    // read_raw + commit (write) on a potentially-large file — off the main thread.
-    tauri::async_runtime::spawn_blocking(move || -> Result<CommitResult, String> {
-    let root = paths::default_claude_root().ok_or("could not locate ~/.claude")?;
-    let path = PathBuf::from(&file_path);
-    let mut lines = read_raw(&path).map_err(|e| e.to_string())?;
-
-    // Snapshot the active path's uuids (order) BEFORE any edit.
-    let active_uuids: Vec<uuid::Uuid> = active_path(&lines).iter().filter_map(|l| l.uuid).collect();
-
-    // Optionally edit the text of the message line identified by edit_uuid.
-    if let (Some(uuid_str), Some(text)) = (edit_uuid, new_text.as_ref()) {
-        let target = uuid::Uuid::parse_str(&uuid_str)
-            .map_err(|e| format!("invalid edit uuid: {e}"))?;
-        match lines.iter_mut().find(|l| l.uuid == Some(target)) {
-            Some(line) => claude_code_manager_core::session::edit::set_message_text(line, text),
-            None => return Err(format!("edit target {uuid_str} not found in session")),
-        }
-    }
-
-    // Rebuild active-path refs (post-edit) by uuid, preserving original order.
-    let by_uuid: std::collections::HashMap<uuid::Uuid, &RawLine> =
-        lines.iter().filter_map(|l| l.uuid.map(|u| (u, l))).collect();
-    let path_refs: Vec<&RawLine> = active_uuids.iter().filter_map(|u| by_uuid.get(u).copied()).collect();
-
-    // Launch cwd (first cwd in file order) so the new session lands in the same
-    // project dir as the source and stays resumable — not the active path's cwd,
-    // which for a compacted session begins post-compaction in a cd'd directory.
-    let cwd = first_cwd(&lines).unwrap_or_else(|| ".".to_string());
-    let git_branch = path_refs
-        .iter()
-        .find_map(|l| l.value.get("gitBranch").and_then(|v| v.as_str()).map(|s| s.to_string()));
-    let opts = CommitOpts { target_cwd: cwd, git_branch, custom_title };
-    commit(&root, &path_refs, &opts).map_err(|e| e.to_string())
-    })
-    .await
-    .map_err(|e| e.to_string())?
-}
-
 /// Move a session file to the app trash (recoverable). Returns Ok(()) on success.
 #[tauri::command]
 pub async fn delete_session(file_path: String) -> Result<(), String> {
@@ -458,26 +342,6 @@ pub async fn message_previews(
                 timestamp: ts.map(|t| t.timestamp()),
             })
             .collect())
-    })
-    .await
-    .map_err(|e| e.to_string())?
-}
-
-/// Delete a single message (turn) by its uuid, writing a new flattened session
-/// (copy-on-edit). Reuses the surgery prune path: passing the turn's uuid as
-/// both ends of the range turn-snaps to the whole turn (an assistant turn pulls
-/// in its tool calls + results), repairs tool-pairing across the cut, and
-/// refuses a delete that would leave a leading assistant message.
-#[tauri::command]
-pub async fn delete_message(file_path: String, message_uuid: String) -> Result<CommitResult, String> {
-    use claude_code_manager_core::session::surgery::{rewrite, RewriteMode};
-    // rewrite reads + rewrites a potentially-large file — off the main thread.
-    tauri::async_runtime::spawn_blocking(move || -> Result<CommitResult, String> {
-        let root = paths::default_claude_root().ok_or("could not locate ~/.claude")?;
-        let path = PathBuf::from(&file_path);
-        let out = rewrite(&root, &path, &message_uuid, &message_uuid, RewriteMode::Prune, None)
-            .map_err(|e| e.to_string())?;
-        Ok(out.commit)
     })
     .await
     .map_err(|e| e.to_string())?

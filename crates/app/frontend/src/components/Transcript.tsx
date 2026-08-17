@@ -15,7 +15,7 @@ import ToolCall from "./ToolCall";
 import { useEditor } from "../hooks/useEditor";
 import CommitResultBanner from "./CommitResultBanner";
 import ForkMarker from "./ForkMarker";
-import Dropdown, { menuItemClass, ConfirmMenuItem } from "./Dropdown";
+import Dropdown, { menuItemClass } from "./Dropdown";
 import { splitInsights } from "../lib/insights";
 import Spinner from "./Spinner";
 import { useConfig } from "../hooks/useConfig";
@@ -83,8 +83,6 @@ export default function Transcript({
   }, [setPinned]);
   const prevSessionId = useRef<string | null>(null);
   const editor = useEditor();
-  const [editingUuid, setEditingUuid] = useState<string | null>(null);
-  const [draft, setDraft] = useState("");
   const sourcePath = session.source_path;
 
   // This session's bookmarks, in transcript order, labelled from the rendered
@@ -96,15 +94,9 @@ export default function Transcript({
   // they key on its length — toggling compact reshapes this (not session.turns).
   const visibleTurns = compact ? filterCompact(session.turns) : session.turns;
   // Stable handlers so the memoized <Turn>s don't re-render needlessly.
-  // useEditor's methods are useCallback([])-stable, and sourcePath is stable,
-  // so these identities only change when `draft` does (during an edit).
-  const handleStartEdit = useCallback((uuid: string, text: string) => {
-    setEditingUuid(uuid);
-    setDraft(text);
-  }, []);
-  const handleCancelEdit = useCallback(() => setEditingUuid(null), []);
-  // Every copy-on-edit op (fork / edit / delete) mints a derived session — the
-  // same work, continued — so it inherits the source's tags. Tags only: an alias
+  // useEditor's methods are useCallback([])-stable, and sourcePath is stable.
+  // A fork mints a derived session — the same work, continued — so it
+  // inherits the source's tags. Tags only: an alias
   // would give two sessions one name, and a note is about THAT session. A failed
   // op returns null, and an untagged source writes nothing.
   // Read the source via a ref so inheritTags — and thus the handlers below,
@@ -124,14 +116,6 @@ export default function Transcript({
     const tags = entryTags(m.sessions[id]);
     if (newId && tags.length > 0) set(newId, tags);
   }, []);
-  const handleSaveEdit = useCallback(
-    async (uuid: string) => {
-      const res = await editor.commitEdit(sourcePath, uuid, draft);
-      inheritTags(res?.new_session_id);
-      setEditingUuid(null);
-    },
-    [editor.commitEdit, sourcePath, draft, inheritTags],
-  );
   const handleFork = useCallback(
     async (forkUuid: string) => {
       const res = await editor.fork(sourcePath, forkUuid);
@@ -139,14 +123,6 @@ export default function Transcript({
     },
     [editor.fork, sourcePath, inheritTags],
   );
-  const handleDelete = useCallback(
-    async (uuid: string) => {
-      const res = await editor.deleteMessage(sourcePath, uuid);
-      inheritTags(res?.new_session_id);
-    },
-    [editor.deleteMessage, sourcePath, inheritTags],
-  );
-
   // Track whether the user is pinned to the bottom, so live-tail appends only
   // follow when they already are. Programmatic scrolls fire this too, keeping
   // the flag accurate.
@@ -310,21 +286,12 @@ export default function Transcript({
           <div className="text-[var(--color-error)] text-xs mb-2">{editor.error}</div>
         )}
         {visibleTurns.map((turn, i) => {
-          const editUuid =
-            (turn.type === "user" || turn.type === "assistant") && turn.editable
-              ? turn.edit_uuid
-              : null;
-          const editing = editUuid !== null && editingUuid === editUuid;
           const forkUuid =
             turn.type === "user" || turn.type === "assistant" ? turn.fork_uuid : null;
           const ownUuid =
             turn.type === "user" || turn.type === "assistant" ? turn.uuid : null;
           const forkPending =
             editor.pending?.kind === "fork" && editor.pending.uuid === forkUuid;
-          const editPending =
-            editor.pending?.kind === "edit" && editor.pending.uuid === editUuid;
-          const deletePending =
-            editor.pending?.kind === "delete" && editor.pending.uuid === ownUuid;
           let marks: ForkRef[] | undefined;
           if (branchPoints) {
             if (forkUuid) marks = branchPoints.get(forkUuid);
@@ -335,20 +302,10 @@ export default function Transcript({
               <Turn
                 turn={turn}
                 turnIndex={i}
-                editUuid={editUuid}
-                editing={editing}
-                draft={editing ? draft : ""}
-                onStartEdit={handleStartEdit}
-                onChangeDraft={setDraft}
-                onCancelEdit={handleCancelEdit}
-                onSaveEdit={handleSaveEdit}
                 onFork={handleFork}
-                onDelete={handleDelete}
                 bookmarked={ownUuid !== null && bookmarkSet.has(ownUuid)}
                 onToggleBookmark={handleToggleBookmark}
                 forkPending={!!forkPending}
-                editPending={!!editPending}
-                deletePending={!!deletePending}
               />
               {marks && onOpenSession && (
                 <ForkMarker refs={marks} onOpen={onOpenSession} />
@@ -471,37 +428,17 @@ function StatsPanel({
 const Turn = memo(function Turn({
   turn,
   turnIndex,
-  editUuid,
-  editing,
-  draft,
-  onStartEdit,
-  onChangeDraft,
-  onCancelEdit,
-  onSaveEdit,
   onFork,
-  onDelete,
   bookmarked,
   onToggleBookmark,
   forkPending,
-  editPending,
-  deletePending,
 }: {
   turn: RenderedTurn;
   turnIndex: number;
-  editUuid: string | null;
-  editing: boolean;
-  draft: string;
-  onStartEdit: (uuid: string, text: string) => void;
-  onChangeDraft: (s: string) => void;
-  onCancelEdit: () => void;
-  onSaveEdit: (uuid: string) => void;
   onFork: (forkUuid: string) => void;
-  onDelete: (uuid: string) => void;
   bookmarked: boolean;
   onToggleBookmark: (uuid: string) => void;
   forkPending: boolean;
-  editPending: boolean;
-  deletePending: boolean;
 }) {
   const ts = "timestamp" in turn && turn.timestamp ? formatTime(turn.timestamp) : "--:--";
   // Full date shown on hover; undefined ⇒ no tooltip (e.g. compaction turns).
@@ -521,15 +458,11 @@ const Turn = memo(function Turn({
               label ends the row at the right edge and the actions lead. */}
           <div className="flex items-baseline gap-2 mb-1 justify-end">
             <TurnActions
-              onEdit={() => editUuid && onStartEdit(editUuid, turn.text)}
               onFork={() => onFork(turn.fork_uuid)}
-              onDelete={() => onDelete(turn.uuid)}
               bookmarked={bookmarked}
               onToggleBookmark={() => onToggleBookmark(turn.uuid)}
               messageId={turn.uuid}
-              canMutate={turn.editable}
               forkPending={forkPending}
-              deletePending={deletePending}
             />
             <span className="text-xs text-[var(--color-text-dim)]" title={tsTitle}>
               {ts}
@@ -539,25 +472,12 @@ const Turn = memo(function Turn({
               <span className="text-[var(--color-accent)] text-xs" title="Bookmarked">⚑</span>
             )}
           </div>
-          {editing ? (
-            // Editing needs the room: full width, not the bubble.
-            <div className="w-full">
-              <EditBox
-                draft={draft}
-                onChange={onChangeDraft}
-                onSave={() => editUuid && onSaveEdit(editUuid)}
-                onCancel={onCancelEdit}
-                saving={editPending}
-              />
-            </div>
-          ) : (
-            <div
-              data-seg-id={makeSegId(turnIndex, null, "user-text")}
-              className="max-w-[75%] rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-sm whitespace-pre-wrap break-words"
-            >
-              {turn.text}
-            </div>
-          )}
+          <div
+            data-seg-id={makeSegId(turnIndex, null, "user-text")}
+            className="max-w-[75%] rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-sm whitespace-pre-wrap break-words"
+          >
+            {turn.text}
+          </div>
         </div>
       );
 
@@ -580,30 +500,13 @@ const Turn = memo(function Turn({
               <span className="text-[var(--color-accent)] text-xs" title="Bookmarked">⚑</span>
             )}
             <TurnActions
-              onEdit={() => {
-                if (!editUuid) return;
-                const firstText = turn.blocks.find((b) => b.type === "text");
-                onStartEdit(editUuid, firstText && firstText.type === "text" ? firstText.text : "");
-              }}
               onFork={() => onFork(turn.fork_uuid)}
-              onDelete={() => onDelete(turn.uuid)}
               bookmarked={bookmarked}
               onToggleBookmark={() => onToggleBookmark(turn.uuid)}
               messageId={turn.uuid}
-              canMutate={turn.editable}
               forkPending={forkPending}
-              deletePending={deletePending}
             />
           </div>
-          {editing && (
-            <EditBox
-              draft={draft}
-              onChange={onChangeDraft}
-              onSave={() => editUuid && onSaveEdit(editUuid)}
-              onCancel={onCancelEdit}
-              saving={editPending}
-            />
-          )}
           <div className="pl-4">
             {turn.blocks.map((block, j) => (
               <BlockRenderer
@@ -683,37 +586,28 @@ const Turn = memo(function Turn({
 });
 
 function TurnActions({
-  onEdit,
   onFork,
-  onDelete,
   bookmarked,
   onToggleBookmark,
   messageId,
-  canMutate,
   forkPending,
-  deletePending,
 }: {
-  onEdit: () => void;
   onFork: () => void;
-  onDelete: () => void;
   bookmarked: boolean;
   onToggleBookmark: () => void;
   messageId: string;
-  /// Edit/delete operate on the active path, so they're offered only on the
-  /// active segment. Fork (resolves by uuid against the message's own tree) and
-  /// copy-id (read-only) are always available — including pre-compaction turns.
-  canMutate: boolean;
   forkPending: boolean;
-  deletePending: boolean;
 }) {
   const [copied, setCopied] = useState(false);
   const btn =
     "text-[10px] px-1.5 py-0.5 rounded border border-[var(--color-border)] text-[var(--color-text-dim)] hover:border-[var(--color-accent)] hover:text-[var(--color-accent)] disabled:opacity-50";
-  const busy = forkPending || deletePending;
+  const busy = forkPending;
 
   return (
     <span className="opacity-0 group-hover:opacity-100 transition-opacity flex gap-2 ml-2 items-center">
-      {/* Edit / Fork / Delete live behind a ⋯ menu so they're not fat-fingered. */}
+      {/* Fork / Bookmark live behind a ⋯ menu so they're not fat-fingered. Both
+          resolve by uuid and work on any turn, including pre-compaction ones.
+          (Edit / Delete were removed pending a reimplementation.) */}
       <Dropdown
         trigger={busy ? <Spinner /> : "⋯"}
         title="Message actions"
@@ -722,18 +616,6 @@ function TurnActions({
       >
         {(close) => (
           <>
-            {canMutate && (
-              <button
-                role="menuitem"
-                className={menuItemClass}
-                onClick={() => {
-                  close();
-                  onEdit();
-                }}
-              >
-                Edit
-              </button>
-            )}
             <button
               role="menuitem"
               className={menuItemClass}
@@ -757,14 +639,6 @@ function TurnActions({
             >
               {bookmarked ? "Remove bookmark" : "Bookmark"}
             </button>
-            {canMutate && (
-              <ConfirmMenuItem
-                label="Delete"
-                confirmLabel="Confirm delete"
-                close={close}
-                onConfirm={onDelete}
-              />
-            )}
           </>
         )}
       </Dropdown>
@@ -786,44 +660,6 @@ function TurnActions({
         </button>
       )}
     </span>
-  );
-}
-
-function EditBox({
-  draft,
-  onChange,
-  onSave,
-  onCancel,
-  saving,
-}: {
-  draft: string;
-  onChange: (s: string) => void;
-  onSave: () => void;
-  onCancel: () => void;
-  saving: boolean;
-}) {
-  return (
-    <div className="pl-4">
-      <textarea
-        value={draft}
-        onChange={(e) => onChange(e.target.value)}
-        className="w-full bg-[var(--color-bg)] text-[var(--color-text)] text-sm p-2 rounded border border-[var(--color-border)] outline-none focus:border-[var(--color-accent)] font-mono"
-        rows={Math.min(20, Math.max(3, draft.split("\n").length + 1))}
-      />
-      <div className="flex gap-2 mt-1">
-        <button
-          onClick={onSave}
-          disabled={saving}
-          className="text-xs px-2 py-1 rounded border border-[var(--color-accent)] text-[var(--color-accent)] disabled:opacity-50 inline-flex items-center gap-1.5"
-        >
-          {saving && <Spinner />}
-          Save as new session
-        </button>
-        <button onClick={onCancel} className="text-xs px-2 py-1 rounded border border-[var(--color-border)] text-[var(--color-text-dim)]">
-          Cancel
-        </button>
-      </div>
-    </div>
   );
 }
 
