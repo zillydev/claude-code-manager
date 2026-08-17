@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useRef } from "react";
 import type { SessionSummary, SortField, SortDir, DateRange } from "../types";
 import Spinner from "./Spinner";
 import Dropdown, { menuItemClass, ConfirmMenuItem } from "./Dropdown";
@@ -80,6 +80,23 @@ export default function Sidebar({
   useEffect(() => {
     setTagFilter((prev) => pruneTagFilter(prev, meta.tags));
   }, [meta.tags]);
+  // Keep the active row visible. A session opened from the ⚑/🔍 panes (or the
+  // lineage tree) is often far down the list; when you switch back to Sessions
+  // the row should already be in view. Keyed on activeId only, so a manual
+  // scroll away isn't fought — it re-centers only when the selection changes.
+  // The pane may be display:none at that moment (another tab showing); a
+  // scrollIntoView on a hidden element is a no-op, so also re-run when the
+  // pane becomes visible. Centered (not "nearest") so the row lands mid-pane
+  // with its neighbours around it, rather than pinned to an edge.
+  const listRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!activeId || tab !== "sessions") return;
+    const el = listRef.current?.querySelector<HTMLElement>(
+      `[data-session-id="${activeId}"]`,
+    );
+    el?.scrollIntoView({ block: "center" });
+  }, [activeId, tab]);
+
   const [sortField, setSortField] = useState<SortField>("updated");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
   const [deletingId, setDeletingId] = useState<string | null>(null);
@@ -478,7 +495,7 @@ export default function Sidebar({
       </div>
 
       {/* Session list */}
-      <div className="flex-1 overflow-y-auto">
+      <div ref={listRef} className="flex-1 overflow-y-auto">
         {loading && sessions.length === 0 ? (
           <div className="p-4 flex items-center gap-2 text-[var(--color-text-dim)] text-sm">
             <Spinner /> Loading…
@@ -503,6 +520,7 @@ export default function Sidebar({
             return (
             <div
               key={s.id}
+              data-session-id={s.id}
               onMouseEnter={() => setHoveredId(s.id)}
               onMouseLeave={() => setHoveredId((h) => (h === s.id ? null : h))}
               className={`relative flex group border-b border-[var(--color-border)] hover:bg-[var(--color-surface-hover)] transition-colors ${
