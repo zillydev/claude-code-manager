@@ -28,5 +28,9 @@ base64 = "0.22"
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
 
+[target.'cfg(target_os = "macos")'.dependencies]
+# dev-only Dock name (see src/dock_name.rs); already in the tree via tauri
+core-foundation = "0.10"
+
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
