@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <!-- Apple icon grid: the squircle spans 824/1024 of the canvas, the rest is transparent margin -->
+  <g transform="translate(50 50) scale(0.8046875)">
+    <rect width="512" height="512" rx="114" fill="#0d1117"/>
+    <rect x="24" y="24" width="464" height="464" rx="96" fill="none" stroke="#30363d" stroke-width="6"/>
+    <text x="256" y="300" font-family="SF Mono, Menlo, JetBrains Mono, monospace" font-size="176" font-weight="700" fill="#58a6ff" text-anchor="middle" letter-spacing="-8">ccm</text>
+  </g>
+</svg>
