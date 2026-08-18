@@ -90,6 +90,7 @@ A tool to browse, search, edit, compact, harvest, and resume Claude Code session
 - **Never launch the app from automation** — the user keeps it open across Spaces; `make dev` uses `--no-watch` (Rust changes need a manual restart; frontend hot-reloads via Vite).
 - `~/.claude/settings.json` has `cleanupPeriodDays: 36500` so sessions aren't auto-pruned.
 - Skills live in `skills/` (`session-surgery`, `session-harvest`).
+- **App icon:** `crates/app/icons/icon.svg` is the source (dark squircle, mono "ccm" wordmark, Apple icon-grid margin baked in). Regenerate the PNG/`.icns`/`.ico` set with `cargo tauri icon <1024px raster>` from `crates/app/` — it overwrites `icons/`, then drop the mobile/Windows-Store variants it also emits.
 
 ## Deferred / parked
 
