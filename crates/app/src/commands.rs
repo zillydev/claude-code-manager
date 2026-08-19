@@ -70,6 +70,7 @@ pub struct MessageHitDto {
     pub role: String,
     pub ts: Option<i64>,
     pub snippet: String,
+    pub match_count: usize,
 }
 
 #[derive(Serialize)]
@@ -131,6 +132,7 @@ pub async fn search_messages(
                     role: h.role,
                     ts: h.ts,
                     snippet: h.snippet,
+                    match_count: h.match_count,
                 })
                 .collect(),
             truncated,
