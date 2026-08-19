@@ -3,6 +3,7 @@ import type { RenderedBlock, ToolCallResult } from "../types";
 import { makeSegId } from "../lib/segments";
 import { prettyToolName } from "../lib/toolDisplay";
 import { toolInputText, toolResultText } from "../lib/findMatches";
+import { ImageStrip } from "./InlineImage";
 
 interface Props {
   block: Extract<RenderedBlock, { type: "tool_call" }>;
@@ -65,16 +66,18 @@ function ToolInput({ input, segId }: { input: Record<string, unknown>; segId: st
 
 function ToolResult({ result, segId }: { result: ToolCallResult; segId: string }) {
   return (
-    <pre
-      data-seg-id={segId}
-      className={`px-3 py-2 rounded text-xs whitespace-pre-wrap break-words overflow-hidden border-l-2 ${
+    <div
+      className={`px-3 py-2 rounded text-xs border-l-2 ${
         result.is_error
           ? "border-l-[var(--color-error)] bg-[var(--color-tool-result-bg)] text-[var(--color-error)]"
           : "border-l-[var(--color-border)] bg-[var(--color-tool-result-bg)] text-[var(--color-text-dim)]"
       }`}
       style={{ maxHeight: "400px", overflowY: "auto" }}
     >
-      {toolResultText(result)}
-    </pre>
+      <pre data-seg-id={segId} className="whitespace-pre-wrap break-words overflow-hidden">
+        {toolResultText(result)}
+      </pre>
+      <ImageStrip images={result.images} label="tool result image" />
+    </div>
   );
 }
