@@ -166,7 +166,7 @@ export default function FindBar({
             onBlur={commitIndex}
             aria-label="Go to match number"
             title="Type a match number and press Enter to jump there"
-            className="bg-transparent text-center text-[var(--color-text)] outline-none rounded border border-transparent focus:border-[var(--color-accent)] focus:bg-[var(--color-bg)] px-0.5 tabular-nums"
+            className="bg-transparent text-center text-[var(--color-text)] outline-none rounded border border-transparent hover:border-[var(--color-border)] hover:bg-[var(--color-bg)] focus:border-[var(--color-accent)] focus:bg-[var(--color-bg)] px-0.5 tabular-nums transition-colors cursor-text"
             style={{ width: `${Math.max(1.5, String(count).length * 0.65 + 0.6)}rem` }}
           />
           <span>/{count}</span>
