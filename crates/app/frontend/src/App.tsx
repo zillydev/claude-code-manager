@@ -47,6 +47,15 @@ export default function App() {
     },
     [setConfig],
   );
+  // ⌘1/⌘2 — show a sidebar tab (expanding a collapsed sidebar, like ⌘⇧F).
+  // ⌘3 goes through openFindTab so the find input also takes focus.
+  const showSidebarTab = useCallback(
+    (t: "sessions" | "bookmarks") => {
+      setConfig({ ui: { sidebarCollapsed: false } });
+      setSidebarTab(t);
+    },
+    [setConfig],
+  );
   // Per-session terminal liveness for THIS window: drives the Terminal tab dot
   // and enables the close-✕. Fed by TerminalView via TerminalPane's onStatus.
   const [terminalStatus, setTerminalStatus] = useState<
@@ -222,7 +231,8 @@ export default function App() {
   }, [configLoaded, config.ui.defaultTab]);
 
   // Cmd+E toggles Manager ↔ Terminal; Cmd+B toggles the sidebar; Cmd+, opens
-  // Settings (the macOS Preferences shortcut). Cmd (not Ctrl) so they never
+  // Settings (the macOS Preferences shortcut); Cmd+1/2/3 pick the sidebar tab
+  // (Sessions / Bookmarks / Find). Cmd (not Ctrl) so they never
   // collide with the terminal — Ctrl+E/Ctrl+B are line-editing keys in
   // claude/shells. Capture phase so it beats xterm when the terminal is focused.
   useEffect(() => {
@@ -248,11 +258,17 @@ export default function App() {
         e.preventDefault();
         e.stopPropagation();
         setSettingsOpen(true);
+      } else if (k === "1" || k === "2" || k === "3") {
+        e.preventDefault();
+        e.stopPropagation();
+        if (k === "1") showSidebarTab("sessions");
+        else if (k === "2") showSidebarTab("bookmarks");
+        else openFindTab(null);
       }
     };
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
-  }, [collapsed, setConfig, openFindTab]);
+  }, [collapsed, setConfig, openFindTab, showSidebarTab]);
 
   const terminalLive = !!target && terminalStatus[target.sessionId] === "live";
 
