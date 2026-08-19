@@ -1,6 +1,6 @@
 {
   "$schema": "https://raw.githubusercontent.com/niceplaces/tauri-settings-vscode/main/schemas/2/tauri.conf.json",
-  "productName": "claude-code-manager",
+  "productName": "Claude Code Manager",
   "version": "0.1.0",
   "identifier": "dev.zilly.claude-code-manager",
   "build": {
@@ -13,7 +13,7 @@
     "withGlobalTauri": true,
     "windows": [
       {
-        "title": "claude-code-manager",
+        "title": "Claude Code Manager",
         "width": 1200,
         "height": 800,
         "resizable": true,

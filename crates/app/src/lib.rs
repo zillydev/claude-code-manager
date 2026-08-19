@@ -1,5 +1,6 @@
 mod commands;
 mod config;
+mod dock_name;
 mod session_meta;
 mod shared;
 mod terminal;
@@ -76,6 +77,11 @@ pub fn run() {
         .manage(Mutex::new(terminal::TerminalState::default()))
         .manage(shared::Shared::new())
         .setup(|app| {
+            // Unbundled dev runs would otherwise show the binary name in the
+            // Dock; no-op in release bundles and off macOS.
+            if let Some(name) = app.config().product_name.as_deref() {
+                dock_name::set_dev_dock_name(name);
+            }
             // One app-wide poller: every 3s it refreshes the shared activity scan
             // and (only when the project dir's signature changes) re-discovers,
             // then broadcasts to ALL windows. Replaces each window polling on its

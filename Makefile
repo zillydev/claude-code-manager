@@ -19,7 +19,7 @@ build:
 	npm --prefix crates/app/frontend run build
 	cargo build --release
 
-APP_NAME := claude-code-manager.app
+APP_NAME := Claude Code Manager.app
 APP_BUNDLE := target/release/bundle/macos/$(APP_NAME)
 
 # Build the distributable macOS app: `cargo tauri build` runs the frontend
@@ -34,7 +34,7 @@ app:
 # ditto replaces the existing copy; a locally-built app carries no quarantine
 # attribute, so Gatekeeper won't prompt on launch.
 install: app
-	rm -rf "/Applications/$(APP_NAME)"
+	rm -rf "/Applications/$(APP_NAME)" "/Applications/claude-code-manager.app"
 	ditto "$(APP_BUNDLE)" "/Applications/$(APP_NAME)"
 	@echo "Installed $(APP_NAME) -> /Applications (quit + reopen if it was running)"
 

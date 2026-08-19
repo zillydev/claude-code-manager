@@ -563,6 +563,7 @@ version = "0.1.0"
 dependencies = [
  "base64 0.22.1",
  "claude-code-manager-core",
+ "core-foundation",
  "libc",
  "portable-pty",
  "serde",
