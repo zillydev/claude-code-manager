@@ -1,7 +1,8 @@
 import { useState } from "react";
 import type { RenderedBlock, ToolCallResult } from "../types";
 import { makeSegId } from "../lib/segments";
-import { prettyToolName, prettyResultText } from "../lib/toolDisplay";
+import { prettyToolName } from "../lib/toolDisplay";
+import { toolInputText, toolResultText } from "../lib/findMatches";
 
 interface Props {
   block: Extract<RenderedBlock, { type: "tool_call" }>;
@@ -57,7 +58,7 @@ function ToolInput({ input, segId }: { input: Record<string, unknown>; segId: st
       className="px-3 py-2 rounded text-xs whitespace-pre-wrap break-words overflow-hidden border-l-2 border-l-[var(--color-tool)] bg-[var(--color-tool-result-bg)] text-[var(--color-text)] mb-1"
       style={{ maxHeight: "300px", overflowY: "auto" }}
     >
-      {JSON.stringify(input, null, 2)}
+      {toolInputText(input)}
     </pre>
   );
 }
@@ -73,7 +74,7 @@ function ToolResult({ result, segId }: { result: ToolCallResult; segId: string }
       }`}
       style={{ maxHeight: "400px", overflowY: "auto" }}
     >
-      {prettyResultText(result.text)}
+      {toolResultText(result)}
     </pre>
   );
 }

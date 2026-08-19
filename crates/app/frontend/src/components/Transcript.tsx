@@ -12,6 +12,8 @@ import type {
   SessionSummary,
 } from "../types";
 import ToolCall from "./ToolCall";
+import FindBar from "./FindBar";
+import { useFind } from "../hooks/useFind";
 import { useEditor } from "../hooks/useEditor";
 import CommitResultBanner from "./CommitResultBanner";
 import ForkMarker from "./ForkMarker";
@@ -39,8 +41,8 @@ interface Props {
   visible?: boolean;
   /** The Manager/Terminal toggle, slotted into the header's right cluster. */
   tabs?: ReactNode;
-  /** ⌘F: open the global find prefilled to this session (App mounts it). */
-  onOpenFind?: (sessionId: string) => void;
+  /** ↗ in the find bar: open the global find pinned to this session with `query`. */
+  onOpenFind?: (sessionId: string, query: string) => void;
 }
 
 export default function Transcript({
@@ -93,7 +95,15 @@ export default function Transcript({
 
   // The turns actually rendered. Declared before the scroll effects because
   // they key on its length — toggling compact reshapes this (not session.turns).
-  const visibleTurns = compact ? filterCompact(session.turns) : session.turns;
+  // MUST be memoised: useFind's recompute effect keys on this list and sets
+  // state — a per-render identity would loop render → effect → setState.
+  const visibleTurns = useMemo(
+    () => (compact ? filterCompact(session.turns) : session.turns),
+    [compact, session.turns],
+  );
+  // In-session find (⌘F). Matches what is rendered — compact mode included.
+  const find = useFind(turnsRef, visibleTurns);
+  const { open: findOpen, openBar: findOpenBar, close: findClose } = find;
   // Stable handlers so the memoized <Turn>s don't re-render needlessly.
   // useEditor's methods are useCallback([])-stable, and sourcePath is stable.
   // A fork mints a derived session — the same work, continued — so it
@@ -198,17 +208,28 @@ export default function Transcript({
     return () => cancelAnimationFrame(raf);
   }, [visible]);
 
+  // ⌘F opens/refocuses the in-session find bar (Zed's buffer search; ⌘⇧F is
+  // the global find, handled in App). Only while this tab is showing — with
+  // the Terminal tab up, ⌘F would otherwise open a bar nobody can see. A text
+  // selection inside the transcript seeds the query, as in Zed.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && !e.shiftKey && e.key.toLowerCase() === "f") {
-        e.preventDefault();
-        // Same UI as ⌘⇧F, pinned to this session by id.
-        onOpenFind?.(session.id);
-      }
+      if (!(e.metaKey || e.ctrlKey) || e.shiftKey || e.altKey || e.key.toLowerCase() !== "f") return;
+      if (!visible) return;
+      e.preventDefault();
+      const sel = window.getSelection();
+      const inTranscript = !!sel && !!sel.anchorNode && !!turnsRef.current?.contains(sel.anchorNode);
+      const text = inTranscript ? sel!.toString().trim() : "";
+      findOpenBar(text && !text.includes("\n") ? text : null);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [onOpenFind, session.id]);
+  }, [visible, findOpenBar]);
+
+  // A different session means different turn indices: drop the bar's state.
+  useEffect(() => {
+    findClose();
+  }, [session.id, findClose]);
 
   const { stats } = session;
 
@@ -278,6 +299,24 @@ export default function Transcript({
         </>
       )}
 
+      {findOpen && (
+        <FindBar
+          query={find.query}
+          setQuery={find.setQuery}
+          opts={find.opts}
+          setOpts={find.setOpts}
+          count={find.count}
+          activeIndex={find.activeIndex}
+          error={find.error}
+          focusNonce={find.focusNonce}
+          onNext={find.next}
+          onPrev={find.prev}
+          onGoto={find.goTo}
+          onClose={find.close}
+          onSearchAll={() => onOpenFind?.(session.id, find.query)}
+        />
+      )}
+
       {/* Turns */}
       <div ref={turnsRef} className="flex-1 overflow-y-auto overflow-x-hidden px-4 py-4 space-y-4">
         {editor.result && (
@@ -307,6 +346,7 @@ export default function Transcript({
                 bookmarked={ownUuid !== null && bookmarkSet.has(ownUuid)}
                 onToggleBookmark={handleToggleBookmark}
                 forkPending={!!forkPending}
+                revealedKeys={find.revealedKeys}
               />
               {marks && onOpenSession && (
                 <ForkMarker refs={marks} onOpen={onOpenSession} />
@@ -433,6 +473,7 @@ const Turn = memo(function Turn({
   bookmarked,
   onToggleBookmark,
   forkPending,
+  revealedKeys,
 }: {
   turn: RenderedTurn;
   turnIndex: number;
@@ -440,6 +481,8 @@ const Turn = memo(function Turn({
   bookmarked: boolean;
   onToggleBookmark: (uuid: string) => void;
   forkPending: boolean;
+  /** Find's reveal-on-navigate set — `"ti:bi"` / `"ti:task"` keys, see revealKey(). */
+  revealedKeys: ReadonlySet<string>;
 }) {
   const ts = "timestamp" in turn && turn.timestamp ? formatTime(turn.timestamp) : "--:--";
   // Full date shown on hover; undefined ⇒ no tooltip (e.g. compaction turns).
@@ -515,6 +558,7 @@ const Turn = memo(function Turn({
                 block={block}
                 turnIndex={turnIndex}
                 blockIndex={j}
+                forceExpand={revealedKeys.has(`${turnIndex}:${j}`)}
               />
             ))}
           </div>
@@ -570,6 +614,7 @@ const Turn = memo(function Turn({
           status={turn.status}
           summary={turn.summary}
           result={turn.result}
+          forceExpand={revealedKeys.has(`${turnIndex}:task`)}
         />
       );
 
@@ -761,10 +806,12 @@ const BlockRenderer = memo(function BlockRenderer({
   block,
   turnIndex,
   blockIndex,
+  forceExpand,
 }: {
   block: RenderedBlock;
   turnIndex: number;
   blockIndex: number;
+  forceExpand: boolean;
 }) {
   switch (block.type) {
     case "text":
@@ -786,6 +833,7 @@ const BlockRenderer = memo(function BlockRenderer({
           block={block}
           turnIndex={turnIndex}
           blockIndex={blockIndex}
+          forceExpand={forceExpand}
         />
       );
   }

@@ -4,6 +4,21 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Claude Code Manager</title>
+    <!--
+      In-session find highlights. Served raw here (not via the Tailwind/
+      lightningcss pipeline) because lightningcss does not recognise the
+      ::highlight() pseudo-element and strips the rules. Tint only — the text
+      colour is left alone so matches stay readable in both themes (the
+      global find's cards use the same 35% tint).
+    -->
+    <style>
+      ::highlight(cm-find) {
+        background-color: color-mix(in srgb, var(--color-system, #d29922) 35%, transparent);
+      }
+      ::highlight(cm-find-active) {
+        background-color: color-mix(in srgb, var(--color-system, #d29922) 75%, transparent);
+      }
+    </style>
   </head>
   <body>
     <div id="root"></div>
