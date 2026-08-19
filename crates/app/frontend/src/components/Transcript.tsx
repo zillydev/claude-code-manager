@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect, useCallback, useMemo, memo, Fragment, type ReactNode } from "react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import remarkBreaks from "remark-breaks";
 import rehypeHighlight from "rehype-highlight";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import type {
@@ -726,7 +727,11 @@ function TurnActions({
 const MD_COMPONENTS = { a: ExternalLink };
 // GFM adds tables, strikethrough, task lists, and autolinks (react-markdown is
 // CommonMark-only by default). Module-level for a stable identity (memoization).
-const MD_REMARK = [remarkGfm];
+// remark-breaks: a single newline renders as a line break (chat convention —
+// the CC terminal, claude.ai, GitHub comments, Discord all do this). Strict
+// CommonMark treats it as a soft break (a space), which glued "**3. Heading**\n
+// text" onto one line.
+const MD_REMARK = [remarkGfm, remarkBreaks];
 // Syntax highlighting for fenced code blocks (highlight.js via rehype).
 // `detect` off: only explicitly-tagged fences highlight — auto-detection on
 // arbitrary tool output guesses wrong more than it helps. Colors come from the
