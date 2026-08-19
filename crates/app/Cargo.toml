@@ -31,9 +31,6 @@ libc = "0.2"
 [target.'cfg(target_os = "macos")'.dependencies]
 # dev-only Dock name (see src/dock_name.rs); already in the tree via tauri
 core-foundation = "0.10"
-# legacy-scrollbar preference (see src/lib.rs); already in the tree via tauri
-objc2 = "0.6"
-objc2-foundation = "0.3"
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }

@@ -52,6 +52,11 @@
       ::-webkit-scrollbar-corner {
         background: transparent;
       }
+      /* Scrollers that render a CustomScrollbar hide the native one entirely
+         (the DOM thumb can't be stolen by the overlay painter on hover). */
+      .no-native-scrollbar::-webkit-scrollbar {
+        display: none;
+      }
     </style>
   </head>
   <body>

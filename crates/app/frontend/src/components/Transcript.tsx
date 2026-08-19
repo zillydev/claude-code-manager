@@ -14,6 +14,7 @@ import type {
 } from "../types";
 import ToolCall from "./ToolCall";
 import { ImageStrip } from "./InlineImage";
+import CustomScrollbar from "./CustomScrollbar";
 import FindBar from "./FindBar";
 import { useFind } from "../hooks/useFind";
 import { useEditor } from "../hooks/useEditor";
@@ -341,7 +342,7 @@ export default function Transcript({
 
       {/* Turns (wrapped so the find gutter can overlay the scroller's edge) */}
       <div className="relative flex-1 min-h-0">
-      <div ref={turnsRef} className="h-full overflow-y-auto overflow-x-hidden px-4 py-4 space-y-4">
+      <div ref={turnsRef} className="no-native-scrollbar h-full overflow-y-auto overflow-x-hidden pl-4 pr-5 py-4 space-y-4">
         {editor.result && (
           <CommitResultBanner result={editor.result} onDismiss={editor.dismiss} />
         )}
@@ -380,8 +381,10 @@ export default function Transcript({
         <div ref={bottomRef} />
       </div>
 
+      <CustomScrollbar scrollerRef={turnsRef} contentKey={visibleTurns.length} />
+
       {/* Overview ruler: every find match's position, active one brighter.
-          pointer-events-none so the native scrollbar underneath stays usable. */}
+          pointer-events-none so the scrollbar underneath stays usable. */}
       {findOpen && find.marks.length > 0 && (
         <div className="absolute inset-y-0 right-0 w-[10px] pointer-events-none z-10">
           {find.marks.map((m, i) => (
