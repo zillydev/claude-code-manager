@@ -554,6 +554,9 @@ pub struct MessageHit {
     /// Epoch seconds, when the line carried a timestamp.
     pub ts: Option<i64>,
     pub snippet: String,
+    /// Occurrences of the query across the message's conversation text
+    /// (0 when the hit satisfied a query-less filter).
+    pub match_count: usize,
 }
 
 /// One candidate file for [`search_messages`], with an optional uuid restriction
@@ -642,16 +645,20 @@ pub fn search_messages(files: &[SearchFile], f: &MessageFilters) -> (Vec<Message
                 }
                 let matched = if query_lower.is_empty() {
                     None
+                } else if scan.texts.iter().any(|t| t.to_lowercase().contains(&query_lower)) {
+                    // Join every text block: the excerpts and the ×N count
+                    // cover the whole turn, not just the first matching block.
+                    Some(scan.texts.join("\n"))
                 } else {
-                    match scan.texts.iter().find(|t| t.to_lowercase().contains(&query_lower)) {
-                        Some(t) => Some(t.clone()),
-                        None => continue, // text query unsatisfied in this turn
-                    }
+                    continue; // text query unsatisfied in this turn
                 };
-                let snippet = matched
-                    .map(|t| snippet_around(&t, &query_lower))
-                    .or_else(|| preview_from_scan(&scan))
-                    .unwrap_or_else(|| "(no text)".to_string());
+                let (snippet, match_count) = match matched {
+                    Some(t) => snippet_excerpts(&t, &query_lower),
+                    None => (
+                        preview_from_scan(&scan).unwrap_or_else(|| "(no text)".to_string()),
+                        0,
+                    ),
+                };
                 if skipped < f.skip {
                     skipped += 1;
                     continue;
@@ -662,6 +669,7 @@ pub fn search_messages(files: &[SearchFile], f: &MessageFilters) -> (Vec<Message
                     role: role.to_string(),
                     ts,
                     snippet,
+                    match_count,
                 });
                 if out.len() >= f.limit {
                     break 'files;
@@ -754,16 +762,20 @@ fn message_hit(
     if f.has_link && !texts.iter().any(|tx| tx.contains("http://") || tx.contains("https://")) {
         return None;
     }
+    // Join every text block: the excerpts and the ×N count cover the whole
+    // message, not just the first matching block.
     let matched = if query_lower.is_empty() {
-        texts.first().copied()
+        texts.first().map(|tx| (*tx).to_string())
+    } else if texts.iter().any(|tx| tx.to_lowercase().contains(query_lower)) {
+        Some(texts.join("\n"))
     } else {
-        texts.iter().copied().find(|tx| tx.to_lowercase().contains(query_lower))
+        None
     };
-    let snippet = match matched {
-        Some(tx) => snippet_around(tx, query_lower),
+    let (snippet, match_count) = match matched {
+        Some(tx) => snippet_excerpts(&tx, query_lower),
         None if query_lower.is_empty() => {
             if let Some(n) = tool_names.first() {
-                format!("(tool: {n})")
+                (format!("(tool: {n})"), 0)
             } else {
                 return None; // nothing displayable and nothing required it
             }
@@ -771,34 +783,131 @@ fn message_hit(
         None => return None, // text query not satisfied in conversation text
     };
     let uuid = v.get("uuid").and_then(|u| u.as_str()).and_then(|s| Uuid::parse_str(s).ok());
-    Some(MessageHit { session_id, uuid, role: t.to_string(), ts, snippet })
+    Some(MessageHit { session_id, uuid, role: t.to_string(), ts, snippet, match_count })
 }
 
-/// ~180 chars centred on the first occurrence, whitespace collapsed, ellipses
-/// when clipped — sized for the find tab's 2–3-line message cards. Char-based
-/// so multi-byte text can't split a codepoint.
-fn snippet_around(text: &str, query_lower: &str) -> String {
-    let lower = text.to_lowercase();
-    let byte_pos = lower.find(query_lower).unwrap_or(0);
-    let char_pos = lower[..byte_pos].chars().count();
+/// Discord-style multi-excerpt snippet: a window (~40 chars before / ~70
+/// after) around each of the first [`MAX_WINDOWS`] occurrences, overlapping
+/// windows merged, non-contiguous ones joined by " … ", whitespace collapsed.
+/// Returns the snippet plus the TOTAL occurrence count (the card's ×N badge —
+/// it may exceed the excerpts shown). An empty/absent query yields the text's
+/// head and count 0. Char-based so multi-byte text can't split a codepoint.
+fn snippet_excerpts(text: &str, query_lower: &str) -> (String, usize) {
+    const BEFORE: usize = 40;
+    const AFTER: usize = 70;
+    const MAX_WINDOWS: usize = 3;
+
     let chars: Vec<char> = text.chars().collect();
-    let start = char_pos.saturating_sub(60);
-    let end = (char_pos + query_lower.chars().count() + 120).min(chars.len());
-    let body: String = chars[start..end].iter().collect();
+    if query_lower.is_empty() {
+        let end = 180.min(chars.len());
+        let mut out = chars[..end].iter().collect::<String>().split_whitespace().collect::<Vec<_>>().join(" ");
+        if end < chars.len() {
+            out.push('…');
+        }
+        return (out, 0);
+    }
+
+    // Every occurrence, as char offsets (byte offsets would split multi-byte).
+    let lower: Vec<char> = text.to_lowercase().chars().collect();
+    let needle: Vec<char> = query_lower.chars().collect();
+    let mut positions = Vec::new();
+    if !needle.is_empty() && lower.len() >= needle.len() {
+        let mut i = 0;
+        while i + needle.len() <= lower.len() {
+            if lower[i..i + needle.len()] == needle[..] {
+                positions.push(i);
+                i += needle.len(); // non-overlapping, like the find bar
+            } else {
+                i += 1;
+            }
+        }
+    }
+    if positions.is_empty() {
+        // Defensive: caller checked containment, but lowercasing can shift
+        // char counts in exotic scripts — fall back to the text's head.
+        let (head, _) = snippet_excerpts(text, "");
+        return (head, 0);
+    }
+
+    // Windows around the first MAX_WINDOWS occurrences, merged when they touch.
+    let mut windows: Vec<(usize, usize)> = Vec::new();
+    for &p in positions.iter().take(MAX_WINDOWS) {
+        let start = p.saturating_sub(BEFORE);
+        let end = (p + needle.len() + AFTER).min(chars.len());
+        match windows.last_mut() {
+            Some(last) if start <= last.1 => last.1 = last.1.max(end),
+            _ => windows.push((start, end)),
+        }
+    }
+
+    let mut parts = Vec::new();
+    for &(start, end) in &windows {
+        parts.push(chars[start..end].iter().collect::<String>().split_whitespace().collect::<Vec<_>>().join(" "));
+    }
     let mut out = String::new();
-    if start > 0 {
+    if windows[0].0 > 0 {
         out.push('…');
     }
-    out.push_str(&body.split_whitespace().collect::<Vec<_>>().join(" "));
-    if end < chars.len() {
+    out.push_str(&parts.join(" … "));
+    if windows.last().unwrap().1 < chars.len() {
         out.push('…');
     }
-    out
+    (out, positions.len())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn snippet_excerpts_single_match_windows_and_counts() {
+        let text = format!("{} needle {}", "a".repeat(100), "b".repeat(200));
+        let (snip, n) = snippet_excerpts(&text, "needle");
+        assert_eq!(n, 1);
+        assert!(snip.starts_with('…') && snip.ends_with('…'));
+        assert!(snip.contains("needle"));
+        // window is ~40 before + ~70 after, so nowhere near the full 300 chars
+        assert!(snip.chars().count() < 160, "len={}", snip.chars().count());
+    }
+
+    #[test]
+    fn snippet_excerpts_spread_matches_get_separate_windows() {
+        let text = format!(
+            "first needle here {} second needle there {} third needle end {} fourth needle tail",
+            "x".repeat(300),
+            "y".repeat(300),
+            "z".repeat(300),
+        );
+        let (snip, n) = snippet_excerpts(&text, "needle");
+        assert_eq!(n, 4, "counts ALL occurrences");
+        // …but only the first 3 windows are excerpted
+        assert_eq!(snip.matches("needle").count(), 3);
+        assert_eq!(snip.matches(" … ").count(), 2, "non-contiguous windows joined by ellipsis: {snip}");
+        assert!(snip.contains("first needle") && snip.contains("second needle") && snip.contains("third needle"));
+        assert!(!snip.contains("fourth"));
+    }
+
+    #[test]
+    fn snippet_excerpts_close_matches_merge_into_one_window() {
+        let (snip, n) = snippet_excerpts("the needle and the needle again", "needle");
+        assert_eq!(n, 2);
+        assert!(!snip.contains(" … "), "adjacent windows merge: {snip}");
+        assert_eq!(snip, "the needle and the needle again");
+    }
+
+    #[test]
+    fn snippet_excerpts_case_insensitive_and_multibyte_safe() {
+        let (snip, n) = snippet_excerpts("Needle — ünïcödé NEEDLE", "needle");
+        assert_eq!(n, 2);
+        assert!(snip.contains("Needle") && snip.contains("NEEDLE"));
+    }
+
+    #[test]
+    fn snippet_excerpts_empty_query_heads_text() {
+        let (snip, n) = snippet_excerpts(&"w".repeat(400), "");
+        assert_eq!(n, 0);
+        assert!(snip.ends_with('…') && snip.chars().count() <= 181);
+    }
 
     #[test]
     fn search_messages_filters_and_caps() {

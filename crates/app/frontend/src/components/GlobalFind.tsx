@@ -15,6 +15,7 @@ interface Hit {
   role: string;
   ts: number | null;
   snippet: string;
+  match_count: number;
 }
 
 /** Discord-style global find: operators + free text, Enter to run.
@@ -395,13 +396,21 @@ export default function GlobalFind({
                         {h.role}
                       </span>
                       <span className="text-[var(--color-text-dim)]">· {fmt(h.ts)}</span>
+                      {h.match_count > 1 && (
+                        <span
+                          className="ml-auto text-xs tabular-nums text-[var(--color-text-dim)]"
+                          title={`${h.match_count} matches in this message (up to 3 excerpted below)`}
+                        >
+                          ×{h.match_count}
+                        </span>
+                      )}
                     </div>
                     {/* No CSS clipping at all: any hidden overflow inside a <button>
                         makes WKWebView reserve the full content height while painting
                         the border around the visible part — phantom gaps below each
                         card (line-clamp and max-h both hit it; Chrome renders the
                         identical DOM fine). The snippet is already length-capped by
-                        the backend (~180 chars), so showing it whole is the fix. */}
+                        the backend (≤3 excerpt windows), so showing it whole is the fix. */}
                     {/* Same type + rhythm as transcript message bodies (px-3/py-2 card,
                         text-sm) so results read like the conversation, not like chrome. */}
                     <div className="mt-1 text-sm text-[var(--color-text)] whitespace-normal break-words">
