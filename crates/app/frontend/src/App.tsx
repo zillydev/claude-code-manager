@@ -370,7 +370,7 @@ export default function App() {
                     onViewTree={hasLineage ? () => setLineageFor(transcript.id) : null}
                     scrollToMessage={target?.scrollToMessage ?? null}
                     visible={activeTab === "manager"}
-                    onOpenFind={(id) => openFindTab(`session:${id} `)}
+                    onOpenFind={(id, q) => openFindTab(q ? `session:${id} ${q}` : `session:${id} `)}
                     tabs={
                       <TabToggle
                         activeTab={activeTab}
