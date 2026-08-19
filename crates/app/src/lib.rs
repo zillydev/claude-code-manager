@@ -70,7 +70,35 @@ fn build_menu(handle: &tauri::AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
     Menu::with_items(handle, &[&app_menu, &file_menu, &edit_menu, &window_menu])
 }
 
+/// Force legacy (always-visible, non-overlay) scrollbars for THIS app only.
+/// macOS overlay scrollbars break custom `::-webkit-scrollbar` styling in
+/// WKWebView: the CSS thumb paints, but hovering the scrollbar region hands
+/// control to the native overlay painter, whose thumb is only drawn during
+/// scrolling — so the handle vanishes right when the user reaches for it.
+/// `AppleShowScrollBars = Always` is the per-app equivalent of System
+/// Settings' "Show scroll bars: Always"; NSScroller (and WebKit, which follows
+/// its preferredScrollerStyle) consults it at startup, so it must be
+/// registered before the first webview is created. registerDefaults is
+/// volatile — nothing is written to disk, no user preference is overridden.
+#[cfg(target_os = "macos")]
+fn force_legacy_scrollbars() {
+    use objc2::runtime::AnyObject;
+    use objc2_foundation::{NSDictionary, NSString, NSUserDefaults};
+    let key = NSString::from_str("AppleShowScrollBars");
+    let value = NSString::from_str("Always");
+    let dict: objc2::rc::Retained<NSDictionary<NSString, AnyObject>> =
+        NSDictionary::from_slices(&[&*key], &[value.as_ref()]);
+    // SAFETY: registerDefaults is only unsafe because the dictionary must be
+    // a valid property list — a String→String pair is.
+    unsafe {
+        NSUserDefaults::standardUserDefaults().registerDefaults(&dict);
+    }
+}
+
 pub fn run() {
+    #[cfg(target_os = "macos")]
+    force_legacy_scrollbars();
+
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .manage(Mutex::new(commands::WatcherState::default()))
