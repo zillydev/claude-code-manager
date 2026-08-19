@@ -91,6 +91,7 @@ A tool to browse, search, edit, compact, harvest, and resume Claude Code session
 - `~/.claude/settings.json` has `cleanupPeriodDays: 36500` so sessions aren't auto-pruned.
 - Skills live in `skills/` (`session-surgery`, `session-harvest`).
 - **App icon:** `crates/app/icons/icon.svg` is the source (dark squircle, mono "ccm" wordmark, Apple icon-grid margin baked in). Regenerate the PNG/`.icns`/`.ico` set with `cargo tauri icon <1024px raster>` from `crates/app/` — it overwrites `icons/`, then drop the mobile/Windows-Store variants it also emits.
+- **App name:** `productName` in `tauri.conf.json` is "Claude Code Manager" (Dock/Finder/⌘-Tab label and the `.app` filename; window title matches). The bundle `identifier` and config dir stay `claude-code-manager` — those are the stable ids macOS keys permissions on. Dev runs are unbundled, and LaunchServices names those after the binary file, so `src/dock_name.rs` sets the LS display name at startup (JDK `-Xdock:name` technique, `dlsym`-resolved, macOS debug builds only).
 
 ## Deferred / parked
 
