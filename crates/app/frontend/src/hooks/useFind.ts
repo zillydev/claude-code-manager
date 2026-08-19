@@ -2,7 +2,14 @@ import { useCallback, useDeferredValue, useEffect, useLayoutEffect, useState } f
 import type { RenderedTurn } from "../types";
 import { compileMatcher, type FindOpts } from "../lib/findMatcher";
 import { compareMatches, modelMatches, revealKey, sameMatches, type FindMatch } from "../lib/findMatches";
-import { clearHighlights, domMatches, paintHighlights, scrollMatchIntoView } from "../lib/findPaint";
+import {
+  clearHighlights,
+  domMatches,
+  gutterMarks,
+  paintHighlights,
+  scrollMatchIntoView,
+  type GutterMark,
+} from "../lib/findPaint";
 import { usePersistentState } from "./usePersistentState";
 
 export interface FindOptions extends FindOpts {
@@ -33,6 +40,8 @@ export interface UseFind {
   focusNonce: number;
   /** Collapsibles forced open for navigation — see revealKey(). */
   revealedKeys: ReadonlySet<string>;
+  /** Overview-ruler data: each match's 0..1 position in the scroller. */
+  marks: GutterMark[];
 }
 
 /**
@@ -53,6 +62,7 @@ export function useFind(containerRef: React.RefObject<HTMLElement | null>, turns
   const [error, setError] = useState<string | null>(null);
   const [revealedKeys, setRevealedKeys] = useState<ReadonlySet<string>>(EMPTY_KEYS);
   const [focusNonce, setFocusNonce] = useState(0);
+  const [marks, setMarks] = useState<GutterMark[]>([]);
 
   const deferredQuery = useDeferredValue(query);
 
@@ -69,6 +79,7 @@ export function useFind(containerRef: React.RefObject<HTMLElement | null>, turns
     setMatches((prev) => (prev.length === 0 ? prev : []));
     setError(null);
     setRevealedKeys((prev) => (prev.size === 0 ? prev : EMPTY_KEYS));
+    setMarks((prev) => (prev.length === 0 ? prev : []));
     clearHighlights();
   }, []);
 
@@ -120,10 +131,18 @@ export function useFind(containerRef: React.RefObject<HTMLElement | null>, turns
     const container = containerRef.current;
     if (!open || !container || matches.length === 0) {
       clearHighlights();
+      setMarks((prev) => (prev.length === 0 ? prev : []));
       return;
     }
     const activeRange = paintHighlights(container, matches, activeIndex);
     if (activeRange) scrollMatchIntoView(activeRange);
+    const next = gutterMarks(container, matches, activeIndex);
+    setMarks((prev) =>
+      prev.length === next.length &&
+      prev.every((m, i) => m.top === next[i].top && m.active === next[i].active)
+        ? prev
+        : next,
+    );
   }, [open, matches, activeIndex, revealedKeys, containerRef]);
 
   const next = useCallback(() => {
@@ -169,5 +188,6 @@ export function useFind(containerRef: React.RefObject<HTMLElement | null>, turns
     goTo,
     focusNonce,
     revealedKeys,
+    marks,
   };
 }

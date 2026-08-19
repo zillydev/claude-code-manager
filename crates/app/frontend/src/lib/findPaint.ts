@@ -123,6 +123,52 @@ export function scrollMatchIntoView(range: Range): void {
   }
 }
 
+/** A match's vertical position for the scrollbar-gutter ruler. `top` is a
+ *  0..1 fraction of the scroller's full content height. */
+export interface GutterMark {
+  top: number;
+  active: boolean;
+}
+
+/** Where each match sits in the document, as fractions of scrollHeight — the
+ *  overview-ruler data. A match whose own segment is unmounted (a collapsed
+ *  tool body) is approximated by its visible stand-in: the tool call's header
+ *  line / the task summary line, so every counted match gets a mark. */
+export function gutterMarks(container: HTMLElement, matches: FindMatch[], activeIndex: number): GutterMark[] {
+  const byId = new Map<string, Element>();
+  container.querySelectorAll<HTMLElement>("[data-seg-id]").forEach((el) => byId.set(el.dataset.segId!, el));
+  const contRect = container.getBoundingClientRect();
+  const height = container.scrollHeight || 1;
+
+  const out: GutterMark[] = [];
+  matches.forEach((m, i) => {
+    let el = byId.get(m.segId);
+    if (!el) {
+      // Collapsed body: mark the always-visible line of the same collapsible.
+      const standIn =
+        m.field === "tool-input" || m.field === "tool-result"
+          ? `${m.turnIndex}:${m.blockIndex}:tool-name`
+          : m.field === "task-result"
+            ? `${m.turnIndex}:-:task-summary`
+            : null;
+      if (standIn) el = byId.get(standIn);
+      if (!el) return;
+    }
+    let top: number;
+    const r = rangeForOffsets(el, m.start, m.end);
+    if (r && byId.get(m.segId)) {
+      top = r.getBoundingClientRect().top;
+    } else {
+      top = el.getBoundingClientRect().top;
+    }
+    out.push({
+      top: Math.min(1, Math.max(0, (top - contRect.top + container.scrollTop) / height)),
+      active: i === activeIndex,
+    });
+  });
+  return out;
+}
+
 export function clearHighlights(): void {
   const reg = registry();
   if (!reg) return;

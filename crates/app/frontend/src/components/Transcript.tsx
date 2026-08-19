@@ -339,8 +339,9 @@ export default function Transcript({
         />
       )}
 
-      {/* Turns */}
-      <div ref={turnsRef} className="flex-1 overflow-y-auto overflow-x-hidden px-4 py-4 space-y-4">
+      {/* Turns (wrapped so the find gutter can overlay the scroller's edge) */}
+      <div className="relative flex-1 min-h-0">
+      <div ref={turnsRef} className="h-full overflow-y-auto overflow-x-hidden px-4 py-4 space-y-4">
         {editor.result && (
           <CommitResultBanner result={editor.result} onDismiss={editor.dismiss} />
         )}
@@ -377,6 +378,28 @@ export default function Transcript({
           );
         })}
         <div ref={bottomRef} />
+      </div>
+
+      {/* Overview ruler: every find match's position, active one brighter.
+          pointer-events-none so the native scrollbar underneath stays usable. */}
+      {findOpen && find.marks.length > 0 && (
+        <div className="absolute inset-y-0 right-0 w-[10px] pointer-events-none z-10">
+          {find.marks.map((m, i) => (
+            <div
+              key={i}
+              className="absolute rounded-sm"
+              style={{
+                top: `${m.top * 100}%`,
+                right: m.active ? 0 : 1,
+                width: m.active ? 9 : 6,
+                height: m.active ? 4 : 3,
+                backgroundColor: "var(--color-system)",
+                opacity: m.active ? 1 : 0.55,
+              }}
+            />
+          ))}
+        </div>
+      )}
       </div>
 
       {/* Jump to top / latest. Absolute rather than sticky so they never occupy
