@@ -51,6 +51,9 @@ pub enum RenderedTurn {
     User {
         timestamp: Option<DateTime<Utc>>,
         text: String,
+        /// Attached/pasted images, in content order.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        images: Vec<RenderedImage>,
         /// The message line's event uuid (empty if absent).
         uuid: String,
         /// 0-based index among user/assistant message lines on the active path
@@ -147,6 +150,32 @@ pub enum RenderedBlock {
 pub struct ToolCallResult {
     pub text: String,
     pub is_error: bool,
+    /// Images the tool returned (e.g. browser screenshots), base64.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub images: Vec<RenderedImage>,
+}
+
+/// A base64 image carried by a user message or tool result, ready for a
+/// `data:<media_type>;base64,<data>` URI. Non-base64 sources are skipped at
+/// extraction (nothing renderable without fetching).
+#[derive(Debug, Clone, Serialize)]
+pub struct RenderedImage {
+    pub media_type: String,
+    pub data: String,
+}
+
+impl RenderedImage {
+    fn from_source(src: &super::event::ImageSource) -> Option<Self> {
+        if src.kind != "base64" || src.data.is_empty() {
+            return None;
+        }
+        let media_type = if src.media_type.is_empty() {
+            "image/png".to_string()
+        } else {
+            src.media_type.clone()
+        };
+        Some(RenderedImage { media_type, data: src.data.clone() })
+    }
 }
 
 /// Render one conversation path (a single tree's active path) into turns.
@@ -204,6 +233,7 @@ fn render_path_turns(path: &[&Event], editable: bool) -> Vec<RenderedTurn> {
                     let result = tool_results.get(id.as_str()).map(|r| ToolCallResult {
                         text: r.text.clone(),
                         is_error: r.is_error,
+                        images: r.images.clone(),
                     });
                     blocks.push(RenderedBlock::ToolCall {
                         id: id.clone(),
@@ -243,6 +273,16 @@ fn render_path_turns(path: &[&Event], editable: bool) -> Vec<RenderedTurn> {
                         .collect::<Vec<_>>()
                         .join("\n"),
                 };
+                let images: Vec<RenderedImage> = match &u.message.content {
+                    MessageContent::Blocks(blocks) => blocks
+                        .iter()
+                        .filter_map(|b| match b {
+                            UserBlock::Image { source } => RenderedImage::from_source(source),
+                            _ => None,
+                        })
+                        .collect(),
+                    _ => Vec::new(),
+                };
                 if text.starts_with("<command-") || text.starts_with("<local-command-") {
                     // Slash-command machinery. Surface a real command invocation as
                     // a compact turn (matching the terminal); drop the rest —
@@ -275,6 +315,7 @@ fn render_path_turns(path: &[&Event], editable: bool) -> Vec<RenderedTurn> {
                 turns.push(RenderedTurn::User {
                     timestamp: ev.timestamp(),
                     text,
+                    images,
                     uuid: uuid.clone(),
                     edit_index: idx,
                     fork_index: idx,
@@ -401,6 +442,7 @@ fn render_path_turns(path: &[&Event], editable: bool) -> Vec<RenderedTurn> {
                         turns.push(RenderedTurn::User {
                             timestamp: at.timestamp,
                             text: prompt.to_string(),
+                            images: Vec::new(),
                             uuid: uuid.clone(),
                             edit_index: 0,
                             fork_index: 0,
@@ -606,6 +648,7 @@ fn session_title(session: &Session) -> String {
 struct ToolResultEntry {
     text: String,
     is_error: bool,
+    images: Vec<RenderedImage>,
 }
 
 /// A tool_result observed in a batch of events. Used by the live tail to
@@ -618,6 +661,8 @@ pub struct ToolResultUpdate {
     pub tool_use_id: String,
     pub text: String,
     pub is_error: bool,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub images: Vec<RenderedImage>,
 }
 
 /// Extract every tool_result in `events` (a tail batch), keyed for back-fill.
@@ -625,7 +670,12 @@ pub fn tool_result_updates(events: &[Event]) -> Vec<ToolResultUpdate> {
     let refs: Vec<&Event> = events.iter().collect();
     collect_tool_results(&refs)
         .into_iter()
-        .map(|(id, e)| ToolResultUpdate { tool_use_id: id, text: e.text, is_error: e.is_error })
+        .map(|(id, e)| ToolResultUpdate {
+            tool_use_id: id,
+            text: e.text,
+            is_error: e.is_error,
+            images: e.images,
+        })
         .collect()
 }
 
@@ -641,11 +691,24 @@ fn collect_tool_results(path: &[&Event]) -> HashMap<String, ToolResultEntry> {
                         is_error,
                     } = b
                     {
+                        let images = match content {
+                            super::event::ToolResultContent::Blocks(bs) => bs
+                                .iter()
+                                .filter_map(|b| match b {
+                                    super::event::ToolResultBlock::Image { source } => {
+                                        RenderedImage::from_source(source)
+                                    }
+                                    _ => None,
+                                })
+                                .collect(),
+                            _ => Vec::new(),
+                        };
                         out.insert(
                             tool_use_id.clone(),
                             ToolResultEntry {
                                 text: content.as_text(),
                                 is_error: *is_error,
+                                images,
                             },
                         );
                     }
@@ -778,6 +841,45 @@ mod render_tests {
             git_branch: None,
             forked_from: None,
         })
+    }
+
+    #[test]
+    fn user_images_and_tool_result_images_are_extracted() {
+        // Real shapes: an attached image is a user-content image block; a
+        // browser screenshot is an image block inside a tool_result's content.
+        let user_line = r#"{"type":"user","uuid":"00000000-0000-0000-0000-0000000000c1","message":{"role":"user","content":[{"type":"text","text":"see this"},{"type":"image","source":{"type":"base64","media_type":"image/png","data":"AAAA"}}]}}"#;
+        let asst_line = r#"{"type":"assistant","uuid":"00000000-0000-0000-0000-0000000000c2","parentUuid":"00000000-0000-0000-0000-0000000000c1","message":{"role":"assistant","content":[{"type":"tool_use","id":"toolu_ss","name":"screenshot","input":{}}]}}"#;
+        let result_line = r#"{"type":"user","uuid":"00000000-0000-0000-0000-0000000000c3","parentUuid":"00000000-0000-0000-0000-0000000000c2","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_ss","content":[{"type":"text","text":"captured"},{"type":"image","source":{"type":"base64","media_type":"image/jpeg","data":"BBBB"}}]}]}}"#;
+        let events: Vec<Event> = [user_line, asst_line, result_line]
+            .iter()
+            .map(|l| serde_json::from_str(l).unwrap())
+            .collect();
+        let path: Vec<&Event> = events.iter().collect();
+        let turns = render_path_turns(&path, true);
+        let RenderedTurn::User { images, text, .. } = &turns[0] else { panic!("user turn") };
+        assert_eq!(text, "see this");
+        assert_eq!(images.len(), 1);
+        assert_eq!(images[0].media_type, "image/png");
+        assert_eq!(images[0].data, "AAAA");
+        let RenderedTurn::Assistant { blocks, .. } = &turns[1] else { panic!("assistant turn") };
+        let RenderedBlock::ToolCall { result: Some(r), .. } = &blocks[0] else { panic!("tool call") };
+        assert_eq!(r.text, "captured");
+        assert_eq!(r.images.len(), 1);
+        assert_eq!(r.images[0].media_type, "image/jpeg");
+        // The tail back-fill carries them too.
+        let ups = tool_result_updates(&events);
+        assert_eq!(ups[0].images.len(), 1);
+    }
+
+    #[test]
+    fn non_base64_or_empty_image_sources_are_skipped() {
+        let line = r#"{"type":"user","uuid":"00000000-0000-0000-0000-0000000000c4","message":{"role":"user","content":[{"type":"image","source":{"type":"url","url":"https://x/y.png"}},{"type":"text","text":"hi"}]}}"#;
+        let ev: Event = serde_json::from_str(line).unwrap();
+        let events = vec![ev];
+        let path: Vec<&Event> = events.iter().collect();
+        let turns = render_path_turns(&path, true);
+        let RenderedTurn::User { images, .. } = &turns[0] else { panic!("user turn") };
+        assert!(images.is_empty());
     }
 
     #[test]

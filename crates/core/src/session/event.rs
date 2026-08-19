@@ -199,6 +199,10 @@ pub enum UserBlock {
     Text {
         text: String,
     },
+    /// An attached/pasted image (base64 in the jsonl).
+    Image {
+        source: ImageSource,
+    },
     ToolResult {
         tool_use_id: String,
         #[serde(default)]
@@ -208,6 +212,19 @@ pub enum UserBlock {
     },
     #[serde(other)]
     Unknown,
+}
+
+/// An image block's source. CC stores attachments inline: `{type:"base64",
+/// media_type:"image/png", data:"…"}`. Fields are defaulted so an unexpected
+/// variant (e.g. a future `type:"url"`) parses instead of failing the line.
+#[derive(Debug, Clone, serde::Serialize, Deserialize, Default)]
+pub struct ImageSource {
+    #[serde(rename = "type", default)]
+    pub kind: String,
+    #[serde(default)]
+    pub media_type: String,
+    #[serde(default)]
+    pub data: String,
 }
 
 /// Tool result content can be a string or an array of typed blocks (text/image).
@@ -224,6 +241,8 @@ pub enum ToolResultContent {
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ToolResultBlock {
     Text { text: String },
+    /// An image a tool returned (e.g. a browser screenshot).
+    Image { source: ImageSource },
     #[serde(other)]
     Unknown,
 }
@@ -238,7 +257,7 @@ impl ToolResultContent {
                 .iter()
                 .filter_map(|b| match b {
                     ToolResultBlock::Text { text } => Some(text.as_str()),
-                    ToolResultBlock::Unknown => None,
+                    ToolResultBlock::Image { .. } | ToolResultBlock::Unknown => None,
                 })
                 .collect::<Vec<_>>()
                 .join("\n"),

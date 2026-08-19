@@ -13,6 +13,7 @@ import type {
   SessionSummary,
 } from "../types";
 import ToolCall from "./ToolCall";
+import { ImageStrip } from "./InlineImage";
 import FindBar from "./FindBar";
 import { useFind } from "../hooks/useFind";
 import { useEditor } from "../hooks/useEditor";
@@ -553,11 +554,14 @@ const Turn = memo(function Turn({
               <span className="text-[var(--color-accent)] text-xs" title="Bookmarked">⚑</span>
             )}
           </div>
-          <div
-            data-seg-id={makeSegId(turnIndex, null, "user-text")}
-            className="max-w-[75%] rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-sm whitespace-pre-wrap break-words"
-          >
-            {turn.text}
+          <div className="max-w-[75%] flex flex-col items-end">
+            <div
+              data-seg-id={makeSegId(turnIndex, null, "user-text")}
+              className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-sm whitespace-pre-wrap break-words"
+            >
+              {turn.text}
+            </div>
+            <ImageStrip images={turn.images} label="attached image" />
           </div>
         </div>
       );

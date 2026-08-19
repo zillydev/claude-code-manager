@@ -71,6 +71,8 @@ export type RenderedTurn =
       type: "user";
       timestamp: string | null;
       text: string;
+      /** Attached/pasted images (absent when none — serde skips empty). */
+      images?: RenderedImage[];
       uuid: string;
       edit_index: number;
       fork_index: number;
@@ -122,6 +124,14 @@ export type RenderedBlock =
 export interface ToolCallResult {
   text: string;
   is_error: boolean;
+  /** Images the tool returned (absent when none — serde skips empty). */
+  images?: RenderedImage[];
+}
+
+/** A base64 image ready for a data: URI. */
+export interface RenderedImage {
+  media_type: string;
+  data: string;
 }
 
 export interface EditableTurn {
