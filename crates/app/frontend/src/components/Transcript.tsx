@@ -185,7 +185,17 @@ export default function Transcript({
         );
         if (!el) return;
         setPinned(false);
-        el.scrollIntoView({ block: "center" });
+        // Short messages centre; a message taller than ~80% of the viewport
+        // aligns its TOP just under the header instead — centring a huge turn
+        // lands the viewport in its middle, which reads as a random spot.
+        const scroller = turnsRef.current;
+        if (scroller && el.getBoundingClientRect().height > scroller.clientHeight * 0.8) {
+          const elTop = el.getBoundingClientRect().top;
+          const scrollerTop = scroller.getBoundingClientRect().top;
+          scroller.scrollTop += elTop - scrollerTop - 16; // 16px breathing room
+        } else {
+          el.scrollIntoView({ block: "center" });
+        }
         el.classList.add("ring-2", "ring-[var(--color-accent)]", "rounded");
         setTimeout(
           () => el.classList.remove("ring-2", "ring-[var(--color-accent)]", "rounded"),
