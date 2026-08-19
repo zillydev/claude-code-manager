@@ -21,7 +21,7 @@ import ForkMarker from "./ForkMarker";
 import Dropdown, { menuItemClass } from "./Dropdown";
 import { splitInsights } from "../lib/insights";
 import Spinner from "./Spinner";
-import { ArrowDown, Ellipsis, GitFork } from "lucide-react";
+import { ArrowDown, ArrowUp, Ellipsis, GitFork } from "lucide-react";
 import { useConfig } from "../hooks/useConfig";
 import { useSessionMeta } from "../hooks/useSessionMeta";
 import { entryTags } from "../lib/sessionMeta";
@@ -75,6 +75,8 @@ export default function Transcript({
   // re-subscribe on every change); the state is what shows/hides the jump
   // button. `setPinned` is the ONLY writer of either, so they cannot drift.
   const [atBottom, setAtBottom] = useState(true);
+  // Mirror flag for the ↑ button (true while the viewport is at the top).
+  const [atTop, setAtTop] = useState(true);
   const setPinned = useCallback((v: boolean) => {
     atBottomRef.current = v;
     setAtBottom(v); // same value ⇒ React bails, so scrolling costs no re-render
@@ -85,6 +87,10 @@ export default function Transcript({
     setPinned(true);
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [setPinned]);
+  // Unpins via the scroll listener (top ≠ following the tail).
+  const jumpToTop = useCallback(() => {
+    turnsRef.current?.scrollTo({ top: 0, behavior: "smooth" });
+  }, []);
   const prevSessionId = useRef<string | null>(null);
   const editor = useEditor();
   const sourcePath = session.source_path;
@@ -143,6 +149,7 @@ export default function Transcript({
     if (!container) return;
     const onScroll = () => {
       setPinned(isNearBottom(container));
+      setAtTop(container.scrollTop < 4); // same-value sets bail in React
     };
     container.addEventListener("scroll", onScroll, { passive: true });
     return () => container.removeEventListener("scroll", onScroll);
@@ -163,6 +170,9 @@ export default function Transcript({
         setPinned(true);
         bottomRef.current?.scrollIntoView();
       }
+      // Measure rather than wait for a scroll event: a session that fits the
+      // viewport scrolls nowhere, so no event would clear a stale atTop.
+      setAtTop((turnsRef.current?.scrollTop ?? 0) < 4);
     } else if (atBottomRef.current) {
       bottomRef.current?.scrollIntoView({ behavior: "smooth" });
     }
@@ -368,18 +378,34 @@ export default function Transcript({
         <div ref={bottomRef} />
       </div>
 
-      {/* Jump to latest. Absolute rather than sticky so it never occupies layout
-          in the scroller — a sticky footer would shift the transcript every time
-          it appeared. Hidden while pinned, since then it would do nothing. */}
-      {!atBottom && (
-        <button
-          onClick={jumpToLatest}
-          title="Scroll to latest"
-          aria-label="Scroll to latest"
-          className="absolute bottom-4 right-5 z-10 flex h-8 w-8 items-center justify-center rounded-full border border-[var(--color-border)] bg-[var(--color-surface)] text-[var(--color-text-dim)] shadow-md transition-colors hover:border-[var(--color-accent)] hover:text-[var(--color-accent)]"
-        >
-          <ArrowDown size={16} strokeWidth={1.75} />
-        </button>
+      {/* Jump to top / latest. Absolute rather than sticky so they never occupy
+          layout in the scroller — a sticky footer would shift the transcript
+          every time it appeared. Each hides where it would do nothing (↑ at the
+          top, ↓ while pinned to the bottom); a column keeps ↓ anchored in place
+          when ↑ appears above it. */}
+      {(!atTop || !atBottom) && (
+        <div className="absolute bottom-4 right-5 z-10 flex flex-col gap-2">
+          {!atTop && (
+            <button
+              onClick={jumpToTop}
+              title="Scroll to top"
+              aria-label="Scroll to top"
+              className="flex h-8 w-8 items-center justify-center rounded-full border border-[var(--color-border)] bg-[var(--color-surface)] text-[var(--color-text-dim)] shadow-md transition-colors hover:border-[var(--color-accent)] hover:text-[var(--color-accent)]"
+            >
+              <ArrowUp size={16} strokeWidth={1.75} />
+            </button>
+          )}
+          {!atBottom && (
+            <button
+              onClick={jumpToLatest}
+              title="Scroll to latest"
+              aria-label="Scroll to latest"
+              className="flex h-8 w-8 items-center justify-center rounded-full border border-[var(--color-border)] bg-[var(--color-surface)] text-[var(--color-text-dim)] shadow-md transition-colors hover:border-[var(--color-accent)] hover:text-[var(--color-accent)]"
+            >
+              <ArrowDown size={16} strokeWidth={1.75} />
+            </button>
+          )}
+        </div>
       )}
     </div>
   );
