@@ -14,7 +14,7 @@ A full-width strip between the session header and the message list (pushes conte
 - **Input** (flex-1): Enter → next, ⇧Enter → prev, Esc → close. ⌘F while open refocuses + selects the text. If the transcript has a non-empty text selection when ⌘F is pressed, it becomes the query.
 - **Aa / whole word / .\*** (Lucide `CaseSensitive`, `WholeWord`, `Regex`): active = accent colour + subtle surface bg (the sidebar tab-strip treatment). An invalid regex replaces the counter with a red "Invalid regex".
 - **⚒ Include tool calls & results** (Lucide `Wrench`): off → collapsed tool input/output and task results are not searched (the visible tool header line always is). On → they count toward n/N; stepping onto one auto-expands that call; reveals persist until the bar closes (or the toggle is switched off) so you can step back and forth. Manual expansions are never touched.
-- **‹ › n/N** (Lucide `ChevronLeft/Right`): dim "0/0" when empty. ⌘G / ⌘⇧G step next/prev while the bar is open, even with focus in the transcript. No editable match-number field (Zed doesn't; dropped).
+- **‹ › n/N** (Lucide `ChevronLeft/Right`): dim "0/0" when empty. ⌘G / ⌘⇧G step next/prev while the bar is open, even with focus in the transcript. The `n` is an editable field: type a number, Enter jumps there (clamped) and returns focus to the query; Esc abandons the draft.
 - **↗ Search all sessions** (Lucide `Globe`): opens the global Find tab with `session:<id> <query>` — the bridge that replaces today's ⌘F behaviour.
 - **✕** close.
 - The four toggles persist (`usePersistentState`, key `find.opts`) like Zed's search options; the query persists while the session stays open (close keeps it, reopen selects it).
@@ -55,7 +55,7 @@ Compact mode: find searches what is rendered — the buffer you're looking at.
 
 ## Not doing
 
-Editable match-number field; Zed's replace / select-all-matches / search-in-selection (meaningless on a read-only transcript); per-role filters (`from:` in the global find covers it); searching `thinking` blocks (not rendered).
+Zed's replace / select-all-matches / search-in-selection (meaningless on a read-only transcript); per-role filters (`from:` in the global find covers it); searching `thinking` blocks (not rendered).
 
 ## Testing
 

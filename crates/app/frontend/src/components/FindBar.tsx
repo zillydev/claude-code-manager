@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   CaseSensitive,
   ChevronLeft,
@@ -23,6 +23,8 @@ interface Props {
   focusNonce: number;
   onNext: () => void;
   onPrev: () => void;
+  /** Jump to a 0-based match index (the editable "x" of x/y). */
+  onGoto: (index: number) => void;
   onClose: () => void;
   /** ↗ hand the query to the global find pinned to this session. */
   onSearchAll: () => void;
@@ -43,6 +45,7 @@ export default function FindBar({
   focusNonce,
   onNext,
   onPrev,
+  onGoto,
   onClose,
   onSearchAll,
 }: Props) {
@@ -51,6 +54,18 @@ export default function FindBar({
     inputRef.current?.focus();
     inputRef.current?.select();
   }, [focusNonce]);
+
+  // The "x" of x/y is editable: while focused it holds a draft string; null
+  // means "not editing", so the field tracks the active match.
+  const [indexDraft, setIndexDraft] = useState<string | null>(null);
+  const indexValue = indexDraft ?? String(activeIndex + 1);
+  const commitIndex = () => {
+    if (indexDraft !== null && indexDraft !== "") {
+      const n = parseInt(indexDraft, 10);
+      if (!Number.isNaN(n)) onGoto(n - 1);
+    }
+    setIndexDraft(null);
+  };
 
   const toggle = (key: keyof FindOptions) => setOpts({ ...opts, [key]: !opts[key] });
   // Same active/inactive treatment as the sidebar tab strip.
@@ -128,14 +143,44 @@ export default function FindBar({
       <button onClick={onNext} disabled={count === 0} className={plainCls} title="Next match (Enter · ⌘G)">
         <ChevronRight {...ICON} />
       </button>
-      <span
-        className={`text-xs tabular-nums min-w-[3.5rem] text-center ${
-          error ? "text-[var(--color-error)]" : "text-[var(--color-text-dim)]"
-        }`}
-        title={error ?? undefined}
-      >
-        {error ? "Invalid regex" : count === 0 ? "0/0" : `${activeIndex + 1}/${count}`}
-      </span>
+      {!error && count > 0 ? (
+        <span className="flex items-center text-xs tabular-nums text-[var(--color-text-dim)] min-w-[3.5rem] justify-center">
+          <input
+            value={indexValue}
+            onFocus={(e) => {
+              setIndexDraft(String(activeIndex + 1));
+              e.currentTarget.select();
+            }}
+            onChange={(e) => setIndexDraft(e.target.value.replace(/[^0-9]/g, ""))}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                commitIndex();
+                inputRef.current?.focus();
+              } else if (e.key === "Escape") {
+                e.preventDefault();
+                setIndexDraft(null);
+                e.currentTarget.blur();
+              }
+            }}
+            onBlur={commitIndex}
+            aria-label="Go to match number"
+            title="Type a match number and press Enter to jump there"
+            className="bg-transparent text-center text-[var(--color-text)] outline-none rounded border border-transparent focus:border-[var(--color-accent)] focus:bg-[var(--color-bg)] px-0.5 tabular-nums"
+            style={{ width: `${Math.max(1.5, String(count).length * 0.65 + 0.6)}rem` }}
+          />
+          <span>/{count}</span>
+        </span>
+      ) : (
+        <span
+          className={`text-xs tabular-nums min-w-[3.5rem] text-center ${
+            error ? "text-[var(--color-error)]" : "text-[var(--color-text-dim)]"
+          }`}
+          title={error ?? undefined}
+        >
+          {error ? "Invalid regex" : "0/0"}
+        </span>
+      )}
 
       {sep}
       <button

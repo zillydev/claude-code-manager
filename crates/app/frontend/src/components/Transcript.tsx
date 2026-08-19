@@ -311,6 +311,7 @@ export default function Transcript({
           focusNonce={find.focusNonce}
           onNext={find.next}
           onPrev={find.prev}
+          onGoto={find.goTo}
           onClose={find.close}
           onSearchAll={() => onOpenFind?.(session.id, find.query)}
         />
