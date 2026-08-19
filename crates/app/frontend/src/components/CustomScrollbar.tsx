@@ -100,14 +100,18 @@ export default function CustomScrollbar({ scrollerRef, contentKey }: Props) {
     scrollToThumbTop(e.clientY - trackTop - geom.height / 2);
   };
 
-  if (!geom) return null;
+  // The track must ALWAYS mount: measure() reads its clientHeight, so a
+  // conditional render would deadlock (no track → no geom → no track).
+  // visibility (not display) keeps it measurable while hidden.
   return (
     <div
       ref={trackRef}
       onPointerDown={onTrackPointerDown}
       // inset-y-2: keeps the thumb's travel clear of the window's rounded corner
       className="absolute right-0 inset-y-2 w-3 z-10"
+      style={geom ? undefined : { visibility: "hidden", pointerEvents: "none" }}
     >
+      {geom && (
       <div
         onPointerDown={onThumbPointerDown}
         onPointerMove={onThumbPointerMove}
@@ -127,6 +131,7 @@ export default function CustomScrollbar({ scrollerRef, contentKey }: Props) {
           if (!dragging) (e.currentTarget as HTMLElement).style.backgroundColor = "color-mix(in srgb, var(--color-text-dim) 40%, transparent)";
         }}
       />
+      )}
     </div>
   );
 }
