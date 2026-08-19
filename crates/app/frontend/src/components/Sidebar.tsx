@@ -278,9 +278,9 @@ export default function Sidebar({
       <div className="flex items-center gap-1 px-2 py-1.5 border-b border-[var(--color-border)]">
         {(
           [
-            ["sessions", FolderOpen, "Sessions"],
-            ["bookmarks", Bookmark, "Bookmarks — every flagged message"],
-            ["find", Search, "Find (⌘⇧F) — search all sessions"],
+            ["sessions", FolderOpen, "Sessions (⌘1)"],
+            ["bookmarks", Bookmark, "Bookmarks (⌘2) — every flagged message"],
+            ["find", Search, "Find (⌘3 / ⌘⇧F) — search all sessions"],
           ] as const
         ).map(([t, Icon, title]) => (
           <button
