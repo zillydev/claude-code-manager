@@ -74,14 +74,30 @@ jobs:
       - name: Collect artifacts
         id: artifacts
         run: |
+          set -euo pipefail
           BUNDLE=target/universal-apple-darwin/release/bundle
+          VERSION="${{ github.event.inputs.tag || github.ref_name }}"
+          VERSION="${VERSION#v}"
           mkdir -p dist
+
+          # The .app and .dmg are named after tauri.conf.json's productName
+          # ("Claude Code Manager"), which contains spaces — so locate them
+          # rather than hardcoding a name a future rename would break, and
+          # publish under hyphenated names so download URLs stay clean.
+          APP=$(find "$BUNDLE/macos" -maxdepth 1 -name "*.app" | head -1)
+          [ -n "$APP" ] || { echo "::error::no .app produced"; exit 1; }
+          ditto -c -k --keepParent "$APP" \
+                "dist/claude-code-manager-$VERSION-macos-universal.app.zip"
+
           # The real dmg has lived in bundle/dmg/ and bundle/macos/ across tauri
           # versions, and a temporary "rw.*.dmg" is left behind during creation.
-          find "$BUNDLE" -name "*.dmg" ! -name "rw.*" -exec cp {} dist/ \;
-          # Zip the .app too — some people prefer it over mounting a dmg.
-          ditto -c -k --keepParent "$BUNDLE"/macos/claude-code-manager.app \
-                dist/claude-code-manager-macos-universal.app.zip
+          DMG=$(find "$BUNDLE" -name "*.dmg" ! -name "rw.*" | head -1)
+          # `if` not `[ ] && cp` — under `set -e` a false test in an AND-list
+          # would abort the step, and a missing dmg is tolerable (the zip ships).
+          if [ -n "$DMG" ]; then
+            cp "$DMG" "dist/claude-code-manager-$VERSION-macos-universal.dmg"
+          fi
+
           ls -lh dist
           if [ -z "$(ls -A dist)" ]; then echo "::error::no artifacts produced"; exit 1; fi
 
@@ -100,7 +116,7 @@ jobs:
             `/Applications`, clear the quarantine attribute:
 
             ```bash
-            xattr -cr /Applications/claude-code-manager.app
+            xattr -cr "/Applications/Claude Code Manager.app"
             ```
 
             (Or right-click the app → **Open** → **Open**.) You only need to do
