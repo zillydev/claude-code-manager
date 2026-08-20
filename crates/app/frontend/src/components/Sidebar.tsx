@@ -583,15 +583,30 @@ export default function Sidebar({
               data-session-id={s.id}
               onMouseEnter={() => setHoveredId(s.id)}
               onMouseLeave={() => setHoveredId((h) => (h === s.id ? null : h))}
-              className={`relative flex group border-b border-[var(--color-border)] hover:bg-[var(--color-surface-hover)] transition-colors ${
+              // Every row carries the 3px rail (transparent when inactive) so
+              // selecting one never shifts its content sideways.
+              className={`relative flex group border-b border-[var(--color-border)] border-l-[3px] hover:bg-[var(--color-surface-hover)] transition-colors ${
                 activeId === s.id
-                  ? "bg-[var(--color-surface-hover)] border-l-2 border-l-[var(--color-accent)]"
-                  : ""
+                  ? "border-l-[var(--color-accent)]"
+                  : "border-l-transparent"
               } ${
                 relatedIds?.has(s.id)
                   ? "ring-1 ring-inset ring-[var(--color-accent)]"
                   : ""
               }`}
+              // Accent tint rather than surface-hover: the old fill was the
+              // SAME colour hover uses, so a selected row and a hovered row
+              // looked alike and neither stood out from the list. Inline so it
+              // also wins over :hover — the selection shouldn't wash out when
+              // the pointer passes over it.
+              style={
+                activeId === s.id
+                  ? {
+                      backgroundColor:
+                        "color-mix(in srgb, var(--color-accent) 16%, transparent)",
+                    }
+                  : undefined
+              }
             >
               {(status.running || unread) && (
                 <span
