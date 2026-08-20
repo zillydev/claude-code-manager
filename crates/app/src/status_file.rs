@@ -158,7 +158,7 @@ pub fn unpublish(path: &Path) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::time::{Duration, SystemTime, UNIX_EPOCH};
+    use std::time::{Duration, UNIX_EPOCH};
     use uuid::Uuid;
 
     const NOW: i64 = 1_800_000_000;

@@ -5,6 +5,7 @@ mod session_meta;
 mod shared;
 mod status_file;
 mod terminal;
+mod win_id;
 mod window;
 
 use std::sync::Mutex;
@@ -88,6 +89,8 @@ pub fn run() {
             // then broadcasts to ALL windows. Replaces each window polling on its
             // own, so N windows cost the same as one. Idle when no windows exist.
             let handle = app.handle().clone();
+            // Last published status, so the file is rewritten only on change.
+            let mut last_status: Option<status_file::StatusFile> = None;
             std::thread::spawn(move || loop {
                 std::thread::sleep(Duration::from_secs(3));
                 if handle.webview_windows().is_empty() {
@@ -101,6 +104,42 @@ pub fn run() {
                 let _ = handle.emit("activity-updated", &outcome.activity);
                 if outcome.sessions_changed {
                     let _ = handle.emit("sessions-changed", ());
+                }
+
+                // Publish the status file (opt-in). Here because this thread
+                // already holds the freshest activity for the whole app;
+                // `publish` no-ops unless the content actually changed.
+                let path = status_file::status_path();
+                if config::load().integrations.publish_status {
+                    let hosted: std::collections::BTreeMap<String, Option<i64>> = handle
+                        .state::<Mutex<terminal::TerminalState>>()
+                        .lock()
+                        .map(|g| g.hosted())
+                        .unwrap_or_default()
+                        .into_iter()
+                        .map(|(id, label)| (id, win_id::window_id(&handle, &label)))
+                        .collect();
+                    let sessions =
+                        handle.state::<shared::Shared>().sessions(&root).unwrap_or_default();
+                    let now = std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .map(|d| d.as_secs() as i64)
+                        .unwrap_or(0);
+                    let next = status_file::desired_state(status_file::Inputs {
+                        activity: &outcome.activity,
+                        sessions: &sessions,
+                        hosted: &hosted,
+                        last_viewed: &handle.state::<shared::Shared>().last_viewed(),
+                        now,
+                    });
+                    if let Some(published) = status_file::publish(&path, next, last_status.as_ref())
+                    {
+                        last_status = Some(published);
+                    }
+                } else if last_status.take().is_some() {
+                    // Just switched off — don't leave a snapshot behind that
+                    // can no longer change.
+                    status_file::unpublish(&path);
                 }
             });
             Ok(())
@@ -165,6 +204,9 @@ pub fn run() {
                         guard.close_all();
                     }
                 }
+                // A status file outliving the app is worse than none: consumers
+                // would keep believing a snapshot that can no longer change.
+                status_file::unpublish(&status_file::status_path());
             }
         });
 }

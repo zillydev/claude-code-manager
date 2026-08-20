@@ -565,6 +565,7 @@ dependencies = [
  "claude-code-manager-core",
  "core-foundation",
  "libc",
+ "objc2",
  "portable-pty",
  "serde",
  "serde_json",
