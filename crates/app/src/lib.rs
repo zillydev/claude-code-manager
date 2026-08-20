@@ -3,6 +3,7 @@ mod config;
 mod dock_name;
 mod session_meta;
 mod shared;
+mod status_file;
 mod terminal;
 mod window;
 
