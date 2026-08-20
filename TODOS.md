@@ -7,6 +7,6 @@
 - [x] syntax highlighting of code blocks
 - [x] check session id - 59a0dc6a-b2a0-46a7-8533-27305b978f32; message id - a27bec85-a0cb-4978-b282-a82aeff84936; for the points 3 and 5, after the "3. Painting & scrolling" and "5. Files", the subsequent text renders in the same line rather than next line
 - [x] for in session find matches, show the location in scrollbar gutter
-- [ ] tags button only shows when there's atleast one tag created. it should show regardless
+- [x] tags button only shows when there's atleast one tag created. it should show regardless
 - [x] sync current running status properly with sketchybar
 - [ ] improve and consolidate UX of projects/time/tags selectors

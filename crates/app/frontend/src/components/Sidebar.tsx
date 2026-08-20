@@ -419,8 +419,10 @@ export default function Sidebar({
             <option value="month">This month</option>
           </select>
 
-          {meta.tags.length > 0 && (
-            <Dropdown
+          {/* Always shown, even with no tags yet: the menu's "Manage tags…" is
+              where the first one gets created, so hiding the button hid the
+              entry point to the feature. */}
+          <Dropdown
               onOpenChange={(o) => { if (o) setFilterShowArchived(false); }}
               trigger={tagFilter.size > 0 ? `tags · ${tagFilter.size}` : "tags"}
               title="Filter by tag"
@@ -479,6 +481,11 @@ export default function Sidebar({
                       </>
                     );
                   })()}
+                  {meta.tags.length === 0 && (
+                    <div className="px-3 py-1.5 text-[11px] text-[var(--color-text-dim)]">
+                      No tags yet
+                    </div>
+                  )}
                   {archivedTags(meta).length > 0 && (
                     <button
                       role="menuitem"
@@ -519,7 +526,6 @@ export default function Sidebar({
                 </>
               )}
             </Dropdown>
-          )}
         </div>
       </div>
 
