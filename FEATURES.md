@@ -91,7 +91,7 @@ A tool to browse, search, edit, compact, harvest, and resume Claude Code session
 
 ## Conventions & dev notes
 
-- Workflow per feature: **brainstorm → spec → plan → execute → finish → user-directed merge** (`--no-ff`, tests green, delete branch).
+- Workflow per feature: **brainstorm → spec → plan → execute → finish → user-directed merge** (squash into `main` — one commit per feature — then `git branch -D`; tests green first). Pushing to the remote is a separate, explicit ask.
 - **Never launch the app from automation** — the user keeps it open across Spaces; `make dev` uses `--no-watch` (Rust changes need a manual restart; frontend hot-reloads via Vite).
 - `~/.claude/settings.json` has `cleanupPeriodDays: 36500` so sessions aren't auto-pruned.
 - Skills live in `skills/` (`session-surgery`, `session-harvest`).
