@@ -61,6 +61,11 @@ export default function App() {
   const [terminalStatus, setTerminalStatus] = useState<
     Record<string, "live" | "exited" | "busy">
   >({});
+  // Same facts, read synchronously by openSession — which must stay
+  // identity-stable (it is a prop of memoized panes), so it can't close over
+  // the state itself.
+  const terminalStatusRef = useRef(terminalStatus);
+  terminalStatusRef.current = terminalStatus;
   // The single open session, shared by BOTH tabs: Manager renders its transcript,
   // Terminal runs its `claude` process. `cwd` set ⇒ a freshly-created session whose
   // file doesn't exist until the first turn — the effect below polls for it.
@@ -90,14 +95,23 @@ export default function App() {
   // (e.g. a fork point opened from the lineage tree).
   const openSession = useCallback(
     (s: { id: string; file_path: string; project_label: string }, scrollToMessage?: string) => {
-      setTarget((prev) => ({
-        sessionId: s.id,
-        filePath: s.file_path,
-        projectLabel: s.project_label,
-        scrollToMessage: scrollToMessage
-          ? { uuid: scrollToMessage, n: (prev?.scrollToMessage?.n ?? 0) + 1 }
-          : undefined,
-      }));
+      setTarget((prev) => {
+        // Opening a DIFFERENT session from the Terminal tab: land in Manager
+        // unless that session already has a live terminal. Staying on Terminal
+        // would spawn a fresh `claude --resume` for a session the user only
+        // meant to read — an expensive, unasked-for side effect.
+        if (prev?.sessionId !== s.id && terminalStatusRef.current[s.id] !== "live") {
+          setActiveTab("manager");
+        }
+        return {
+          sessionId: s.id,
+          filePath: s.file_path,
+          projectLabel: s.project_label,
+          scrollToMessage: scrollToMessage
+            ? { uuid: scrollToMessage, n: (prev?.scrollToMessage?.n ?? 0) + 1 }
+            : undefined,
+        };
+      });
     },
     [],
   );
