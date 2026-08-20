@@ -753,7 +753,7 @@ export default function Sidebar({
 
               {/* Per-row ⋯ menu: Rename / Tags / Note / Delete */}
               {!renaming && (
-              <div className={`flex items-center shrink-0 pr-1.5 transition-opacity ${deletingId === s.id ? "opacity-100" : "opacity-0 group-hover:opacity-100"}`}>
+              <div className={`flex items-center shrink-0 pr-1.5 transition-opacity ${deletingId === s.id ? "visible opacity-100" : "invisible opacity-0 group-hover:visible group-hover:opacity-100"}`}>
                   <Dropdown
                     trigger={deletingId === s.id ? <Spinner /> : <Ellipsis size={14} />}
                     title="Session actions"
