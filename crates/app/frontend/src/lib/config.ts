@@ -17,6 +17,10 @@ export interface Config {
     sidebarCollapsed: boolean;
     defaultTab: "manager" | "terminal";
   };
+  integrations: {
+    /** Publish live session state to session-status.json for other tools. */
+    publishStatus: boolean;
+  };
 }
 
 export const DEFAULT_CONFIG: Config = {
@@ -30,6 +34,7 @@ export const DEFAULT_CONFIG: Config = {
     sidebarCollapsed: false,
     defaultTab: "manager",
   },
+  integrations: { publishStatus: false },
 };
 
 /** The 14 `--color-*` variables for each preset theme. */

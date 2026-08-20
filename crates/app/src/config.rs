@@ -20,6 +20,19 @@ pub struct Config {
     pub typography: Typography,
     #[serde(default)]
     pub ui: Ui,
+    #[serde(default)]
+    pub integrations: Integrations,
+}
+
+/// Optional side effects the user opts into. Off by default: ccm writes nothing
+/// outside its own config file unless asked.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Integrations {
+    /// Publish live session state to `<config-dir>/session-status.json` for
+    /// third-party tools (status bars, notifiers).
+    #[serde(default)]
+    pub publish_status: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -82,6 +95,7 @@ impl Default for Config {
             theme: default_theme(),
             typography: Typography::default(),
             ui: Ui::default(),
+            integrations: Integrations::default(),
         }
     }
 }
@@ -186,6 +200,19 @@ pub fn save(cfg: &Config) -> std::io::Result<()> {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn integrations_default_off_and_round_trip() {
+        let c: Config = serde_json::from_str("{}").unwrap();
+        assert!(!c.integrations.publish_status, "publishing is opt-in");
+
+        let c: Config = serde_json::from_str(r#"{"integrations":{"publishStatus":true}}"#).unwrap();
+        assert!(c.integrations.publish_status);
+
+        let back = serde_json::to_string(&c).unwrap();
+        assert!(back.contains("\"publishStatus\":true"));
+    }
+
     use super::*;
 
     fn tmp(name: &str) -> PathBuf {

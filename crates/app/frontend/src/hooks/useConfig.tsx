@@ -21,6 +21,7 @@ function mergeConfig(base: Config, p: DeepPartial<Config>): Config {
     ...p,
     typography: { ...base.typography, ...(p.typography ?? {}) },
     ui: { ...base.ui, ...(p.ui ?? {}) },
+    integrations: { ...base.integrations, ...(p.integrations ?? {}) },
   };
 }
 
