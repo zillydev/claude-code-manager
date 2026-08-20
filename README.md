@@ -83,8 +83,35 @@ Settings and session metadata live in a JSON config directory, resolved in order
 
 - `config.json` — theme, typography, density, and behavior defaults.
 - `session-meta.json` — your tags, aliases, notes, and bookmarks, keyed by session id.
+- `session-status.json` — live session state, written only while **Publish session status** is enabled in Settings (see below).
 
 Claude Code's own files under `~/.claude/` are never written to by these.
+
+## Session status for other tools
+
+With **Publish session status** enabled (Settings → Integrations), ccm keeps `session-status.json` in the config directory current — a small, versioned snapshot other tools can poll:
+
+```json
+{
+  "version": 1,
+  "updated": 1787263639.0,
+  "sessions": {
+    "59a0dc6a-…": {
+      "state": "running",
+      "awaiting_input": false,
+      "last_event_at": 1787263620,
+      "cwd": "/path/to/project",
+      "title": "…",
+      "window": 61729,
+      "hosted": true
+    }
+  }
+}
+```
+
+`state` is ccm's opinion — `running` (Claude is mid-turn), `unread` (finished, newer than the last time you opened it), `idle` (finished and seen) — while `awaiting_input` and `last_event_at` are the raw facts, so a consumer can apply its own rules. `window` is the macOS window id (the same integer yabai and similar tools use) when ccm is running that session in a terminal tab, `null` otherwise; `hosted` says which. Only sessions that are running, unread, or hosted appear.
+
+State is derived from the session files themselves — the same 3s poller behind the sidebar's status dots — so it self-corrects and can't be stranded the way Claude Code hook-driven state can. The file is replaced atomically, rewritten only when the contents change, and removed when publishing is switched off or the app exits, so a stale snapshot never outlives the app.
 
 ## Skills
 
