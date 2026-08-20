@@ -774,11 +774,9 @@ fn message_hit(
     let (snippet, match_count) = match matched {
         Some(tx) => snippet_excerpts(&tx, query_lower),
         None if query_lower.is_empty() => {
-            if let Some(n) = tool_names.first() {
-                (format!("(tool: {n})"), 0)
-            } else {
-                return None; // nothing displayable and nothing required it
-            }
+            // `?`: nothing displayable and nothing required it.
+            let n = tool_names.first()?;
+            (format!("(tool: {n})"), 0)
         }
         None => return None, // text query not satisfied in conversation text
     };

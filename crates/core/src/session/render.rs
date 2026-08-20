@@ -875,7 +875,7 @@ mod render_tests {
     fn non_base64_or_empty_image_sources_are_skipped() {
         let line = r#"{"type":"user","uuid":"00000000-0000-0000-0000-0000000000c4","message":{"role":"user","content":[{"type":"image","source":{"type":"url","url":"https://x/y.png"}},{"type":"text","text":"hi"}]}}"#;
         let ev: Event = serde_json::from_str(line).unwrap();
-        let events = vec![ev];
+        let events = [ev];
         let path: Vec<&Event> = events.iter().collect();
         let turns = render_path_turns(&path, true);
         let RenderedTurn::User { images, .. } = &turns[0] else { panic!("user turn") };
