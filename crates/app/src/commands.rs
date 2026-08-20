@@ -453,6 +453,17 @@ pub fn set_session_meta(
     Ok(())
 }
 
+/// The frontend's per-session last-viewed map (localStorage `cm:lastViewed`),
+/// pushed so the backend can split "unread" from "already seen" in the
+/// published status file. Merged per session by maximum across windows.
+#[tauri::command]
+pub fn set_last_viewed(
+    map: std::collections::BTreeMap<String, i64>,
+    shared: tauri::State<'_, crate::shared::Shared>,
+) {
+    shared.merge_last_viewed(map);
+}
+
 #[derive(Serialize, Clone)]
 pub struct SessionActivity {
     pub id: String,

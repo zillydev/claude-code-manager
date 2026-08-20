@@ -87,6 +87,12 @@ export default function App() {
     "cm:lastViewed",
     {},
   );
+  // Publish view times to the backend: the status file needs them to tell
+  // "finished and unseen" from "finished and already read".
+  useEffect(() => {
+    invoke("set_last_viewed", { map: lastViewed }).catch(() => {});
+  }, [lastViewed]);
+
   // Session whose lineage tree is shown in the overlay (null = closed).
   const [lineageFor, setLineageFor] = useState<string | null>(null);
 

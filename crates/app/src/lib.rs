@@ -145,6 +145,7 @@ pub fn run() {
             commands::get_session_meta,
             commands::set_session_meta,
             commands::session_activity,
+            commands::set_last_viewed,
             commands::focus_window,
             commands::terminal_open,
             commands::terminal_input,

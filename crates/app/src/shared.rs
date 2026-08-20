@@ -19,6 +19,9 @@ struct SharedData {
     sessions: Option<Vec<SessionSummary>>,
     activity: Vec<SessionActivity>,
     file_sig: u64,
+    /// Per-session last-viewed times (epoch s), merged from every window's
+    /// localStorage. Feeds the published status file's unread/idle split.
+    last_viewed: std::collections::BTreeMap<String, i64>,
 }
 
 pub struct PollOutcome {
@@ -51,6 +54,22 @@ impl Shared {
 
     pub fn activity(&self) -> Vec<SessionActivity> {
         self.data.lock().unwrap().activity.clone()
+    }
+
+    /// Merge a window's map, keeping the per-session maximum — windows report
+    /// independently and none is authoritative, so "most recently seen" wins.
+    pub fn merge_last_viewed(&self, incoming: std::collections::BTreeMap<String, i64>) {
+        let mut d = self.data.lock().unwrap();
+        for (id, at) in incoming {
+            let slot = d.last_viewed.entry(id).or_insert(at);
+            if at > *slot {
+                *slot = at;
+            }
+        }
+    }
+
+    pub fn last_viewed(&self) -> std::collections::BTreeMap<String, i64> {
+        self.data.lock().unwrap().last_viewed.clone()
     }
 
     /// One poller tick: refresh activity (always) and re-discover iff the dir
@@ -89,5 +108,23 @@ impl Shared {
         d.sessions = Some(disc.sessions.clone());
         d.file_sig = sig;
         Ok(disc.sessions)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::BTreeMap;
+
+    #[test]
+    fn last_viewed_merges_by_maximum() {
+        let s = Shared::new();
+        s.merge_last_viewed(BTreeMap::from([("a".into(), 100), ("b".into(), 50)]));
+        // A second window reports an older view for `a` and a newer one for `b`:
+        // neither window is authoritative, so the newest wins per session.
+        s.merge_last_viewed(BTreeMap::from([("a".into(), 90), ("b".into(), 70)]));
+        let got = s.last_viewed();
+        assert_eq!(got["a"], 100);
+        assert_eq!(got["b"], 70);
     }
 }
