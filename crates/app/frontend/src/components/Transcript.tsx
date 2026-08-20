@@ -717,7 +717,13 @@ function TurnActions({
   const busy = forkPending;
 
   return (
-    <span className="opacity-0 group-hover:opacity-100 transition-opacity flex gap-2 ml-2 items-center">
+    // `invisible` alongside `opacity-0`: with opacity alone, WKWebView left the
+    // text button's pixels painted after the row un-hovered (a trail of ghost
+    // "copy id" buttons down the transcript — the ⋯ escaped it only because
+    // Dropdown wraps it in a positioned div, which repaints). visibility is not
+    // transitioned, so it flips at once and forces the region to invalidate;
+    // the fade-in still animates. It also makes the hidden buttons unclickable.
+    <span className="invisible opacity-0 group-hover:visible group-hover:opacity-100 transition-opacity flex gap-2 ml-2 items-center">
       {/* Fork / Bookmark live behind a ⋯ menu so they're not fat-fingered. Both
           resolve by uuid and work on any turn, including pre-compaction ones.
           (Edit / Delete were removed pending a reimplementation.) */}

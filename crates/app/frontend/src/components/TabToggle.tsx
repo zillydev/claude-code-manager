@@ -51,7 +51,7 @@ export default function TabToggle({
             }}
             title="Close terminal session (stops claude)"
             className={
-              "absolute right-1.5 opacity-0 group-hover:opacity-100 flex items-center px-0.5 " +
+              "absolute right-1.5 invisible opacity-0 group-hover:visible group-hover:opacity-100 flex items-center px-0.5 " +
               (activeTab === "terminal"
                 ? "text-white/80 hover:text-white"
                 : "text-[var(--color-text-dim)] hover:text-[var(--color-text)]")
