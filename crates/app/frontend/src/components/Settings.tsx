@@ -130,6 +130,19 @@ export default function Settings({ onClose }: { onClose: () => void }) {
             onChange={(v) => setConfig({ ui: { sidebarCollapsed: v } })}
           />
         </Section>
+
+        <Section title="Integrations">
+          <CheckRow
+            label="Publish session status"
+            checked={config.integrations.publishStatus}
+            onChange={(v) => setConfig({ integrations: { publishStatus: v } })}
+          />
+          <div className="text-[10px] text-[var(--color-text-dim)] leading-relaxed">
+            Writes live session state (running / unread / idle) to{" "}
+            <code>session-status.json</code> in the config folder, for other tools to read.
+            Removed when switched off.
+          </div>
+        </Section>
       </div>
     </div>
   );

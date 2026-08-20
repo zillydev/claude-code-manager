@@ -85,6 +85,10 @@ A tool to browse, search, edit, compact, harvest, and resume Claude Code session
 - **Inline loading indicators** — a shared `<Spinner>` atom marks every async action while it runs: fork, sidebar delete / rename / new-session, the terminal's "Starting claude…" overlay, session-open and search. → `2026-06-21-loading-indicators-design`
 - **Session status indicators** — sidebar dots driven by a lightweight focus-gated poll (`session_activity`, tail-reads recent files): a green pulsing dot when claude is mid-turn (steady through thinking pauses — keyed on `awaiting_input` turn-completeness, not write recency), and an accent dot + bold title for **unread** (your turn — a completed reply or a turn parked on `AskUserQuestion` / `ExitPlanMode` — newer than when you last opened it). → `2026-06-22-session-indicators-design`
 
+## Integrations
+
+- **Session status publishing** (opt-in — Settings → Integrations) — writes `session-status.json` in the config dir for other tools (status bars, notifiers): per-session `running`/`unread`/`idle` plus the raw `awaiting_input`/`last_event_at`, `cwd`, `title`, and the macOS window id (= yabai's id, via the PTY owner's `NSWindow.windowNumber`) for sessions running in a ccm terminal tab. Derived from the same poller as the sidebar dots, so it self-corrects — unlike Claude Code hooks, whose `Stop` fires unreliably and strands state. Atomic replace, written only on change, removed when disabled or on exit. → `2026-08-21-session-status-publishing-design`
+
 ## Conventions & dev notes
 
 - Workflow per feature: **brainstorm → spec → plan → execute → finish → user-directed merge** (`--no-ff`, tests green, delete branch).

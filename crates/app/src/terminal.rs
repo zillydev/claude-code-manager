@@ -121,6 +121,12 @@ impl TerminalState {
     pub fn owner(&self, session_id: &str) -> Option<&str> {
         self.ptys.get(session_id).map(|h| h.owner.as_str())
     }
+    /// Every live PTY as `(session id, owning window label)` — the app's own
+    /// answer to "where is this session running", used to attribute published
+    /// status entries to a macOS window.
+    pub fn hosted(&self) -> Vec<(String, String)> {
+        self.ptys.iter().map(|(id, h)| (id.clone(), h.owner.clone())).collect()
+    }
     pub fn insert(&mut self, session_id: &str, handle: PtyHandle) {
         self.ptys.insert(session_id.to_string(), handle);
     }

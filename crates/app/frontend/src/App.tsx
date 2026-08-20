@@ -12,6 +12,7 @@ import Spinner from "./components/Spinner";
 import { ChevronsRight } from "lucide-react";
 import { usePersistentState } from "./hooks/usePersistentState";
 import { useActivity } from "./hooks/useActivity";
+import { useWindowFocused } from "./hooks/useWindowFocused";
 import { useConfig } from "./hooks/useConfig";
 import type { ForkRef } from "./types";
 
@@ -83,10 +84,19 @@ export default function App() {
   // Live per-session activity (epoch s of last real turn) for the sidebar
   // running dot, and the per-session last-viewed times that drive "unread".
   const activity = useActivity();
+  // "Viewed" means seen, not merely open: a session live-tailing in a window on
+  // another Space isn't being read, so its turns must still count as unread.
+  const windowFocused = useWindowFocused();
   const [lastViewed, setLastViewed] = usePersistentState<Record<string, number>>(
     "cm:lastViewed",
     {},
   );
+  // Publish view times to the backend: the status file needs them to tell
+  // "finished and unseen" from "finished and already read".
+  useEffect(() => {
+    invoke("set_last_viewed", { map: lastViewed }).catch(() => {});
+  }, [lastViewed]);
+
   // Session whose lineage tree is shown in the overlay (null = closed).
   const [lineageFor, setLineageFor] = useState<string | null>(null);
 
@@ -179,16 +189,20 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- see comment above
   }, [target?.sessionId, target?.filePath, target?.projectLabel, open, close, refresh, setLastViewed]);
 
-  // While a session is open, keep its last-viewed time abreast of incoming turns
-  // so live-tailed content in the session you're watching isn't flagged unread.
+  // While a session is open IN A FOCUSED WINDOW, keep its last-viewed time
+  // abreast of incoming turns, so live-tailed content you are actually watching
+  // isn't flagged unread. Gated on focus: a reply landing in a window you left
+  // behind on another Space is genuinely unread, and marking it read there was
+  // the reason such sessions never lit up. Re-runs when focus returns, so
+  // coming back to the window clears it.
   useEffect(() => {
-    if (!target) return;
+    if (!target || !windowFocused) return;
     const live = activity.get(target.sessionId)?.at;
     if (live == null) return;
     setLastViewed((m) =>
       live > (m[target.sessionId] ?? 0) ? { ...m, [target.sessionId]: live } : m,
     );
-  }, [activity, target, setLastViewed]);
+  }, [activity, target, windowFocused, setLastViewed]);
 
   const dragging = useRef(false);
   const startX = useRef(0);
