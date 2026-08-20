@@ -9,3 +9,4 @@
 - [x] for in session find matches, show the location in scrollbar gutter
 - [ ] tags button only shows when there's atleast one tag created. it should show regardless
 - [ ] sync current running status properly with sketchybar
+- [ ] improve and consolidate UX of projects/time/tags selectors
