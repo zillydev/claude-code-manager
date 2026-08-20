@@ -57,11 +57,22 @@ jobs:
 
       - name: Build universal macOS bundle
         working-directory: crates/app
-        run: cargo tauri build --target universal-apple-darwin
+        run: |
+          # A MISSING secret still defines its env var, as an empty string —
+          # and tauri-bundler tests for signing with var_os(), where Some("")
+          # counts as present. It then ran `security import` on an empty
+          # certificate and failed the build. Unset them so the bundler takes
+          # the unsigned path it is supposed to take when no cert is provided.
+          if [ -z "${APPLE_CERTIFICATE:-}" ]; then
+            unset APPLE_SIGNING_IDENTITY APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD \
+                  APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID
+            echo "no signing certificate — building UNSIGNED"
+          fi
+          cargo tauri build --target universal-apple-darwin
         env:
-          # Optional code signing + notarization. With these secrets unset the
-          # build still succeeds and simply ships UNSIGNED — see the release
-          # notes for the Gatekeeper workaround users need in that case.
+          # Optional code signing + notarization. Absent secrets arrive as
+          # empty strings and are unset above, so the build ships UNSIGNED —
+          # see the release notes for the Gatekeeper workaround users need.
           # To enable: add these repo secrets (needs a paid Apple Developer
           # account) and nothing else here has to change.
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
