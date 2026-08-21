@@ -294,25 +294,49 @@ function FontSelect({
   onChange,
 }: {
   value: string;
-  presets: { key: string; label: string }[];
+  presets: { key: string; label: string; stack: string }[];
   onChange: (v: string) => void;
 }) {
-  const isPreset = presets.some((p) => p.key === value);
+  const preset = presets.find((p) => p.key === value);
   return (
     <div className="flex flex-col gap-1 items-end">
-      <select
-        value={isPreset ? value : "__custom__"}
-        onChange={(e) => onChange(e.target.value === "__custom__" ? "" : e.target.value)}
-        className="text-xs bg-[var(--color-bg)] text-[var(--color-text)] border border-[var(--color-border)] rounded px-1.5 py-1"
+      <Dropdown
+        align="right"
+        trigger={preset ? preset.label : value || "Custom…"}
+        title="Font"
+        triggerClassName="text-xs px-1.5 py-1 rounded border border-[var(--color-border)] text-[var(--color-text)] bg-[var(--color-bg)] outline-none max-w-48 truncate"
       >
-        {presets.map((p) => (
-          <option key={p.key} value={p.key}>
-            {p.label}
-          </option>
-        ))}
-        <option value="__custom__">Custom…</option>
-      </select>
-      {!isPreset && (
+        {(close) => (
+          <FilterMenu
+            close={close}
+            empty="—"
+            items={() => [
+              ...presets.map((p) => ({
+                key: p.key,
+                // Each option previews itself — picking a font by name alone
+                // means installing-and-checking to find out what it looks like.
+                node: <span style={{ fontFamily: p.stack }}>{p.label}</span>,
+                selected: value === p.key,
+                onSelect: () => {
+                  onChange(p.key);
+                  close();
+                },
+              })),
+              {
+                key: "__custom__",
+                node: "Custom…",
+                selected: !preset,
+                onSelect: () => {
+                  // "" drops out of the presets, which reveals the family input.
+                  onChange("");
+                  close();
+                },
+              },
+            ]}
+          />
+        )}
+      </Dropdown>
+      {!preset && (
         <input
           type="text"
           autoFocus
