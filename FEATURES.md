@@ -15,7 +15,7 @@ A tool to browse, search, edit, compact, harvest, and resume Claude Code session
 
 - **Sidebar tabs (Obsidian-style)** — an icon strip atop the sidebar: 🗂 Sessions (⌘1) · ⚑ Bookmarks (⌘2) · 🔍 Find (⌘3, = ⌘⇧F incl. focus). Panes keep their results/previews across switches; clicking a hit opens the session while the pane stays. → `2026-08-06-sidebar-tabs-design`
 
-- Sessions list — project, title, tokens, updated (time of the last real conversation turn); project + time filters (one project selector, grouped by name, expands to directories only on name collisions); sort; sidebar resize/collapse. → `2026-05-23-claude-code-manager-tui-design`, `2026-05-24-webui-design`, `2026-06-21-unified-project-selector-design`
+- Sessions list — project, title, tokens, updated (time of the last real conversation turn); project / tag / time filters — one themed menu each (type-to-filter, scrolling, ↑/↓/Enter, selected pinned to top; projects grouped by name, expanding to directories only on collisions; time behind a clock icon; one ✕ clears all); sort; sidebar resize/collapse. → `2026-05-23-claude-code-manager-tui-design`, `2026-05-24-webui-design`, `2026-06-21-unified-project-selector-design`
 - **Chat-style sides** — user messages (and slash commands) sit on the **right** in a bordered surface bubble (`max-w-75%`); assistant turns stay full-width on the left.
 - **Queued messages render** — a message typed while the agent is running (a `queued_command` attachment, no ordinary user line) renders as a view-only user turn.
 - **Syntax-highlighted code blocks** — rehype-highlight on explicitly-tagged fences, GitHub syntax palette per theme.
