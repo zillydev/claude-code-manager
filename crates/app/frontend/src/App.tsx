@@ -91,6 +91,20 @@ export default function App() {
     "cm:lastViewed",
     {},
   );
+  // Suppress WKWebView's own context menu (its only item here is Reload), so
+  // the surfaces that DO have a menu own the gesture and the ones that don't
+  // stay quiet. Editable fields keep the native menu: that is where Cut / Copy
+  // / Paste and dictation live, and nothing custom would improve on it.
+  useEffect(() => {
+    const onMenu = (e: MouseEvent) => {
+      const el = e.target as HTMLElement | null;
+      if (el?.closest("input, textarea, [contenteditable='true']")) return;
+      e.preventDefault();
+    };
+    window.addEventListener("contextmenu", onMenu);
+    return () => window.removeEventListener("contextmenu", onMenu);
+  }, []);
+
   // Publish view times to the backend: the status file needs them to tell
   // "finished and unseen" from "finished and already read".
   useEffect(() => {

@@ -15,6 +15,7 @@ import type {
 import ToolCall from "./ToolCall";
 import { ImageStrip } from "./InlineImage";
 import CustomScrollbar from "./CustomScrollbar";
+import ContextMenu, { useContextMenu } from "./ContextMenu";
 import FindBar from "./FindBar";
 import { useFind } from "../hooks/useFind";
 import { useEditor } from "../hooks/useEditor";
@@ -113,6 +114,8 @@ export default function Transcript({
   // In-session find (⌘F). Matches what is rendered — compact mode included.
   const find = useFind(turnsRef, visibleTurns);
   const { open: findOpen, openBar: findOpenBar, close: findClose } = find;
+  // Right-click menu for a turn — the same actions as its ⋯ menu.
+  const turnMenu = useContextMenu<RenderedTurn>();
   // Stable handlers so the memoized <Turn>s don't re-render needlessly.
   // useEditor's methods are useCallback([])-stable, and sourcePath is stable.
   // A fork mints a derived session — the same work, continued — so it
@@ -363,15 +366,17 @@ export default function Transcript({
           }
           return (
             <Fragment key={i}>
-              <Turn
-                turn={turn}
-                turnIndex={i}
-                onFork={handleFork}
-                bookmarked={ownUuid !== null && bookmarkSet.has(ownUuid)}
-                onToggleBookmark={handleToggleBookmark}
-                forkPending={!!forkPending}
-                revealedKeys={find.revealedKeys}
-              />
+              <div onContextMenu={(e) => turnMenu.open(e, turn)}>
+                <Turn
+                  turn={turn}
+                  turnIndex={i}
+                  onFork={handleFork}
+                  bookmarked={ownUuid !== null && bookmarkSet.has(ownUuid)}
+                  onToggleBookmark={handleToggleBookmark}
+                  forkPending={!!forkPending}
+                  revealedKeys={find.revealedKeys}
+                />
+              </div>
               {marks && onOpenSession && (
                 <ForkMarker refs={marks} onOpen={onOpenSession} />
               )}
@@ -404,6 +409,39 @@ export default function Transcript({
         </div>
       )}
       </div>
+
+      {turnMenu.menu && (
+        <ContextMenu x={turnMenu.menu.x} y={turnMenu.menu.y} onClose={turnMenu.close}>
+          {(() => {
+            const turn = turnMenu.menu!.target;
+            // Same two actions as the per-turn ⋯ menu, on the turns that have
+            // a uuid to address (system lines and dividers have none).
+            if (turn.type !== "user" && turn.type !== "assistant") {
+              return <div className="px-3 py-1.5 text-[11px] text-[var(--color-text-dim)]">No actions</div>;
+            }
+            const item = (label: string, onClick: () => void) => (
+              <button
+                role="menuitem"
+                className={menuItemClass}
+                onClick={() => {
+                  turnMenu.close();
+                  onClick();
+                }}
+              >
+                {label}
+              </button>
+            );
+            return (
+              <>
+                {item("Fork from here", () => handleFork(turn.fork_uuid))}
+                {item(bookmarkSet.has(turn.uuid) ? "Remove bookmark" : "Bookmark", () =>
+                  handleToggleBookmark(turn.uuid),
+                )}
+              </>
+            );
+          })()}
+        </ContextMenu>
+      )}
 
       {/* Jump to top / latest. Absolute rather than sticky so they never occupy
           layout in the scroller — a sticky footer would shift the transcript

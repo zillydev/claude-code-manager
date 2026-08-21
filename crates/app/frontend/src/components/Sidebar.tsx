@@ -12,6 +12,7 @@ import {
   X,
 } from "lucide-react";
 import Dropdown, { menuItemClass, ConfirmMenuItem } from "./Dropdown";
+import ContextMenu, { useContextMenu } from "./ContextMenu";
 import SessionFilters from "./SessionFilters";
 import TagChip from "./TagChip";
 import TagEditor from "./TagEditor";
@@ -77,6 +78,11 @@ export default function Sidebar({
   const [draftAlias, setDraftAlias] = useState("");
   const [tagsFor, setTagsFor] = useState<SessionSummary | null>(null);
   const [noteFor, setNoteFor] = useState<SessionSummary | null>(null);
+  // Right-click menu for a row — the ⋯ menu's actions plus the ones that only
+  // make sense from a pointer (open in terminal, copy ids, reveal in Finder).
+  const rowMenu = useContextMenu<SessionSummary>();
+  // Two-step delete, as in the ⋯ menu: a context menu is easy to hit by accident.
+  const [confirmDelete, setConfirmDelete] = useState(false);
   const [manageTags, setManageTags] = useState(false);
   const [textFilter, setTextFilter] = useState("");
   // One project/directory filter: "" | "name:<basename>" | "dir:<cwd>".
@@ -457,6 +463,10 @@ export default function Sidebar({
             <div
               key={s.id}
               data-session-id={s.id}
+              onContextMenu={(e) => {
+                setConfirmDelete(false);
+                rowMenu.open(e, s);
+              }}
               onMouseEnter={() => setHoveredId(s.id)}
               onMouseLeave={() => setHoveredId((h) => (h === s.id ? null : h))}
               // Every row carries the 3px rail (transparent when inactive) so
@@ -722,6 +732,54 @@ export default function Sidebar({
       <div className="p-1.5 border-t border-[var(--color-border)] text-[10px] text-[var(--color-text-dim)] text-center">
         {sorted.length}/{sessions.length} sessions
       </div>
+
+      {rowMenu.menu && (
+        <ContextMenu x={rowMenu.menu.x} y={rowMenu.menu.y} onClose={rowMenu.close}>
+          {(() => {
+            const s = rowMenu.menu!.target;
+            const entry = meta.sessions[s.id];
+            const item = (label: string, onClick: () => void) => (
+              <button
+                role="menuitem"
+                className={menuItemClass}
+                onClick={() => {
+                  rowMenu.close();
+                  onClick();
+                }}
+              >
+                {label}
+              </button>
+            );
+            return (
+              <>
+                {item("Rename", () => {
+                  setDraftAlias(entry?.alias ?? "");
+                  setRenamingId(s.id);
+                })}
+                {item("Tags…", () => setTagsFor(s))}
+                {item("Note…", () => setNoteFor(s))}
+                {/* Two clicks, like the ⋯ menu: a context menu is easy to hit
+                    by accident, and this deletes a session. */}
+                <button
+                  role="menuitem"
+                  className={`${menuItemClass} text-[var(--color-error)] ${confirmDelete ? "font-medium" : ""}`}
+                  onClick={() => {
+                    if (!confirmDelete) {
+                      setConfirmDelete(true);
+                      return;
+                    }
+                    rowMenu.close();
+                    setConfirmDelete(false);
+                    void onDelete(s);
+                  }}
+                >
+                  {confirmDelete ? "Confirm delete" : "Delete"}
+                </button>
+              </>
+            );
+          })()}
+        </ContextMenu>
+      )}
 
       {tagsFor && (
         <TagEditor
