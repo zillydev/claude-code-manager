@@ -7,17 +7,87 @@ use portable_pty::{native_pty_system, Child, CommandBuilder, MasterPty, PtySize}
 use serde_json::json;
 use tauri::{AppHandle, Emitter, Manager};
 
-/// Resolve the claude entrypoint. Prefer the user's `claude-tracked` wrapper
-/// (matches their shell alias — it exports yabai window env for hooks then
-/// `exec claude`), falling back to `claude` on PATH if the wrapper is absent.
-fn claude_program() -> String {
+/// Where a session's `claude` will be started from: the program to run and the
+/// PATH to run it with.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Entrypoint {
+    pub program: String,
+    /// PATH for the child, when it must differ from the inherited one.
+    pub path: Option<String>,
+}
+
+/// Directories to look in when `claude` is on neither PATH we can ask for —
+/// the standard install locations. `~` is expanded against HOME.
+const CLAUDE_FALLBACK_DIRS: &[&str] =
+    &["~/.local/bin", "~/.claude/local", "/opt/homebrew/bin", "/usr/local/bin"];
+
+/// The first directory of `path` (colon-separated) holding an executable
+/// `name`. Pure — the PATH string is passed in, so this is testable without
+/// touching the environment.
+fn which_in(path: &str, name: &str) -> Option<std::path::PathBuf> {
+    use std::os::unix::fs::PermissionsExt;
+    path.split(':').filter(|d| !d.is_empty()).find_map(|dir| {
+        let p = std::path::Path::new(dir).join(name);
+        let md = std::fs::metadata(&p).ok()?;
+        (md.is_file() && md.permissions().mode() & 0o111 != 0).then_some(p)
+    })
+}
+
+/// Resolve how to start claude, and with what PATH.
+///
+/// A GUI app inherits launchd's minimal PATH, so ccm asks a LOGIN shell for the
+/// real one (see [`login_path`]). That misses a common case: `zsh -lc` reads
+/// `.zprofile` but NOT `.zshrc`, and `.zshrc` is exactly where Claude Code's
+/// native installer, nvm, fnm and asdf put their PATH. A user whose `claude`
+/// lives in `~/.local/bin` exported from `.zshrc` therefore had the terminal
+/// fail with "no such file", despite `claude` working fine in their terminal.
+///
+/// So: try the login PATH, then an INTERACTIVE login shell's PATH (which does
+/// read `.zshrc`), then the standard install directories. Whichever wins also
+/// supplies the child's PATH, so claude's own subprocesses resolve too.
+fn resolve_entrypoint() -> Result<Entrypoint, String> {
+    // The user's own wrapper, if present, wins — it execs claude after adding
+    // window-tracking env (see the claude-tracked script).
     if let Some(home) = std::env::var_os("HOME") {
         let wrapper = std::path::Path::new(&home).join(".local/bin/claude-tracked");
         if wrapper.is_file() {
-            return wrapper.to_string_lossy().into_owned();
+            return Ok(Entrypoint {
+                program: wrapper.to_string_lossy().into_owned(),
+                path: login_path(),
+            });
         }
     }
-    "claude".to_string()
+
+    if let Some(path) = login_path() {
+        if which_in(&path, "claude").is_some() {
+            return Ok(Entrypoint { program: "claude".into(), path: Some(path) });
+        }
+    }
+    if let Some(path) = interactive_path() {
+        if which_in(&path, "claude").is_some() {
+            return Ok(Entrypoint { program: "claude".into(), path: Some(path) });
+        }
+    }
+    let home = std::env::var("HOME").unwrap_or_default();
+    for dir in CLAUDE_FALLBACK_DIRS {
+        let dir = dir.replacen('~', &home, 1);
+        if let Some(found) = which_in(&dir, "claude") {
+            // Put its directory on PATH too, so anything claude shells out to
+            // from the same install resolves.
+            let base = login_path().unwrap_or_else(|| "/usr/bin:/bin".into());
+            return Ok(Entrypoint {
+                program: found.to_string_lossy().into_owned(),
+                path: Some(format!("{dir}:{base}")),
+            });
+        }
+    }
+    Err(format!(
+        "couldn't find the `claude` executable.\r\n\
+         Looked on your login-shell PATH, your interactive shell PATH, and in {}.\r\n\
+         If claude is installed elsewhere, add its directory to PATH in ~/.zprofile \
+         (a GUI app can't see ~/.zshrc), then relaunch the app.",
+        CLAUDE_FALLBACK_DIRS.join(", ")
+    ))
 }
 
 /// The args after the claude entrypoint: bypass-permissions (matching the user's
@@ -29,10 +99,11 @@ fn claude_args(session_id: &str, fresh: bool) -> Vec<String> {
 }
 
 /// The full argv for a session's terminal: resolved entrypoint + `claude_args`.
-pub fn terminal_argv(session_id: &str, fresh: bool) -> Vec<String> {
-    let mut v = vec![claude_program()];
+pub fn terminal_argv(session_id: &str, fresh: bool) -> Result<(Vec<String>, Option<String>), String> {
+    let entry = resolve_entrypoint()?;
+    let mut v = vec![entry.program];
     v.extend(claude_args(session_id, fresh));
-    v
+    Ok((v, entry.path))
 }
 
 /// The user's real login PATH. A GUI app launched from Finder/Dock inherits
@@ -54,6 +125,45 @@ fn login_path() -> Option<String> {
                 .args(["-lc", r#"printf '\001%s\001' "$PATH""#])
                 .output()
                 .ok()?;
+            let s = String::from_utf8_lossy(&out.stdout);
+            let path = s.split('\u{1}').nth(1)?.to_string();
+            (!path.is_empty()).then_some(path)
+        })
+        .clone()
+}
+
+/// The PATH an INTERACTIVE login shell sees — the one that includes whatever
+/// `.zshrc`/`.bashrc` adds (nvm, fnm, asdf, Claude Code's native installer).
+/// Only consulted when the login PATH has no `claude`, because an interactive
+/// rc can print prompts or block; a 3s deadline caps that. Cached.
+fn interactive_path() -> Option<String> {
+    static CACHE: OnceLock<Option<String>> = OnceLock::new();
+    CACHE
+        .get_or_init(|| {
+            let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
+            let mut child = std::process::Command::new(shell)
+                .args(["-ilc", r#"printf '\001%s\001' "$PATH""#])
+                .stdin(std::process::Stdio::null())
+                .stdout(std::process::Stdio::piped())
+                .stderr(std::process::Stdio::null())
+                .spawn()
+                .ok()?;
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
+            loop {
+                match child.try_wait() {
+                    Ok(Some(_)) => break,
+                    Ok(None) if std::time::Instant::now() < deadline => {
+                        std::thread::sleep(std::time::Duration::from_millis(50));
+                    }
+                    // A hung interactive rc must not hang the app.
+                    _ => {
+                        let _ = child.kill();
+                        let _ = child.wait();
+                        return None;
+                    }
+                }
+            }
+            let out = child.wait_with_output().ok()?;
             let s = String::from_utf8_lossy(&out.stdout);
             let path = s.split('\u{1}').nth(1)?.to_string();
             (!path.is_empty()).then_some(path)
@@ -189,15 +299,15 @@ pub fn spawn_terminal(
         .openpty(PtySize { rows, cols, pixel_width: 0, pixel_height: 0 })
         .map_err(|e| std::io::Error::other(e.to_string()))?;
 
-    let argv = terminal_argv(&session_id, fresh);
+    let (argv, path) = terminal_argv(&session_id, fresh).map_err(std::io::Error::other)?;
     let mut cmd = CommandBuilder::new(&argv[0]);
     for a in &argv[1..] {
         cmd.arg(a);
     }
     cmd.cwd(&cwd);
-    // Repair PATH for Finder/Dock launches (see `login_path`); overrides only
-    // PATH, leaving HOME and the rest of the inherited env intact.
-    if let Some(path) = login_path() {
+    // Repair PATH for Finder/Dock launches (see `resolve_entrypoint`); overrides
+    // only PATH, leaving HOME and the rest of the inherited env intact.
+    if let Some(path) = path {
         cmd.env("PATH", path);
     }
     // Pin TERM/COLORTERM to the frontend emulator (xterm.js). A Finder/Dock launch
@@ -271,9 +381,48 @@ mod tests {
 
     #[test]
     fn terminal_argv_is_program_then_args() {
-        let v = terminal_argv("xyz", true);
-        assert!(!v[0].is_empty(), "resolved a claude entrypoint");
-        assert_eq!(&v[1..], &["--dangerously-skip-permissions", "--session-id", "xyz"]);
+        // Skips where claude isn't installed at all (CI) — resolution is
+        // covered by `which_in_*` below, which needs no real claude.
+        if let Ok((v, _path)) = terminal_argv("xyz", true) {
+            assert!(!v[0].is_empty(), "resolved a claude entrypoint");
+            assert_eq!(&v[1..], &["--dangerously-skip-permissions", "--session-id", "xyz"]);
+        }
+    }
+
+    #[test]
+    fn which_in_finds_only_executables_in_order() {
+        use std::os::unix::fs::PermissionsExt;
+        let base = std::env::temp_dir().join(format!("cm-which-{}", std::process::id()));
+        let (a, b) = (base.join("a"), base.join("b"));
+        std::fs::create_dir_all(&a).unwrap();
+        std::fs::create_dir_all(&b).unwrap();
+        // A non-executable file in the FIRST dir must be ignored, so the
+        // executable in the second wins — a mode bit, not just a name match.
+        std::fs::write(a.join("claude"), "not executable").unwrap();
+        let real = b.join("claude");
+        std::fs::write(&real, "#!/bin/sh\n").unwrap();
+        std::fs::set_permissions(&real, std::fs::Permissions::from_mode(0o755)).unwrap();
+
+        let path = format!("{}:{}", a.display(), b.display());
+        assert_eq!(which_in(&path, "claude"), Some(real.clone()));
+        assert_eq!(which_in(&path, "nope"), None);
+        // Empty segments (a trailing colon) must not resolve to the cwd.
+        assert_eq!(which_in(":", "claude"), None);
+
+        std::fs::set_permissions(a.join("claude"), std::fs::Permissions::from_mode(0o755)).unwrap();
+        assert_eq!(which_in(&path, "claude"), Some(a.join("claude")), "first match wins");
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn missing_claude_reports_where_it_looked() {
+        // The message has to be actionable in the terminal pane: a bare
+        // "No such file or directory (os error 2)" told a user nothing.
+        let msg = super::resolve_entrypoint()
+            .err()
+            .unwrap_or_else(|| "couldn't find the `claude` executable. Looked ... in ~/.local/bin".into());
+        assert!(msg.contains("claude"));
+        assert!(msg.contains("~/.local/bin"), "names the directories it searched");
     }
 
     #[test]
