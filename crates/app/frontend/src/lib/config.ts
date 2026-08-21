@@ -16,6 +16,8 @@ export interface Config {
     sidebarWidth: number;
     sidebarCollapsed: boolean;
     defaultTab: "manager" | "terminal";
+    /** Launch-only sidebar project filter: "" | `name:<n>` | `dir:<cwd>`. */
+    defaultProject: string;
   };
   integrations: {
     /** Publish live session state to session-status.json for other tools. */
@@ -33,6 +35,7 @@ export const DEFAULT_CONFIG: Config = {
     sidebarWidth: 320,
     sidebarCollapsed: false,
     defaultTab: "manager",
+    defaultProject: "",
   },
   integrations: { publishStatus: false },
 };

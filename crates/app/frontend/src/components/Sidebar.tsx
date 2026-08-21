@@ -20,6 +20,8 @@ import TagManager from "./TagManager";
 import GlobalFind from "./GlobalFind";
 import BookmarkBrowser from "./BookmarkBrowser";
 import { useSessionMeta } from "../hooks/useSessionMeta";
+import { useConfig } from "../hooks/useConfig";
+import { projectExists, projectGroups } from "../lib/filterMatch";
 import {
   entryTags,
   matchesSessionName,
@@ -70,6 +72,7 @@ export default function Sidebar({
   findActivate,
 }: Props) {
   const { meta, setAlias, setSessionTags } = useSessionMeta();
+  const { config, loaded: configLoaded } = useConfig();
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [draftAlias, setDraftAlias] = useState("");
   const [tagsFor, setTagsFor] = useState<SessionSummary | null>(null);
@@ -155,29 +158,28 @@ export default function Sidebar({
     return ids.size ? ids : null;
   }, [hoveredId, byId, childrenBySource, copiedChildrenBySource]);
 
-  // Sessions grouped by project name (basename), each with its distinct cwds.
-  // A group with >1 cwd is a "collision" and expands to per-directory options.
-  const projectGroups = useMemo(() => {
-    const byName = new Map<string, Set<string>>();
-    for (const s of sessions) {
-      const set = byName.get(s.project_label) ?? new Set<string>();
-      if (s.cwd) set.add(s.cwd);
-      byName.set(s.project_label, set);
-    }
-    return [...byName.entries()]
-      .map(([name, cwds]) => ({ name, cwds: [...cwds].sort() }))
-      .sort((a, b) => a.name.localeCompare(b.name));
-  }, [sessions]);
+  const groups = useMemo(() => projectGroups(sessions), [sessions]);
+
+  // Launch-only default project (Settings). Applied once, after BOTH the config
+  // and the session list exist: the value is only meaningful against real
+  // projects, and one whose sessions are gone must not silently empty the list.
+  const didInitProject = useRef(false);
+  useEffect(() => {
+    if (!configLoaded || didInitProject.current || sessions.length === 0) return;
+    didInitProject.current = true;
+    const d = config.ui.defaultProject;
+    if (d && projectExists(d, groups)) setFilter(d);
+  }, [configLoaded, sessions.length, config.ui.defaultProject, groups]);
 
   // The concrete cwd implied by the current project filter, if any.
   const selectedCwd = useMemo(() => {
     if (filter.startsWith("dir:")) return filter.slice(4);
     if (filter.startsWith("name:")) {
-      const g = projectGroups.find((x) => x.name === filter.slice(5));
+      const g = groups.find((x) => x.name === filter.slice(5));
       return g && g.cwds.length === 1 ? g.cwds[0] : null;
     }
     return null;
-  }, [filter, projectGroups]);
+  }, [filter, groups]);
 
   const createSession = async (cwd: string) => {
     const c = cwd.trim();
@@ -383,7 +385,7 @@ export default function Sidebar({
             </div>
           )}
           <SessionFilters
-            groups={projectGroups}
+            groups={groups}
             project={filter}
             setProject={setFilter}
             dateRange={dateRange}

@@ -11,3 +11,4 @@
 - [x] sync current running status properly with sketchybar
 - [x] improve and consolidate UX of projects/time/tags selectors
 - [x] the currently selected session in the sidebar, can have a better accent, currently it is faint
+- [x] in settings panel, add default project option

@@ -1,6 +1,10 @@
-import { useEffect, type ReactNode } from "react";
+import { useEffect, useMemo, type ReactNode } from "react";
 import { useConfig } from "../hooks/useConfig";
 import { THEME_LIST, UI_FONTS, MONO_FONTS } from "../lib/config";
+import { useSessions } from "../hooks/useSessions";
+import { matchProjectGroups, projectGroups } from "../lib/filterMatch";
+import Dropdown from "./Dropdown";
+import FilterMenu, { type MenuItem } from "./FilterMenu";
 
 /** Settings overlay: theme, typography, and behavior defaults. Every control
  *  applies live via setConfig (which persists + broadcasts to other windows). */
@@ -8,6 +12,16 @@ export default function Settings({ onClose }: { onClose: () => void }) {
   const { config, setConfig } = useConfig();
   const t = config.typography;
   const ui = config.ui;
+  // The same session list the sidebar groups — served from the shared cache,
+  // so opening Settings costs no extra scan.
+  const { sessions } = useSessions();
+  const groups = useMemo(() => projectGroups(sessions), [sessions]);
+  const defaultProjectLabel = useMemo(() => {
+    const v = ui.defaultProject;
+    if (v.startsWith("name:")) return v.slice(5);
+    if (v.startsWith("dir:")) return v.slice(4).replace(/^\/Users\/[^/]+/, "~");
+    return "None";
+  }, [ui.defaultProject]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -113,6 +127,67 @@ export default function Settings({ onClose }: { onClose: () => void }) {
               ]}
               onChange={(v) => setConfig({ ui: { defaultTab: v as "manager" | "terminal" } })}
             />
+          </Row>
+          <Row label="Default project on launch">
+            <Dropdown
+              align="right"
+              trigger={defaultProjectLabel}
+              title="Sidebar starts filtered to this project"
+              triggerClassName={`text-xs px-1.5 py-1 rounded border outline-none max-w-48 truncate ${
+                ui.defaultProject
+                  ? "border-[var(--color-accent)] text-[var(--color-accent)]"
+                  : "border-[var(--color-border)] text-[var(--color-text)] bg-[var(--color-bg)]"
+              }`}
+            >
+              {(close) => (
+                <FilterMenu
+                  close={close}
+                  search={{ placeholder: "Filter projects…" }}
+                  empty="No projects match"
+                  items={(q) => {
+                    const out: MenuItem[] = [];
+                    if (!q.trim()) {
+                      out.push({
+                        key: "__none__",
+                        node: "None",
+                        selected: ui.defaultProject === "",
+                        onSelect: () => {
+                          setConfig({ ui: { defaultProject: "" } });
+                          close();
+                        },
+                      });
+                    }
+                    for (const g of matchProjectGroups(groups, q)) {
+                      const pick = (value: string) => () => {
+                        setConfig({ ui: { defaultProject: value } });
+                        close();
+                      };
+                      if (g.cwds.length > 1) {
+                        g.cwds.forEach((c, i) => {
+                          out.push({
+                            key: `dir:${c}`,
+                            node: c.replace(/^\/Users\/[^/]+/, "~"),
+                            title: c,
+                            section: i === 0 ? g.name : undefined,
+                            selected: ui.defaultProject === `dir:${c}`,
+                            onSelect: pick(`dir:${c}`),
+                          });
+                        });
+                      } else {
+                        out.push({
+                          key: `name:${g.name}`,
+                          node: g.name,
+                          title: g.cwds[0],
+                          selected: ui.defaultProject === `name:${g.name}`,
+                          onSelect: pick(`name:${g.name}`),
+                        });
+                      }
+                    }
+                    return out;
+                  }}
+                />
+              )}
+            </Dropdown>
           </Row>
           <CheckRow
             label="Compact transcript"

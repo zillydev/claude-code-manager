@@ -61,6 +61,10 @@ pub struct Ui {
     pub sidebar_collapsed: bool,
     #[serde(default = "default_tab")]
     pub default_tab: String,
+    /// Launch-only project filter: "" (all) | `name:<name>` | `dir:<cwd>`,
+    /// the same encoding the sidebar's filter uses.
+    #[serde(default)]
+    pub default_project: String,
 }
 
 fn default_version() -> u32 {
@@ -117,6 +121,7 @@ impl Default for Ui {
             sidebar_width: default_sidebar_width(),
             sidebar_collapsed: false,
             default_tab: default_tab(),
+            default_project: String::new(),
         }
     }
 }
@@ -200,6 +205,18 @@ pub fn save(cfg: &Config) -> std::io::Result<()> {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn default_project_is_empty_and_round_trips() {
+        let c: Config = serde_json::from_str("{}").unwrap();
+        assert_eq!(c.ui.default_project, "", "no default project out of the box");
+
+        let c: Config =
+            serde_json::from_str(r#"{"ui":{"defaultProject":"name:mono"}}"#).unwrap();
+        assert_eq!(c.ui.default_project, "name:mono");
+        assert!(serde_json::to_string(&c).unwrap().contains("\"defaultProject\":\"name:mono\""));
+    }
+
 
     #[test]
     fn integrations_default_off_and_round_trip() {

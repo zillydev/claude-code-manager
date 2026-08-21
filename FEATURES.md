@@ -78,7 +78,7 @@ A tool to browse, search, edit, compact, harvest, and resume Claude Code session
 
 ## Customization
 
-- **Settings panel** (`⚙` in the sidebar header, or `⌘,`) backed by a JSON config file — location resolves `$CLAUDE_CODE_MANAGER_CONFIG_DIR` → `$XDG_CONFIG_HOME/claude-code-manager` → `~/.config/claude-code-manager` (`config.json`). Covers **theme** (GitHub Dark / Light), **typography** (font size 12–18 via the root rem; a `compact` density that shrinks Tailwind's `--spacing` token globally; UI + Mono font choices — presets or a custom family, the mono font also re-applied to the live terminal), and **behavior** (compact / details / sidebar width + collapsed are set-and-stick config; a launch-only default tab). Changes apply live and broadcast to every window. → `2026-06-28-ui-customization-design`
+- **Settings panel** (`⚙` in the sidebar header, or `⌘,`) backed by a JSON config file — location resolves `$CLAUDE_CODE_MANAGER_CONFIG_DIR` → `$XDG_CONFIG_HOME/claude-code-manager` → `~/.config/claude-code-manager` (`config.json`). Covers **theme** (GitHub Dark / Light), **typography** (font size 12–18 via the root rem; a `compact` density that shrinks Tailwind's `--spacing` token globally; UI + Mono font choices — presets or a custom family, the mono font also re-applied to the live terminal), and **behavior** (compact / details / sidebar width + collapsed are set-and-stick config; launch-only defaults for the tab and for the sidebar's **project filter** — picked from the same searchable project menu the sidebar uses, and ignored at launch if that project no longer has sessions). Changes apply live and broadcast to every window. → `2026-06-28-ui-customization-design`
 
 ## Feedback
 
