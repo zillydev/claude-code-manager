@@ -12,6 +12,7 @@ import {
   X,
 } from "lucide-react";
 import Dropdown, { menuItemClass, ConfirmMenuItem } from "./Dropdown";
+import SessionFilters from "./SessionFilters";
 import TagChip from "./TagChip";
 import TagEditor from "./TagEditor";
 import NoteEditor from "./NoteEditor";
@@ -20,7 +21,6 @@ import GlobalFind from "./GlobalFind";
 import BookmarkBrowser from "./BookmarkBrowser";
 import { useSessionMeta } from "../hooks/useSessionMeta";
 import {
-  archivedTags,
   entryTags,
   matchesSessionName,
   matchesTagFilter,
@@ -83,9 +83,6 @@ export default function Sidebar({
   const [newErr, setNewErr] = useState<string | null>(null);
   const [dateRange, setDateRange] = useState<DateRange>("all");
   const [tagFilter, setTagFilter] = useState<Set<string>>(new Set());
-  // "Show archived" inside the tag-filter menu — per-open, so it's temporary:
-  // reset whenever the menu opens (via the Dropdown's render prop mount).
-  const [filterShowArchived, setFilterShowArchived] = useState(false);
   // Keep the filter inside the registry. A tag deleted or renamed in Manage
   // Tags — here or in another window — would otherwise leave a name selected
   // that matches nothing, emptying the list with its row gone from the menu.
@@ -351,7 +348,7 @@ export default function Sidebar({
             + New
           </button>
           {newOpen && (
-            <div className="absolute top-full left-0 mt-1 z-30 w-64 p-2 rounded border border-[var(--color-border)] bg-[var(--color-surface)] shadow-lg space-y-2">
+            <div className="absolute top-full left-0 right-0 mt-1 z-30 p-2 rounded border border-[var(--color-border)] bg-[var(--color-surface)] shadow-lg space-y-2">
               {selectedCwd && (
                 <button
                   onClick={() => createSession(selectedCwd)}
@@ -385,147 +382,18 @@ export default function Sidebar({
               {newErr && <div className="text-[var(--color-error)] text-[10px]">{newErr}</div>}
             </div>
           )}
-          <select
-            value={filter}
-            onChange={(e) => setFilter(e.target.value)}
-            className="bg-[var(--color-bg)] text-[var(--color-text)] text-xs px-1.5 py-1 rounded border border-[var(--color-border)] outline-none max-w-40 truncate"
-          >
-            <option value="">All projects</option>
-            {projectGroups.map((g) =>
-              g.cwds.length > 1 ? (
-                <optgroup key={g.name} label={g.name}>
-                  {g.cwds.map((c) => (
-                    <option key={c} value={`dir:${c}`}>
-                      {shortenPath(c)}
-                    </option>
-                  ))}
-                </optgroup>
-              ) : (
-                <option key={g.name} value={`name:${g.name}`}>
-                  {g.name}
-                </option>
-              )
-            )}
-          </select>
-
-          <select
-            value={dateRange}
-            onChange={(e) => setDateRange(e.target.value as DateRange)}
-            className="bg-[var(--color-bg)] text-[var(--color-text)] text-xs px-1.5 py-1 rounded border border-[var(--color-border)] outline-none"
-          >
-            <option value="all">All time</option>
-            <option value="today">Today</option>
-            <option value="week">This week</option>
-            <option value="month">This month</option>
-          </select>
-
-          {/* Always shown, even with no tags yet: the menu's "Manage tags…" is
-              where the first one gets created, so hiding the button hid the
-              entry point to the feature. */}
-          <Dropdown
-              onOpenChange={(o) => { if (o) setFilterShowArchived(false); }}
-              trigger={tagFilter.size > 0 ? `tags · ${tagFilter.size}` : "tags"}
-              title="Filter by tag"
-              triggerClassName={`text-xs px-1.5 py-1 rounded border outline-none ${
-                tagFilter.size > 0
-                  ? "border-[var(--color-accent)] text-[var(--color-accent)]"
-                  : "border-[var(--color-border)] text-[var(--color-text)] bg-[var(--color-bg)]"
-              }`}
-            >
-              {(close) => (
-                <>
-                  {/* Active tags first. Archived tags render in their OWN
-                      section below a divider — when revealed, or for any
-                      archived tag that is currently SELECTED (so it can always
-                      be unselected without hunting for the reveal). */}
-                  {(() => {
-                    const row = (t: (typeof meta.tags)[number]) => {
-                      const on = tagFilter.has(t.name);
-                      return (
-                        <button
-                          key={t.name}
-                          role="menuitem"
-                          className={`${menuItemClass} flex items-center gap-2 ${
-                            t.archived ? "opacity-60" : ""
-                          }`}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setTagFilter((prev) => {
-                              const next = new Set(prev);
-                              if (next.has(t.name)) next.delete(t.name);
-                              else next.add(t.name);
-                              return next;
-                            });
-                          }}
-                        >
-                          <span className={on ? "" : "opacity-0"}>✓</span>
-                          <TagChip name={t.name} color={t.color} />
-                        </button>
-                      );
-                    };
-                    const active = meta.tags.filter((t) => !t.archived);
-                    const archivedShown = meta.tags.filter(
-                      (t) => t.archived && (filterShowArchived || tagFilter.has(t.name)),
-                    );
-                    return (
-                      <>
-                        {active.map(row)}
-                        {archivedShown.length > 0 && (
-                          <>
-                            <div className="mt-1 border-t border-[var(--color-border)] px-3 pt-1.5 pb-0.5 text-[10px] uppercase tracking-wide text-[var(--color-text-dim)]">
-                              Archived
-                            </div>
-                            {archivedShown.map(row)}
-                          </>
-                        )}
-                      </>
-                    );
-                  })()}
-                  {meta.tags.length === 0 && (
-                    <div className="px-3 py-1.5 text-[11px] text-[var(--color-text-dim)]">
-                      No tags yet
-                    </div>
-                  )}
-                  {archivedTags(meta).length > 0 && (
-                    <button
-                      role="menuitem"
-                      className={`${menuItemClass} text-[var(--color-text-dim)]`}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setFilterShowArchived((v) => !v);
-                      }}
-                    >
-                      {filterShowArchived
-                        ? "Hide archived"
-                        : `Show archived (${archivedTags(meta).length})`}
-                    </button>
-                  )}
-                  {tagFilter.size > 0 && (
-                    <button
-                      role="menuitem"
-                      className={`${menuItemClass} text-[var(--color-text-dim)]`}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setTagFilter(new Set());
-                      }}
-                    >
-                      Clear filter
-                    </button>
-                  )}
-                  <button
-                    role="menuitem"
-                    className={`${menuItemClass} mt-1 border-t border-[var(--color-border)] pt-1.5 text-[var(--color-accent)]`}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      close();
-                      setManageTags(true);
-                    }}
-                  >
-                    Manage tags…
-                  </button>
-                </>
-              )}
-            </Dropdown>
+          <SessionFilters
+            groups={projectGroups}
+            project={filter}
+            setProject={setFilter}
+            dateRange={dateRange}
+            setDateRange={setDateRange}
+            tagFilter={tagFilter}
+            setTagFilter={setTagFilter}
+            meta={meta}
+            onManageTags={() => setManageTags(true)}
+            shortenPath={shortenPath}
+          />
         </div>
       </div>
 

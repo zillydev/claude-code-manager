@@ -11,6 +11,7 @@ export default function Dropdown({
   trigger,
   title,
   align = "left",
+  fullWidth = false,
   disabled = false,
   triggerClassName = "",
   onOpenChange,
@@ -19,6 +20,10 @@ export default function Dropdown({
   trigger: ReactNode;
   title?: string;
   align?: "left" | "right";
+  /** Stretch the menu across the nearest positioned ancestor instead of
+   *  anchoring it to the trigger — for menus inside a narrow container (the
+   *  sidebar), where a trigger-anchored menu of fixed width spills outside it. */
+  fullWidth?: boolean;
   disabled?: boolean;
   triggerClassName?: string;
   /** Observe open/close — e.g. to reset per-open state like "show archived". */
@@ -51,7 +56,9 @@ export default function Dropdown({
   }, [open, close]);
 
   return (
-    <div className="relative" ref={ref}>
+    // `static` under fullWidth so the menu resolves against the container
+    // (the filters row), not this wrapper.
+    <div className={fullWidth ? "static" : "relative"} ref={ref}>
       <button
         type="button"
         onClick={(e) => {
@@ -69,7 +76,9 @@ export default function Dropdown({
       {open && (
         <div
           role="menu"
-          className={`absolute ${align === "right" ? "right-0" : "left-0"} top-full mt-1 z-30 min-w-32 rounded border border-[var(--color-border)] bg-[var(--color-surface)] py-1 shadow-lg`}
+          className={`absolute top-full mt-1 z-30 rounded border border-[var(--color-border)] bg-[var(--color-surface)] py-1 shadow-lg ${
+            fullWidth ? "left-0 right-0" : `${align === "right" ? "right-0" : "left-0"} min-w-32`
+          }`}
         >
           {children(close)}
         </div>
