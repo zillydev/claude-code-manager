@@ -775,6 +775,7 @@ mod render_tests {
             cwd: None,
             git_branch: None,
             forked_from: None,
+            interrupted_message_id: None,
         })
     }
 
@@ -840,6 +841,7 @@ mod render_tests {
             cwd: None,
             git_branch: None,
             forked_from: None,
+            interrupted_message_id: None,
         })
     }
 
@@ -1063,6 +1065,7 @@ mod render_tests {
             cwd: None,
             git_branch: None,
             forked_from: None,
+            interrupted_message_id: None,
         });
         let r = render_session(&sess(vec![
             uev(

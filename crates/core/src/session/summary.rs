@@ -295,6 +295,7 @@ mod tests {
             },
             tool_use_result: None,
             cwd: None, git_branch: None, forked_from: None,
+            interrupted_message_id: None,
         })
     }
 

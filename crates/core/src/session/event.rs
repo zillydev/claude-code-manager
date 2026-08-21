@@ -53,6 +53,12 @@ pub struct UserEvent {
     /// from (also written by claude-code-manager's own copy-on-edit; see `edit::commit`).
     #[serde(default, rename = "forkedFrom")]
     pub forked_from: Option<ForkedFrom>,
+    /// Set when this user line records an INTERRUPT (Esc / "for tool use"):
+    /// the id of the assistant message it cut short. Its presence is the
+    /// structural signal that claude stopped and the turn is the user's again —
+    /// the `[Request interrupted by user]` text is just its rendering.
+    #[serde(default, rename = "interruptedMessageId")]
+    pub interrupted_message_id: Option<String>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, Deserialize)]
@@ -366,6 +372,12 @@ impl Event {
     /// can't read differently depending on which one ran.
     pub fn awaits_user(&self) -> bool {
         match self {
+            // An interrupt ends the turn as surely as `end_turn` does: claude
+            // stopped and the user is back in control. Without this the line
+            // reads as an ordinary user turn — i.e. "claude is working" — and
+            // a cancelled session showed as running indefinitely (the more so
+            // once hosted sessions stopped relying on the staleness backstop).
+            Event::User(u) if !u.is_sidechain && u.interrupted_message_id.is_some() => true,
             Event::Assistant(a) if !a.is_sidechain => {
                 a.message.stop_reason.as_deref() == Some("end_turn")
                     || a.message.content.iter().any(|b| {
@@ -496,6 +508,22 @@ mod tests {
         let line = r#"{"type":"some-future-type","x":1}"#;
         let ev: Event = serde_json::from_str(line).unwrap();
         assert!(matches!(ev, Event::Unknown));
+    }
+
+    #[test]
+    fn an_interrupted_user_line_awaits_the_user() {
+        // Real shape: Esc mid-turn writes a USER line carrying
+        // `interruptedMessageId`. Without it this reads as an ordinary user
+        // turn (claude working) and a cancelled session shows as running.
+        let line = r#"{"type":"user","uuid":"00000000-0000-0000-0000-0000000000e1","parentUuid":"00000000-0000-0000-0000-0000000000e0","timestamp":"2026-08-20T23:28:34.090Z","isSidechain":false,"interruptedMessageId":"msg_x","message":{"role":"user","content":[{"type":"text","text":"[Request interrupted by user]"}]}}"#;
+        let ev: Event = serde_json::from_str(line).unwrap();
+        assert!(ev.awaits_user(), "an interrupt hands the turn back to the user");
+        assert!(ev.is_activity_turn(), "and it is still a real turn");
+
+        // An ordinary prompt does NOT await the user — claude is now working.
+        let line = r#"{"type":"user","uuid":"00000000-0000-0000-0000-0000000000e2","timestamp":"2026-08-20T23:28:35.090Z","isSidechain":false,"message":{"role":"user","content":"do the thing"}}"#;
+        let ev: Event = serde_json::from_str(line).unwrap();
+        assert!(!ev.awaits_user());
     }
 
     #[test]
