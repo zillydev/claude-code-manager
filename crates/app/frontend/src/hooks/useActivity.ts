@@ -2,11 +2,17 @@ import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 
-type Activity = { id: string; last_event_at: number; awaiting_input: boolean };
-export type LiveActivity = { at: number; awaiting: boolean };
+type Activity = {
+  id: string;
+  last_event_at: number;
+  awaiting_input: boolean;
+  /** ccm is running this session's claude process (live PTY in a terminal tab). */
+  hosted: boolean;
+};
+export type LiveActivity = { at: number; awaiting: boolean; hosted: boolean };
 
 const toMap = (rows: Activity[]): Map<string, LiveActivity> =>
-  new Map(rows.map((r) => [r.id, { at: r.last_event_at, awaiting: r.awaiting_input }]));
+  new Map(rows.map((r) => [r.id, { at: r.last_event_at, awaiting: r.awaiting_input, hosted: r.hosted }]));
 
 /**
  * Live per-session activity, pushed by the single backend poller (one scan

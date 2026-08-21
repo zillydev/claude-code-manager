@@ -472,6 +472,11 @@ pub struct SessionActivity {
     /// Whether the session's last turn is a completed assistant turn (claude is
     /// done). Distinguishes a thinking pause (still running) from "unread".
     pub awaiting_input: bool,
+    /// ccm is running this session's `claude` process (a live PTY in a terminal
+    /// tab). Then liveness is known rather than inferred, so consumers skip the
+    /// staleness backstop — a 20-minute tool call is still "running".
+    #[serde(default)]
+    pub hosted: bool,
 }
 
 /// The sidebar "running"/"unread" signal, served from the `Shared` cache that

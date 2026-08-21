@@ -100,7 +100,55 @@ pub fn run() {
                     Some(r) => r,
                     None => continue,
                 };
-                let outcome = handle.state::<shared::Shared>().poll(&root);
+                let mut outcome = handle.state::<shared::Shared>().poll(&root);
+
+                // Which sessions ccm is running itself. Known here (the poller
+                // owns no state but can reach both pools), and nowhere else:
+                // the activity scan only sees files, not processes.
+                let hosted_labels: Vec<(String, String)> = handle
+                    .state::<Mutex<terminal::TerminalState>>()
+                    .lock()
+                    .map(|g| g.hosted())
+                    .unwrap_or_default();
+
+                // Stamp `hosted` on the scanned rows, and mint rows for hosted
+                // sessions the scan skipped — it only tail-reads files touched
+                // in the last 60s, and a session mid-way through a long tool
+                // call writes nothing, which is exactly when its indicator
+                // must stay lit.
+                if !hosted_labels.is_empty() {
+                    let hosted_ids: std::collections::BTreeSet<&str> =
+                        hosted_labels.iter().map(|(id, _)| id.as_str()).collect();
+                    for a in outcome.activity.iter_mut() {
+                        a.hosted = hosted_ids.contains(a.id.as_str());
+                    }
+                    let have: std::collections::BTreeSet<String> =
+                        outcome.activity.iter().map(|a| a.id.clone()).collect();
+                    let missing: Vec<&str> = hosted_ids
+                        .iter()
+                        .copied()
+                        .filter(|id| !have.contains(*id))
+                        .collect();
+                    if !missing.is_empty() {
+                        let sessions =
+                            handle.state::<shared::Shared>().sessions(&root).unwrap_or_default();
+                        for s in sessions.iter().filter(|s| missing.contains(&s.id.to_string().as_str()))
+                        {
+                            let Some(at) = s.last_event_at else { continue };
+                            outcome.activity.push(commands::SessionActivity {
+                                id: s.id.to_string(),
+                                last_event_at: at
+                                    .duration_since(std::time::UNIX_EPOCH)
+                                    .map(|d| d.as_secs() as i64)
+                                    .unwrap_or(0),
+                                awaiting_input: s.awaiting_input,
+                                hosted: true,
+                            });
+                        }
+                    }
+                    handle.state::<shared::Shared>().set_activity(outcome.activity.clone());
+                }
+
                 let _ = handle.emit("activity-updated", &outcome.activity);
                 if outcome.sessions_changed {
                     let _ = handle.emit("sessions-changed", ());

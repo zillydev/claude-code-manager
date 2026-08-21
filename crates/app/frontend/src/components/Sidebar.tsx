@@ -444,7 +444,13 @@ export default function Sidebar({
             // No view history (never opened) ⇒ not unread, else every session floods
             // unread on first launch. Baseline to the session's own last event so only
             // sessions you've opened (which persist a real lastViewed) can go unread.
-            const status = deriveStatus(liveEventAt, awaiting, lastViewed[s.id] ?? liveEventAt ?? 0, now);
+            const status = deriveStatus(
+              liveEventAt,
+              awaiting,
+              lastViewed[s.id] ?? liveEventAt ?? 0,
+              now,
+              act?.hosted ?? false,
+            );
             // You're looking at the open session — never flag it unread.
             const unread = status.unread && s.id !== activeId;
             return (

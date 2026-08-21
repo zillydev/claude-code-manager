@@ -19,6 +19,13 @@ describe("deriveStatus", () => {
   it("never unread while mid-turn, however far it has advanced", () => {
     expect(deriveStatus(1000, false, 0, 9999).unread).toBe(false);
   });
+  it("a hosted session stays running however long a tool call runs", () => {
+    // ccm holds the PTY, so it KNOWS the process is alive — the staleness
+    // guess (which a long build or CI poll trips) must not apply.
+    expect(deriveStatus(1000, false, 0, 1000 + 3600, true).running).toBe(true);
+    // …but a finished turn still ends "running" at once, hosted or not.
+    expect(deriveStatus(1000, true, 0, 1001, true).running).toBe(false);
+  });
   it("neither when there are no events", () => {
     expect(deriveStatus(null, false, 0, 9999)).toEqual({ running: false, unread: false });
   });

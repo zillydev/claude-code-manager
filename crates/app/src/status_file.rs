@@ -20,6 +20,10 @@ use crate::commands::SessionActivity;
 /// generous so a long thinking pause (which writes nothing) doesn't drop it.
 /// Mirrors the frontend's `RUNNING_STALE_SECS`; a completed turn ends "running"
 /// at once regardless.
+///
+/// It is only a guess at "the process died mid-turn": a long tool call (a
+/// build, a CI poll) writes nothing for minutes and is still running. Hosted
+/// sessions skip it entirely — ccm holds their PTY, so liveness is known.
 pub const RUNNING_STALE_SECS: i64 = 180;
 
 /// Schema version of the published file. Bump on any incompatible change —
@@ -87,7 +91,8 @@ pub fn desired_state(input: Inputs<'_>) -> StatusFile {
             },
         };
         let hosted = input.hosted.get(&id);
-        let running = !awaiting && input.now - last_event_at < RUNNING_STALE_SECS;
+        let running = !awaiting
+            && (hosted.is_some() || input.now - last_event_at < RUNNING_STALE_SECS);
         let unread = awaiting && input.last_viewed.get(&id).is_some_and(|v| last_event_at > *v);
 
         if !running && !unread && hosted.is_none() {
@@ -187,7 +192,7 @@ mod tests {
         }
     }
     fn act(id: &str, last: i64, awaiting: bool) -> SessionActivity {
-        SessionActivity { id: id.into(), last_event_at: last, awaiting_input: awaiting }
+        SessionActivity { id: id.into(), last_event_at: last, awaiting_input: awaiting, hosted: false }
     }
 
     #[test]
@@ -255,7 +260,10 @@ mod tests {
     }
 
     #[test]
-    fn a_hosted_stale_session_is_still_reported() {
+    fn a_hosted_session_stays_running_through_a_long_tool_call() {
+        // Mid-turn and silent far past the backstop, but ccm holds its PTY —
+        // liveness is known, so the guess doesn't apply (a 20-minute build
+        // used to drop the indicator).
         let sessions = vec![summary(A, "t", NOW - 99_999, false)];
         let hosted = BTreeMap::from([(A.to_string(), Some(1))]);
         let out = desired_state(Inputs {
@@ -265,7 +273,21 @@ mod tests {
             last_viewed: &BTreeMap::new(),
             now: NOW,
         });
-        assert_eq!(out.sessions[A].state, "idle", "not running, not awaiting → idle");
+        assert_eq!(out.sessions[A].state, "running");
+    }
+
+    #[test]
+    fn a_hosted_session_that_finished_is_not_running() {
+        let sessions = vec![summary(A, "t", NOW - 99_999, true)];
+        let hosted = BTreeMap::from([(A.to_string(), Some(1))]);
+        let out = desired_state(Inputs {
+            activity: &[],
+            sessions: &sessions,
+            hosted: &hosted,
+            last_viewed: &BTreeMap::new(),
+            now: NOW,
+        });
+        assert_eq!(out.sessions[A].state, "idle", "awaiting → never running");
     }
 
     #[test]

@@ -56,6 +56,13 @@ impl Shared {
         self.data.lock().unwrap().activity.clone()
     }
 
+    /// Replace the cached activity — the poller calls this after stamping
+    /// `hosted` (which only it can know, from the terminal pool) so every
+    /// window's `session_activity` fetch sees the same augmented rows.
+    pub fn set_activity(&self, activity: Vec<SessionActivity>) {
+        self.data.lock().unwrap().activity = activity;
+    }
+
     /// Merge a window's map, keeping the per-session maximum — windows report
     /// independently and none is authoritative, so "most recently seen" wins.
     pub fn merge_last_viewed(&self, incoming: std::collections::BTreeMap<String, i64>) {
@@ -84,6 +91,7 @@ impl Shared {
                     .map(|d| d.as_secs() as i64)
                     .unwrap_or(0),
                 awaiting_input: awaiting,
+                hosted: false, // filled in by the poller, which knows the PTY pool
             })
             .collect();
         self.data.lock().unwrap().activity = activity.clone();
