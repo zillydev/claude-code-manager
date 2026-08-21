@@ -45,9 +45,11 @@ Claude Code stores every session as a JSON-lines file under `~/.claude/projects/
 
 ```bash
 brew tap zillydev/tap
-brew trust zillydev/tap        # Homebrew won't load casks from a third-party tap until you trust it
+brew trust zillydev/tap
 brew install --cask claude-code-manager
 ```
+
+`brew trust` is needed because Homebrew won't load casks from a third-party tap until you trust it.
 
 The cask clears the quarantine flag for you (see the note below on signing), so the app opens straight away. `brew upgrade --cask claude-code-manager` updates it; `brew uninstall --cask --zap claude-code-manager` removes it along with its config.
 
@@ -70,18 +72,17 @@ Building locally produces no quarantine attribute, so there's nothing to clear:
 ```bash
 git clone https://github.com/zillydev/claude-code-manager.git
 cd claude-code-manager
-
-make install   # builds the macOS app and installs it to /Applications
+make install
 ```
 
-Other entry points:
+`make install` builds the macOS app and installs it to `/Applications`. Other entry points:
 
-```bash
-make dev       # run the app in dev mode (Vite HMR; PORT=3000 to change port)
-make app       # build the .app/.dmg bundle without installing
-make build     # compile everything (no bundle) — the CI check
-make test      # run the Rust test suite
-```
+| | |
+| --- | --- |
+| `make dev` | run the app in dev mode (Vite HMR; `PORT=3000` to change port) |
+| `make app` | build the `.app`/`.dmg` bundle without installing |
+| `make build` | compile everything (no bundle) — the CI check |
+| `make test` | run the Rust test suite |
 
 ## Configuration
 
@@ -134,8 +135,10 @@ To use them, symlink into your skills directory and make the binary reachable:
 
 ```bash
 ln -s "$PWD/skills/session-surgery" ~/.claude/skills/session-surgery
-cargo install --path crates/cli        # puts `claude-code-manager` on PATH
+cargo install --path crates/cli
 ```
+
+The `cargo install` puts the `claude-code-manager` binary on your PATH, which is what the skills call.
 
 ## Architecture
 
@@ -152,12 +155,16 @@ A Cargo workspace. All session logic lives in `core`, so the app and the CLI can
 ## Development
 
 ```bash
-cargo test                                  # Rust
-cargo clippy --workspace --all-targets      # lints (CI enforces -D warnings)
-
-cd crates/app/frontend
-npx tsc --noEmit && npx vitest run          # frontend typecheck + tests
+cargo test
+cargo clippy --workspace --all-targets
 ```
+
+```bash
+cd crates/app/frontend
+npx tsc --noEmit && npx vitest run
+```
+
+CI runs exactly these: the Rust tests, clippy with `-D warnings`, and the frontend typecheck + tests.
 
 The codebase is deliberately hand-formatted, so `cargo fmt` is **not** enforced.
 
