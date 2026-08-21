@@ -190,19 +190,25 @@ export default function App() {
   }, [target?.sessionId, target?.filePath, target?.projectLabel, open, close, refresh, setLastViewed]);
 
   // While a session is open IN A FOCUSED WINDOW, keep its last-viewed time
-  // abreast of incoming turns, so live-tailed content you are actually watching
-  // isn't flagged unread. Gated on focus: a reply landing in a window you left
-  // behind on another Space is genuinely unread, and marking it read there was
-  // the reason such sessions never lit up. Re-runs when focus returns, so
-  // coming back to the window clears it.
+  // current, so live-tailed content you are actually watching isn't flagged
+  // unread. Gated on focus: a reply landing in a window you left behind on
+  // another Space is genuinely unread, and marking it read there was the
+  // reason such sessions never lit up. Re-runs when focus returns, so coming
+  // back to the window clears it.
+  //
+  // The time to mark seen falls back to the session's own last event, because
+  // `activity` only carries sessions whose file was written in the last 60s: a
+  // session that has gone quiet isn't in the map at all, and keying on it alone
+  // left such a session unread forever — no amount of looking at it could
+  // advance the mark. Marking the last event (not `now`) keeps this idempotent:
+  // once caught up it stops writing, instead of touching storage every tick.
   useEffect(() => {
     if (!target || !windowFocused) return;
-    const live = activity.get(target.sessionId)?.at;
-    if (live == null) return;
-    setLastViewed((m) =>
-      live > (m[target.sessionId] ?? 0) ? { ...m, [target.sessionId]: live } : m,
-    );
-  }, [activity, target, windowFocused, setLastViewed]);
+    const summary = sessions.find((s) => s.id === target.sessionId);
+    const seen = activity.get(target.sessionId)?.at ?? summary?.last_event_at?.secs_since_epoch;
+    if (seen == null) return;
+    setLastViewed((m) => (seen > (m[target.sessionId] ?? 0) ? { ...m, [target.sessionId]: seen } : m));
+  }, [activity, sessions, target, windowFocused, setLastViewed]);
 
   const dragging = useRef(false);
   const startX = useRef(0);
