@@ -107,6 +107,12 @@ export type RenderedTurn =
       summary: string;
       result: string;
     }
+  | {
+      type: "api_error";
+      timestamp: string | null;
+      /** Claude Code's failure text, e.g. "Prompt is too long". */
+      text: string;
+    }
   | { type: "compaction"; messages_before: number };
 
 export type RenderedBlock =

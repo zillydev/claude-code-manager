@@ -279,6 +279,7 @@ mod tests {
                 }),
             },
             cwd: None, git_branch: None, forked_from: None,
+            is_api_error: false,
         })
     }
 
@@ -561,6 +562,7 @@ mod tests {
             cwd: None,
             git_branch: None,
             forked_from: None,
+            is_api_error: false,
         });
         let s = summarize(
             &[ev],

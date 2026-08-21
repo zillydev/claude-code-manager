@@ -78,6 +78,12 @@ pub struct AssistantEvent {
     pub git_branch: Option<String>,
     #[serde(default, rename = "forkedFrom")]
     pub forked_from: Option<ForkedFrom>,
+    /// Claude Code writes API failures ("Prompt is too long", "API Error: 529
+    /// Overloaded") as a SYNTHETIC assistant line with this set. It is not a
+    /// model turn, but it does end one: nothing further happens until the user
+    /// acts.
+    #[serde(default, rename = "isApiErrorMessage")]
+    pub is_api_error: bool,
 }
 
 /// Fork provenance recorded on a copied message line. Claude Code's `/branch` and
@@ -358,11 +364,12 @@ impl Event {
     /// meta turns. Sidechain (sub-agent) turns DO count — that's claude working.
     /// Whether this turn leaves the conversation waiting on the USER.
     ///
-    /// True for a completed main-thread assistant turn (`end_turn`), and for one
-    /// parked on a [user-blocking tool](USER_BLOCKING_TOOLS) — those stop with
-    /// `tool_use`, not `end_turn`, so without this they read as claude still
-    /// working: "running" until the staleness window expires, then no indicator
-    /// at all, in the one state that most needs one.
+    /// True for an assistant turn that ENDED — any `stop_reason` other than the
+    /// ones that continue the turn (`tool_use`, `pause_turn`, or none yet) —
+    /// and for one parked on a [user-blocking tool](USER_BLOCKING_TOOLS), which
+    /// stops with `tool_use` but waits on the user all the same.
+    ///
+    /// Also true for an interrupt (a user line carrying `interruptedMessageId`).
     ///
     /// Sidechain turns never count — a subagent's question never reaches the UI.
     ///
@@ -378,13 +385,25 @@ impl Event {
             // a cancelled session showed as running indefinitely (the more so
             // once hosted sessions stopped relying on the staleness backstop).
             Event::User(u) if !u.is_sidechain && u.interrupted_message_id.is_some() => true,
-            Event::Assistant(a) if !a.is_sidechain => {
-                a.message.stop_reason.as_deref() == Some("end_turn")
-                    || a.message.content.iter().any(|b| {
+            // An API failure stops the session as surely as `end_turn`.
+            Event::Assistant(a) if !a.is_sidechain && a.is_api_error => true,
+            Event::Assistant(a) if !a.is_sidechain => match a.message.stop_reason.as_deref() {
+                // Still claude's turn: a tool is about to run, a paused server
+                // tool will resume, or the line hasn't finished streaming —
+                // UNLESS the tool is one that parks on the user.
+                Some("tool_use") | Some("pause_turn") | None => {
+                    a.message.content.iter().any(|b| {
                         matches!(b, Block::ToolUse { name, .. }
                             if USER_BLOCKING_TOOLS.contains(&name.as_str()))
                     })
-            }
+                }
+                // Every other reason is a turn that ENDED — `end_turn`, but
+                // also `stop_sequence`, `max_tokens`, `refusal`. Listing the
+                // ones that continue (one) rather than the ones that finish
+                // (open-ended) is what keeps a rarer reason from reading as
+                // "claude is still working" forever.
+                Some(_) => true,
+            },
             _ => false,
         }
     }
@@ -392,7 +411,14 @@ impl Event {
     pub fn is_activity_turn(&self) -> bool {
         match self {
             Event::User(e) => !e.is_meta.unwrap_or(false),
-            Event::Assistant(e) => e.message.model.as_deref() != Some("<synthetic>"),
+            // Synthetic assistant lines are client-generated filler, EXCEPT an
+            // API error: that is a real thing that happened, and it ends the
+            // turn. Skipping it left the previous `tool_use` turn as the last
+            // activity — i.e. "claude is working" — for a session that had
+            // stopped dead.
+            Event::Assistant(e) => {
+                e.message.model.as_deref() != Some("<synthetic>") || e.is_api_error
+            }
             _ => false,
         }
     }
@@ -524,6 +550,54 @@ mod tests {
         let line = r#"{"type":"user","uuid":"00000000-0000-0000-0000-0000000000e2","timestamp":"2026-08-20T23:28:35.090Z","isSidechain":false,"message":{"role":"user","content":"do the thing"}}"#;
         let ev: Event = serde_json::from_str(line).unwrap();
         assert!(!ev.awaits_user());
+    }
+
+    #[test]
+    fn every_terminal_stop_reason_awaits_the_user() {
+        // The corpus carries five: tool_use (claude continues) and end_turn,
+        // stop_sequence, max_tokens, refusal (all finished). Whitelisting
+        // end_turn left a session that stopped on stop_sequence reading as
+        // "running" indefinitely.
+        let ev = |stop: &str| -> Event {
+            let line = format!(
+                r#"{{"type":"assistant","uuid":"00000000-0000-0000-0000-0000000000f1","timestamp":"2026-08-21T13:29:12.117Z","isSidechain":false,"message":{{"role":"assistant","stop_reason":"{stop}","content":[{{"type":"text","text":"done"}}]}}}}"#
+            );
+            serde_json::from_str(&line).unwrap()
+        };
+        for stop in ["end_turn", "stop_sequence", "max_tokens", "refusal"] {
+            assert!(ev(stop).awaits_user(), "{stop} ends the turn");
+        }
+        for stop in ["tool_use", "pause_turn"] {
+            assert!(!ev(stop).awaits_user(), "{stop} keeps claude working");
+        }
+
+        // No stop_reason yet (a streaming/partial line) is mid-turn.
+        let line = r#"{"type":"assistant","uuid":"00000000-0000-0000-0000-0000000000f2","timestamp":"2026-08-21T13:29:12.117Z","isSidechain":false,"message":{"role":"assistant","content":[{"type":"thinking","thinking":"…"}]}}"#;
+        let ev: Event = serde_json::from_str(line).unwrap();
+        assert!(!ev.awaits_user());
+
+        // A user-blocking tool still parks on the user despite `tool_use`.
+        let line = r#"{"type":"assistant","uuid":"00000000-0000-0000-0000-0000000000f3","timestamp":"2026-08-21T13:29:12.117Z","isSidechain":false,"message":{"role":"assistant","stop_reason":"tool_use","content":[{"type":"tool_use","id":"t1","name":"AskUserQuestion","input":{}}]}}"#;
+        let ev: Event = serde_json::from_str(line).unwrap();
+        assert!(ev.awaits_user());
+    }
+
+    #[test]
+    fn an_api_error_ends_the_turn() {
+        // Real shape (130 in the corpus): a synthetic assistant line flagged
+        // isApiErrorMessage, stop_reason stop_sequence or refusal. It must
+        // count as activity — otherwise the probe falls back to the previous
+        // tool_use turn and the session reads as running forever — and it
+        // awaits the user, since nothing proceeds until they act.
+        let line = r#"{"type":"assistant","uuid":"00000000-0000-0000-0000-0000000000f4","timestamp":"2026-08-21T13:29:12.117Z","isSidechain":false,"isApiErrorMessage":true,"message":{"role":"assistant","model":"<synthetic>","stop_reason":"stop_sequence","content":[{"type":"text","text":"Prompt is too long"}]}}"#;
+        let ev: Event = serde_json::from_str(line).unwrap();
+        assert!(ev.is_activity_turn(), "an API error is a real event");
+        assert!(ev.awaits_user(), "and the turn is the user's again");
+
+        // An ordinary synthetic line (no error flag) stays excluded.
+        let line = r#"{"type":"assistant","uuid":"00000000-0000-0000-0000-0000000000f5","timestamp":"2026-08-21T13:29:12.117Z","isSidechain":false,"message":{"role":"assistant","model":"<synthetic>","stop_reason":"stop_sequence","content":[{"type":"text","text":"(no content)"}]}}"#;
+        let ev: Event = serde_json::from_str(line).unwrap();
+        assert!(!ev.is_activity_turn());
     }
 
     #[test]

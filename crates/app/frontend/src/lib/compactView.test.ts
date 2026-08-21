@@ -10,6 +10,8 @@ const cmd = (command: string): RenderedTurn =>
   ({ type: "command", command }) as unknown as RenderedTurn;
 const sys = (content: string): RenderedTurn =>
   ({ type: "system", content }) as unknown as RenderedTurn;
+const apiError = (text = "Prompt is too long"): RenderedTurn =>
+  ({ type: "api_error", timestamp: null, text }) as unknown as RenderedTurn;
 const compaction = (): RenderedTurn =>
   ({ type: "compaction", messages_before: 3 }) as unknown as RenderedTurn;
 const taskNote = (summary = "bg task"): RenderedTurn =>
@@ -112,5 +114,21 @@ describe("filterCompact", () => {
 
   it("returns an empty list unchanged", () => {
     expect(filterCompact([])).toEqual([]);
+  });
+
+  it("keeps an API error and closes the reply it interrupted", () => {
+    // A failure ends the reply mid-flight: without closing the run, the last
+    // assistant turn before the error is hidden, and the transcript just stops
+    // with no explanation of why.
+    const turns = [user("go"), asst("a1"), asst("a2"), asst("a3"), apiError(), user("retry"), asst("b1")];
+    const out = filterCompact(turns);
+    expect(out.map((t) => t.type)).toEqual([
+      "user",
+      "assistant", // first of the interrupted reply
+      "assistant", // last before the failure
+      "api_error",
+      "user",
+      "assistant",
+    ]);
   });
 });

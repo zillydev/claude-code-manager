@@ -122,6 +122,15 @@ pub enum RenderedTurn {
         summary: String,
         result: String,
     },
+    /// Claude Code's record of an API failure ("Prompt is too long", "API
+    /// Error: 529 Overloaded"). Written as a synthetic assistant line, which
+    /// the transcript otherwise skips — but this one explains why a session
+    /// stopped, so it renders as its own turn.
+    #[serde(rename = "api_error")]
+    ApiError {
+        timestamp: Option<DateTime<Utc>>,
+        text: String,
+    },
     /// A boundary between two conversation trees in the same file (an
     /// auto-compaction point). `messages_before` counts the user/assistant turns
     /// in the segment immediately above this divider.
@@ -328,6 +337,15 @@ fn render_path_turns(path: &[&Event], editable: bool) -> Vec<RenderedTurn> {
             }
             Event::Assistant(a) => {
                 if a.message.model.as_deref() == Some("<synthetic>") {
+                    // Synthetic lines are client-side filler and stay hidden —
+                    // except an API failure, which is the reason the session
+                    // stopped and is otherwise invisible in the transcript.
+                    if a.is_api_error {
+                        turns.push(RenderedTurn::ApiError {
+                            timestamp: ev.timestamp(),
+                            text: assistant_text(a),
+                        });
+                    }
                     i += 1;
                     continue;
                 }
@@ -367,6 +385,12 @@ fn render_path_turns(path: &[&Event], editable: bool) -> Vec<RenderedTurn> {
                     }
                     if let Event::Assistant(next_a) = path[i] {
                         if next_a.message.model.as_deref() == Some("<synthetic>") {
+                            // An API failure ends the reply: break so it lands
+                            // AFTER this turn as its own line (the outer loop
+                            // renders it), instead of being merged away.
+                            if next_a.is_api_error {
+                                break;
+                            }
                             i += 1;
                             continue;
                         }
@@ -719,6 +743,20 @@ fn collect_tool_results(path: &[&Event]) -> HashMap<String, ToolResultEntry> {
     out
 }
 
+/// The plain text of an assistant event's blocks, joined — used for the API
+/// error line, whose content is a single text block.
+fn assistant_text(a: &super::event::AssistantEvent) -> String {
+    a.message
+        .content
+        .iter()
+        .filter_map(|b| match b {
+            Block::Text { text } => Some(text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
 fn summarize_tool_input(name: &str, input: &serde_json::Value) -> String {
     let keys: &[&str] = match name {
         "Bash" => &["command", "description"],
@@ -794,6 +832,7 @@ mod render_tests {
             cwd: None,
             git_branch: None,
             forked_from: None,
+            is_api_error: false,
         })
     }
 
@@ -817,6 +856,7 @@ mod render_tests {
             cwd: None,
             git_branch: None,
             forked_from: None,
+            is_api_error: false,
         })
     }
 
@@ -1188,6 +1228,39 @@ mod render_tests {
         ];
         let r = render_session(&sess(events));
         assert_eq!(r.title, "stripe-branch");
+    }
+
+    #[test]
+    fn an_api_error_renders_as_its_own_turn_after_the_reply() {
+        // The failure line is synthetic — normally hidden — but it is the only
+        // record of why the session stopped, so it renders, and it must not be
+        // merged into the assistant turn above it.
+        let a1 = "00000000-0000-0000-0000-0000000000d1";
+        let a2 = "00000000-0000-0000-0000-0000000000d2";
+        let err = format!(
+            r#"{{"type":"assistant","uuid":"{a2}","parentUuid":"{a1}","timestamp":"2026-08-21T13:29:12.117Z","isSidechain":false,"isApiErrorMessage":true,"message":{{"role":"assistant","model":"<synthetic>","stop_reason":"stop_sequence","content":[{{"type":"text","text":"Prompt is too long"}}]}}}}"#
+        );
+        let events = [aev(a1, None, "working on it"), serde_json::from_str(&err).unwrap()];
+        let path: Vec<&Event> = events.iter().collect();
+        let turns = render_path_turns(&path, true);
+
+        assert_eq!(turns.len(), 2, "the error is its own turn, not merged away");
+        assert!(matches!(turns[0], RenderedTurn::Assistant { .. }));
+        let RenderedTurn::ApiError { text, timestamp } = &turns[1] else { panic!("api error turn") };
+        assert_eq!(text, "Prompt is too long");
+        assert!(timestamp.is_some());
+    }
+
+    #[test]
+    fn ordinary_synthetic_lines_stay_hidden() {
+        let a1 = "00000000-0000-0000-0000-0000000000d3";
+        let a2 = "00000000-0000-0000-0000-0000000000d4";
+        let filler = format!(
+            r#"{{"type":"assistant","uuid":"{a2}","parentUuid":"{a1}","timestamp":"2026-08-21T13:29:12.117Z","isSidechain":false,"message":{{"role":"assistant","model":"<synthetic>","content":[{{"type":"text","text":"(no content)"}}]}}}}"#
+        );
+        let events = [aev(a1, None, "hi"), serde_json::from_str(&filler).unwrap()];
+        let path: Vec<&Event> = events.iter().collect();
+        assert_eq!(render_path_turns(&path, true).len(), 1);
     }
 
     #[test]

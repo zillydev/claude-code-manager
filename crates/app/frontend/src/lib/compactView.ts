@@ -43,6 +43,12 @@ export function filterCompact(turns: RenderedTurn[]): RenderedTurn[] {
       // appears out of nowhere.
       closeRun();
       visible.add(i);
+    } else if (t === "api_error") {
+      // The failure ended the reply, so it closes the run — and it is kept for
+      // the same reason a task notification is: it explains what happened to a
+      // reply that otherwise just stops mid-thought.
+      closeRun();
+      visible.add(i);
     } else if (t === "assistant") {
       run.push(i);
     }

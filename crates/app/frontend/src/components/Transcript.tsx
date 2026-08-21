@@ -685,6 +685,20 @@ const Turn = memo(function Turn({
         />
       );
 
+    // Why a session stopped. Claude Code records API failures as synthetic
+    // assistant lines, which the transcript otherwise hides — leaving a session
+    // that died on "Prompt is too long" with no visible explanation.
+    case "api_error":
+      return (
+        <div className="flex items-baseline gap-2 text-sm">
+          <span className="text-xs text-[var(--color-text-dim)]" title={tsTitle}>
+            {ts}
+          </span>
+          <span className="text-[var(--color-error)] shrink-0">⚠</span>
+          <span className="text-[var(--color-error)] break-words">{turn.text}</span>
+        </div>
+      );
+
     case "compaction":
       return (
         <div className="flex items-center gap-3 my-5">
