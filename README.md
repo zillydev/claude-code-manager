@@ -41,11 +41,21 @@ Claude Code stores every session as a JSON-lines file under `~/.claude/projects/
 
 ## Install
 
+### Homebrew (recommended)
+
+```bash
+brew tap zillydev/tap
+brew trust zillydev/tap        # Homebrew won't load casks from a third-party tap until you trust it
+brew install --cask claude-code-manager
+```
+
+The cask clears the quarantine flag for you (see the note below on signing), so the app opens straight away. `brew upgrade --cask claude-code-manager` updates it; `brew uninstall --cask --zap claude-code-manager` removes it along with its config.
+
 ### Download a release
 
 Grab the universal macOS `.dmg` (Apple Silicon + Intel) from [Releases](https://github.com/zillydev/claude-code-manager/releases), then drag the app to `/Applications`.
 
-Release builds are **not signed or notarized by Apple**, so Gatekeeper blocks them on first launch. Clear the quarantine attribute once:
+Release builds are **not signed or notarized by Apple** (that needs a paid Apple Developer account), so Gatekeeper blocks them on first launch. Clear the quarantine attribute once:
 
 ```bash
 xattr -cr "/Applications/Claude Code Manager.app"

@@ -17,6 +17,10 @@ permissions:
 jobs:
   macos:
     runs-on: macos-latest
+    # Job-level so the cask step's `if` can test it: a step's own env block is
+    # not in scope for its condition, and `secrets` is not a context there.
+    env:
+      TAP_TOKEN: ${{ secrets.TAP_TOKEN }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -112,6 +116,18 @@ jobs:
           ls -lh dist
           if [ -z "$(ls -A dist)" ]; then echo "::error::no artifacts produced"; exit 1; fi
 
+      # Compute the checksum from the artifact we just built rather than
+      # re-downloading it: exact, and immune to CDN lag right after publish.
+      - name: Checksum for the Homebrew cask
+        id: cask
+        run: |
+          set -euo pipefail
+          VERSION="${{ github.event.inputs.tag || github.ref_name }}"
+          VERSION="${VERSION#v}"
+          DMG="dist/claude-code-manager-$VERSION-macos-universal.dmg"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "sha256=$(shasum -a 256 "$DMG" | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+
       - name: Publish release
         uses: softprops/action-gh-release@v2
         with:
@@ -133,3 +149,33 @@ jobs:
             (Or right-click the app → **Open** → **Open**.) You only need to do
             this once per install. Building from source with `make install`
             avoids this entirely.
+
+      # Point the tap at the release that just published. Last, so a failed
+      # upload can never leave the cask advertising a version nobody can
+      # download. Skipped without TAP_TOKEN (a fork, or before the secret
+      # exists), so the release itself still succeeds.
+      - name: Update the Homebrew cask
+        # A hyphen in the tag marks a prerelease (v0.3.0-rc1): brew install
+        # should keep handing people the last stable build.
+        if: ${{ env.TAP_TOKEN != '' && !contains(github.event.inputs.tag || github.ref_name, '-') }}
+        env:
+          VERSION: ${{ steps.cask.outputs.version }}
+          SHA256: ${{ steps.cask.outputs.sha256 }}
+        run: |
+          set -euo pipefail
+          git clone --depth 1 \
+            "https://x-access-token:$TAP_TOKEN@github.com/zillydev/homebrew-tap.git" tap
+          CASK=tap/Casks/claude-code-manager.rb
+          # Only the two lines that change per release; the rest of the cask is
+          # hand-maintained in the tap.
+          sed -i '' -E "s|^  version \".*\"|  version \"$VERSION\"|" "$CASK"
+          sed -i '' -E "s|^  sha256 \".*\"|  sha256 \"$SHA256\"|" "$CASK"
+          cd tap
+          if git diff --quiet; then
+            echo "cask already at $VERSION"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -am "claude-code-manager $VERSION"
+          git push
