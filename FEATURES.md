@@ -2,7 +2,7 @@
 
 A tool to browse, search, edit, compact, harvest, and resume Claude Code session `.jsonl` files. A **Tauri 2 + React 19 desktop app** over a reusable Rust core (`claude-code-manager-core`).
 
-> **Maintenance:** update this file as the last step of merging a NEW capability — fixes and refinements need no entry. Each entry links to its design spec in `docs/superpowers/specs/` (and plan in `docs/superpowers/plans/`) for the full rationale. Per-feature specs are the source of truth for *why/how*; this file is the index of *what exists now*.
+> **Maintenance:** update this file **on the feature branch** as the last step before merging a NEW capability, so the entry lands in the same commit as the feature — fixes and refinements need no entry. Each entry links to its design spec in `docs/superpowers/specs/` (and plan in `docs/superpowers/plans/`) for the full rationale. Per-feature specs are the source of truth for *why/how*; this file is the index of *what exists now*.
 
 ## Architecture
 
