@@ -12,3 +12,4 @@
 - [x] improve and consolidate UX of projects/time/tags selectors
 - [x] the currently selected session in the sidebar, can have a better accent, currently it is faint
 - [x] in settings panel, add default project option
+- [x] in the sessions sidebar, the branch of each session doesn't reflect current state

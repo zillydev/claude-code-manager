@@ -95,11 +95,16 @@ pub fn summarize(
                 cwd = Some(c.to_string());
             }
         }
-        if git_branch.is_none() {
-            if let Some(b) = ev.git_branch() {
-                if !b.is_empty() && b != "HEAD" {
-                    git_branch = Some(b.to_string());
-                }
+        // Last wins: Claude Code stamps `gitBranch` on every line, so a session
+        // that outlives a checkout carries the whole history of branches it ran
+        // on. The useful answer is the one it was on most recently — taking the
+        // first meant a long-lived session showed the branch it started on
+        // (one here recorded 145 switches and displayed switch #1 forever).
+        // Empty and detached (`HEAD`) values are skipped rather than kept, so a
+        // detached checkout doesn't erase the last real branch name.
+        if let Some(b) = ev.git_branch() {
+            if !b.is_empty() && b != "HEAD" {
+                git_branch = Some(b.to_string());
             }
         }
         match ev {
@@ -291,6 +296,51 @@ mod tests {
             tool_use_result: None,
             cwd: None, git_branch: None, forked_from: None,
         })
+    }
+
+    /// A user event carrying a specific branch (and cwd), for branch tests.
+    fn user_on_branch(text: &str, branch: &str) -> Event {
+        let mut ev = user(text, false);
+        if let Event::User(u) = &mut ev {
+            u.git_branch = Some(branch.to_string());
+        }
+        ev
+    }
+
+    #[test]
+    fn git_branch_is_the_most_recent_one() {
+        // A session outlives checkouts: Claude Code stamps gitBranch on every
+        // line, and the useful answer is where it ended up, not where it began.
+        let events = vec![
+            user_on_branch("start", "feat/one"),
+            user_on_branch("later", "main"),
+            user_on_branch("latest", "fix/two"),
+        ];
+        let s = summarize(
+            &events,
+            uuid::Uuid::new_v4(),
+            PathBuf::from("/tmp/x.jsonl"),
+            "proj".into(),
+            SystemTime::UNIX_EPOCH,
+        );
+        assert_eq!(s.git_branch.as_deref(), Some("fix/two"));
+    }
+
+    #[test]
+    fn detached_and_empty_branches_dont_erase_the_last_real_one() {
+        let events = vec![
+            user_on_branch("start", "feat/one"),
+            user_on_branch("detached", "HEAD"),
+            user_on_branch("blank", ""),
+        ];
+        let s = summarize(
+            &events,
+            uuid::Uuid::new_v4(),
+            PathBuf::from("/tmp/x.jsonl"),
+            "proj".into(),
+            SystemTime::UNIX_EPOCH,
+        );
+        assert_eq!(s.git_branch.as_deref(), Some("feat/one"));
     }
 
     #[test]
