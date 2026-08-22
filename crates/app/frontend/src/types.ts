@@ -98,6 +98,14 @@ export type RenderedTurn =
     }
   | { type: "system"; timestamp: string | null; content: string }
   | { type: "command"; timestamp: string | null; command: string }
+  | {
+      type: "bash";
+      timestamp: string | null;
+      /** The `!` command; absent when only its output survived. */
+      command: string | null;
+      stdout: string;
+      stderr: string;
+    }
   | { type: "summary"; timestamp: string | null; content: string }
   | {
       type: "task_notification";

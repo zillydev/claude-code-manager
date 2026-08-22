@@ -109,6 +109,15 @@ pub enum RenderedTurn {
         timestamp: Option<DateTime<Utc>>,
         command: String,
     },
+    /// A `!` bash-mode block: the command the user ran and, when the next
+    /// message carried it, its output. Display-only, like `Command`.
+    #[serde(rename = "bash")]
+    Bash {
+        timestamp: Option<DateTime<Utc>>,
+        command: Option<String>,
+        stdout: String,
+        stderr: String,
+    },
     #[serde(rename = "summary")]
     Summary {
         timestamp: Option<DateTime<Utc>>,
@@ -305,6 +314,51 @@ fn render_path_turns(path: &[&Event], editable: bool) -> Vec<RenderedTurn> {
                         }
                     }
                     i += 1;
+                    continue;
+                }
+                // `!` bash-mode: the command and its output arrive as two
+                // consecutive user messages. Merge them into one block —
+                // separately they read as two unrelated turns, and the output
+                // one is not something the user "said".
+                if let Some(block) = crate::session::display::bash_block(&text) {
+                    let (command, mut stdout, mut stderr) = match block {
+                        crate::session::display::BashBlock::Input(c) => {
+                            (Some(c), String::new(), String::new())
+                        }
+                        crate::session::display::BashBlock::Output { stdout, stderr } => {
+                            (None, stdout, stderr)
+                        }
+                    };
+                    let mut consumed = 1;
+                    if command.is_some() {
+                        if let Some(Event::User(next)) = path.get(i + 1).copied() {
+                            let next_text = match &next.message.content {
+                                MessageContent::Text(t) => t.clone(),
+                                MessageContent::Blocks(blocks) => blocks
+                                    .iter()
+                                    .filter_map(|b| match b {
+                                        UserBlock::Text { text } => Some(text.as_str()),
+                                        _ => None,
+                                    })
+                                    .collect::<Vec<_>>()
+                                    .join("\n"),
+                            };
+                            if let Some(crate::session::display::BashBlock::Output { stdout: o, stderr: e }) =
+                                crate::session::display::bash_block(&next_text)
+                            {
+                                stdout = o;
+                                stderr = e;
+                                consumed = 2;
+                            }
+                        }
+                    }
+                    turns.push(RenderedTurn::Bash {
+                        timestamp: ev.timestamp(),
+                        command,
+                        stdout,
+                        stderr,
+                    });
+                    i += consumed;
                     continue;
                 }
                 if let Some(tn) = crate::session::display::parse_task_notification(&text) {
@@ -883,6 +937,60 @@ mod render_tests {
             forked_from: None,
             interrupted_message_id: None,
         })
+    }
+
+    #[test]
+    fn bash_mode_command_and_output_merge_into_one_turn() {
+        // `!cmd` writes the command and its output as two consecutive user
+        // messages; a reader wants them as one block.
+        let a = "00000000-0000-0000-0000-0000000000e1";
+        let b = "00000000-0000-0000-0000-0000000000e2";
+        let events = [
+            uev(a, None, "<bash-input> ls -la</bash-input>"),
+            uev(b, Some(a), "<bash-stdout>total 8\nfile</bash-stdout><bash-stderr></bash-stderr>"),
+        ];
+        let path: Vec<&Event> = events.iter().collect();
+        let turns = render_path_turns(&path, true);
+        assert_eq!(turns.len(), 1, "the two messages render as one block");
+        match &turns[0] {
+            RenderedTurn::Bash { command, stdout, stderr, .. } => {
+                assert_eq!(command.as_deref(), Some("ls -la"));
+                assert_eq!(stdout, "total 8\nfile");
+                assert!(stderr.is_empty());
+            }
+            other => panic!("expected a bash turn, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn bash_output_without_a_command_still_renders() {
+        // Output can arrive alone — e.g. the command scrolled off before a
+        // compaction boundary.
+        let a = "00000000-0000-0000-0000-0000000000e3";
+        let events = [uev(a, None, "<bash-stdout>orphan</bash-stdout>")];
+        let path: Vec<&Event> = events.iter().collect();
+        match &render_path_turns(&path, true)[0] {
+            RenderedTurn::Bash { command, stdout, .. } => {
+                assert!(command.is_none());
+                assert_eq!(stdout, "orphan");
+            }
+            other => panic!("expected a bash turn, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_bash_command_with_no_output_message_stands_alone() {
+        let a = "00000000-0000-0000-0000-0000000000e4";
+        let b = "00000000-0000-0000-0000-0000000000e5";
+        let events = [
+            uev(a, None, "<bash-input>echo hi</bash-input>"),
+            uev(b, Some(a), "a normal message"),
+        ];
+        let path: Vec<&Event> = events.iter().collect();
+        let turns = render_path_turns(&path, true);
+        assert_eq!(turns.len(), 2, "the next message is NOT swallowed");
+        assert!(matches!(turns[0], RenderedTurn::Bash { .. }));
+        assert!(matches!(turns[1], RenderedTurn::User { .. }));
     }
 
     #[test]

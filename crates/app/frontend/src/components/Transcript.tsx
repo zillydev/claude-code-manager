@@ -705,6 +705,49 @@ const Turn = memo(function Turn({
         </div>
       );
 
+    // A `!` bash-mode block: the command the user ran and its output. Right
+    // aligned like any user turn — running `!cmd` IS the user's input — but
+    // styled as a terminal rather than prose.
+    case "bash":
+      return (
+        <div className="flex flex-col items-end">
+          {/* Mirrors the user header: label at the right edge, time before it. */}
+          <div className="flex items-baseline gap-2 mb-1 justify-end">
+            <span className="text-xs text-[var(--color-text-dim)]" title={tsTitle}>
+              {ts}
+            </span>
+            <span className="font-medium text-[var(--color-tool)]">shell</span>
+          </div>
+          <div className="max-w-[75%] min-w-0 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-sm">
+            {turn.command !== null && (
+              <div className="flex items-baseline gap-2">
+                <span className="text-[var(--color-tool)] shrink-0">$</span>
+                <code className="min-w-0 font-medium text-[var(--color-tool)] wrap-anywhere">
+                  {turn.command}
+                </code>
+              </div>
+            )}
+            {(turn.stdout || turn.stderr) && (
+              <div
+                className={`text-xs ${turn.command !== null ? "mt-1.5 border-t border-[var(--color-border)] pt-1.5" : ""}`}
+                style={{ maxHeight: "400px", overflowY: "auto" }}
+              >
+                {turn.stdout && (
+                  <pre className="whitespace-pre-wrap wrap-anywhere text-[var(--color-text-dim)]">
+                    {turn.stdout}
+                  </pre>
+                )}
+                {turn.stderr && (
+                  <pre className="whitespace-pre-wrap wrap-anywhere text-[var(--color-error)]">
+                    {turn.stderr}
+                  </pre>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      );
+
     case "summary":
       return (
         <div className="border-t border-b border-[var(--color-border)] py-2 my-2 text-xs text-[var(--color-text-dim)] italic">

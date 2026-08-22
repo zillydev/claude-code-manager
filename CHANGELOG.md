@@ -12,6 +12,7 @@ What changed in each release, written for people using the app. Build-time detai
 
 **Changed**
 
+- **`!` shell commands render as a terminal block.** Running `!cmd` in Claude Code wrote two messages showing raw `<bash-input>` / `<bash-stdout>` tags with HTML-escaped text (`&amp;` everywhere). They now merge into one block: the command on a `$` line with its output beneath, unescaped, stderr in red.
 - **A long unbroken string no longer breaks the layout.** A message containing a long URL (or any token with nowhere to wrap) stretched its bubble past the pane instead of wrapping; find results could do the same in the sidebar.
 - **Bash commands render as shell scripts.** Half of them are multi-line, and as JSON every newline arrived as a literal `\n` in one long string. The script now reads as lines, syntax-highlighted, with the description and timeout as `#` comments above it.
 - **Questions render as question cards.** An `AskUserQuestion` call showed its raw JSON; it now reads as the question with its options listed, and the option you chose is highlighted.

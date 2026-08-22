@@ -28,7 +28,7 @@ export function filterCompact(turns: RenderedTurn[]): RenderedTurn[] {
 
   for (let i = 0; i < turns.length; i++) {
     const t = turns[i].type;
-    if (t === "user" || t === "command") {
+    if (t === "user" || t === "command" || t === "bash") {
       closeRun();
       visible.add(i);
     } else if (t === "task_notification") {

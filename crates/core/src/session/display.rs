@@ -24,6 +24,43 @@ pub fn command_label(text: &str) -> Option<String> {
     })
 }
 
+/// A `!` bash-mode turn: either the command the user ran, or its output.
+/// Claude Code writes these as ordinary user messages wrapping the text in
+/// `<bash-input>` / `<bash-stdout>` + `<bash-stderr>` tags.
+#[derive(Debug, Clone, PartialEq)]
+pub enum BashBlock {
+    Input(String),
+    Output { stdout: String, stderr: String },
+}
+
+/// Claude Code HTML-escapes the text inside these blocks, so a URL full of
+/// query parameters arrives as `a&amp;b`. Undo the entities it uses, or every
+/// such line reads as markup.
+fn unescape(s: &str) -> String {
+    s.replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&quot;", "\"")
+        .replace("&#39;", "'")
+        // Last: an escaped ampersand can be part of any of the above.
+        .replace("&amp;", "&")
+}
+
+/// Parse a `!` bash-mode message. `None` if `text` isn't one.
+pub fn bash_block(text: &str) -> Option<BashBlock> {
+    if let Some(cmd) = extract_tag(text, "bash-input") {
+        return Some(BashBlock::Input(unescape(cmd.trim())));
+    }
+    let stdout = extract_tag(text, "bash-stdout");
+    let stderr = extract_tag(text, "bash-stderr");
+    if stdout.is_none() && stderr.is_none() {
+        return None;
+    }
+    Some(BashBlock::Output {
+        stdout: unescape(stdout.unwrap_or("").trim_end()),
+        stderr: unescape(stderr.unwrap_or("").trim_end()),
+    })
+}
+
 const SKILL_PROMPT_PREFIX: &str = "Base directory for this skill:";
 
 /// If `text` is an injected skill prompt (an `isMeta` user message whose first
@@ -66,6 +103,37 @@ pub fn one_line(text: &str) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn bash_block_reads_input_and_output() {
+        assert_eq!(
+            bash_block("<bash-input> ls -la</bash-input>"),
+            Some(BashBlock::Input("ls -la".into()))
+        );
+        assert_eq!(
+            bash_block("<bash-stdout>one\ntwo\n</bash-stdout><bash-stderr>bad</bash-stderr>"),
+            Some(BashBlock::Output { stdout: "one\ntwo".into(), stderr: "bad".into() })
+        );
+    }
+
+    #[test]
+    fn bash_block_undoes_the_html_escaping() {
+        // A URL's query string is the common case: `&` arrives as `&amp;`.
+        assert_eq!(
+            bash_block("<bash-stdout>x?a=1&amp;b=2 &lt;tag&gt; &quot;q&quot;</bash-stdout>"),
+            Some(BashBlock::Output {
+                stdout: "x?a=1&b=2 <tag> \"q\"".into(),
+                stderr: String::new(),
+            })
+        );
+    }
+
+    #[test]
+    fn bash_block_ignores_other_text() {
+        assert_eq!(bash_block("just a message"), None);
+        assert_eq!(bash_block("<command-name>/x</command-name>"), None);
+    }
+
     use super::*;
 
     #[test]
