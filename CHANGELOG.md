@@ -1,0 +1,57 @@
+# Changelog
+
+What changed in each release, written for people using the app. Build-time detail (specs, plans, CI, refactors) is deliberately left out — the commit history has it.
+
+> **Maintenance:** add entries under **Unreleased** on the feature branch, alongside the `FEATURES.md` update. At release time that heading becomes the version. `release.yml` publishes the section matching the tag and fails if it finds none, so a release can't ship without notes.
+
+## Unreleased
+
+**Added**
+
+- **About section in Settings** — shows the running build's version, and opens the repository, that version's release notes, and the issue tracker.
+
+## v0.1.2 — 2026-08-22
+
+**Added**
+
+- **Right-click context menus** on sessions and messages, so the actions behind the `⋯` menus are reachable where you're already pointing.
+
+**Fixed**
+
+- **Sessions no longer stick on "running."** Stopping a turn, cancelling one mid-flight, or waiting through a long tool call each left the green dot burning indefinitely; a session that went quiet without finishing also could never be marked read.
+- **API errors render** in the transcript instead of leaving a blank gap where the reply should be.
+- **The terminal finds `claude`** when your `PATH` is set in `.zshrc` rather than `.zprofile`.
+
+## v0.1.1 — 2026-08-21
+
+**Added**
+
+- **Session status publishing** (opt-in, Settings → Integrations) — writes `session-status.json` to the config directory for other tools to read: which sessions are running, which want your attention, and which macOS window each one is running in. Built for status bars; the README documents the format.
+- **Default project on launch** (Settings → Behavior) — the sidebar starts filtered to a project you pick, instead of showing everything.
+
+**Changed**
+
+- **The sidebar's project / tag / time filters are one consistent set of menus.** Project and tags gained type-to-filter over a scrolling list with arrow-key navigation, and the selected entry pins to the top; time moved behind a clock icon; a single ✕ clears everything. The old native dropdowns ignored the app's theme entirely.
+- **The font pickers** in Settings use the same menus, and preview each font in its own face.
+- **The selected session** in the sidebar is clearly marked — an accent tint and rail, rather than the same grey as hovering.
+- **The tags button is always available**, instead of appearing only once a tag exists — which had hidden the one place tags can be created.
+
+**Fixed**
+
+- **A session's branch** now shows the branch it was last working on. It used to show the branch it *started* on, which for a long-lived session could be days out of date.
+- **A reply that lands while you're on another Space** is treated as unread. Having the session open in a window you can't see counted as reading it.
+
+**Install**
+
+- **Homebrew** — `brew tap zillydev/tap && brew trust zillydev/tap && brew install --cask claude-code-manager`. Releases update the cask automatically.
+
+## v0.1.0 — 2026-08-20
+
+First release. A desktop app over the session files Claude Code writes:
+
+- **Browse** every session across all projects, with live status dots for what's running or waiting on you, a rendered transcript (markdown, syntax highlighting, expandable tool calls, inline images), and a compact mode that collapses tool churn.
+- **Search** — an in-session find bar (⌘F) with regex and match highlighting, and a Discord-style search across all sessions (⌘⇧F) with operators like `in:`, `from:`, `before:`, `tag:` and `is:bookmarked`.
+- **Branch** — fork any message into a new resumable session, copied verbatim so nothing is lost, plus `session-surgery` for summarizing or pruning a range to reclaim context.
+- **Organize** — tags, per-session aliases and notes, and message bookmarks, all stored separately from Claude's own files.
+- **Continue** — a built-in terminal tab running the real `claude --resume`, one per session app-wide so two processes can't corrupt the same file.
+- **Lineage** — fork and copy relationships detected and shown as an explorable tree.

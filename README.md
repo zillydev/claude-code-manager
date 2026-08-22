@@ -150,7 +150,7 @@ A Cargo workspace. All session logic lives in `core`, so the app and the CLI can
 | `crates/app` | Tauri 2 desktop app; React 19 + TypeScript + Tailwind frontend |
 | `crates/cli` | The `claude-code-manager` binary — `surgery` subcommands, driven by the skills |
 
-[`FEATURES.md`](FEATURES.md) is the living catalog of what exists, with each entry linking to its design doc in [`docs/superpowers/specs/`](docs/superpowers/specs/).
+[`CHANGELOG.md`](CHANGELOG.md) is what changed in each release; [`FEATURES.md`](FEATURES.md) is the living catalog of what exists, with each entry linking to its design doc in [`docs/superpowers/specs/`](docs/superpowers/specs/).
 
 ## Development
 

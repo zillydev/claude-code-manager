@@ -25,6 +25,9 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.event.inputs.tag || github.ref }}
+          # Full history + tags: the notes link a compare against the previous
+          # release, which needs to know what the previous tag was.
+          fetch-depth: 0
 
       # Fail early on a version mismatch rather than shipping a v0.2.0 release
       # whose .dmg is built as 0.1.0 (the bundle version comes from tauri.conf.json).
@@ -128,27 +131,57 @@ jobs:
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "sha256=$(shasum -a 256 "$DMG" | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
 
+      # Release notes come from CHANGELOG.md, not from the commit list: the
+      # log is full of build-time noise (specs, plans, CI fixes) that means
+      # nothing to someone deciding whether to upgrade.
+      - name: Build release notes
+        run: |
+          set -euo pipefail
+          VERSION="${{ steps.cask.outputs.version }}"
+          NOTES=$(awk -v ver="## v$VERSION" '
+            $0 ~ "^" ver { found = 1; next }
+            found && /^## / { exit }
+            found { print }
+          ' CHANGELOG.md)
+          if [ -z "$(printf %s "$NOTES" | tr -d "[:space:]")" ]; then
+            echo "::error::CHANGELOG.md has no section for v$VERSION — add one before tagging."
+            exit 1
+          fi
+          {
+            printf '%s\n' "$NOTES"
+            echo
+            echo "### Install"
+            echo
+            echo '```bash'
+            echo "brew tap zillydev/tap && brew trust zillydev/tap"
+            echo "brew install --cask claude-code-manager"
+            echo '```'
+            echo
+            echo "Or download the universal \`.dmg\` below (Apple Silicon + Intel)."
+            echo "It is **not signed or notarized by Apple**, so after dragging the app"
+            echo "to \`/Applications\` clear the quarantine attribute once:"
+            echo
+            echo '```bash'
+            echo 'xattr -cr "/Applications/Claude Code Manager.app"'
+            echo '```'
+            echo
+            echo "(Or right-click the app → **Open** → **Open**.) The Homebrew cask and"
+            echo "\`make install\` both avoid this."
+            PREV=$(git describe --tags --abbrev=0 "v$VERSION^" 2>/dev/null || true)
+            if [ -n "$PREV" ]; then
+              echo
+              echo "**Full changelog:** https://github.com/${{ github.repository }}/compare/$PREV...v$VERSION"
+            fi
+          } > release-notes.md
+          echo "--- notes ---"; cat release-notes.md
+
       - name: Publish release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.event.inputs.tag || github.ref_name }}
           name: ${{ github.event.inputs.tag || github.ref_name }}
           files: dist/*
-          generate_release_notes: true
-          body: |
-            Universal macOS build (Apple Silicon + Intel).
-
-            **This build is not signed or notarized by Apple**, so Gatekeeper
-            will refuse it on first launch. After dragging the app to
-            `/Applications`, clear the quarantine attribute:
-
-            ```bash
-            xattr -cr "/Applications/Claude Code Manager.app"
-            ```
-
-            (Or right-click the app → **Open** → **Open**.) You only need to do
-            this once per install. Building from source with `make install`
-            avoids this entirely.
+          body_path: release-notes.md
 
       # Point the tap at the release that just published. Last, so a failed
       # upload can never leave the cask advertising a version nobody can
