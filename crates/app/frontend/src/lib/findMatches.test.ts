@@ -44,9 +44,12 @@ describe("modelMatches", () => {
   it("only searches collapsed-body fields, with the renderer's transforms", () => {
     const ms = modelMatches(turns, find("needle"));
     expect(ms.map((m) => m.field)).toEqual(["tool-input", "tool-result", "task-result"]);
-    // tool-input is the pretty-printed JSON, so the offset is inside it
+    // tool-input is the pretty-printed JSON (Bash isn't a diff tool), so the
+    // offset is inside it
     const input = ms[0];
-    expect(toolInputText({ command: "ls needle" }).slice(input.start, input.end)).toBe("needle");
+    expect(toolInputText("Bash", { command: "ls needle" }).slice(input.start, input.end)).toBe(
+      "needle",
+    );
     // tool-result is prettyResultText'd (JSON gets pretty-printed)
     const result = ms[1];
     const pretty = toolResultText({ text: '{"k":"needle"}', is_error: false });
@@ -57,6 +60,19 @@ describe("modelMatches", () => {
 
   it("MODEL_FIELDS names exactly the collapsed-body fields", () => {
     expect([...MODEL_FIELDS].sort()).toEqual(["task-result", "tool-input", "tool-result"]);
+  });
+});
+
+describe("toolInputText", () => {
+  it("renders file-editing tools as the diff the transcript shows", () => {
+    const t = toolInputText("Edit", { old_string: "a\nb", new_string: "a\nB", file_path: "/x" });
+    expect(t).toBe("  a\n- b\n+ B");
+    // The offsets a match reports must land in THAT text, not in the JSON.
+    expect(t.slice(t.indexOf("B"), t.indexOf("B") + 1)).toBe("B");
+  });
+
+  it("keeps JSON for everything else", () => {
+    expect(toolInputText("Bash", { command: "ls" })).toBe(JSON.stringify({ command: "ls" }, null, 2));
   });
 });
 

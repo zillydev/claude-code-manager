@@ -1,8 +1,10 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import type { RenderedBlock, ToolCallResult } from "../types";
 import { makeSegId } from "../lib/segments";
 import { prettyToolName } from "../lib/toolDisplay";
 import { toolInputText, toolResultText } from "../lib/findMatches";
+import { diffLineText, diffSources, toolDiff, type DiffLine } from "../lib/toolDiff";
+import { highlightToLines, languageForPath, type Token } from "../lib/syntax";
 import { ImageStrip } from "./InlineImage";
 
 interface Props {
@@ -38,7 +40,11 @@ export default function ToolCall({ block, turnIndex, blockIndex, forceExpand }: 
 
       {open && (
         <div className="ml-4">
-          <ToolInput input={block.input_full} segId={makeSegId(turnIndex, blockIndex, "tool-input")} />
+          <ToolInput
+            name={block.name}
+            input={block.input_full}
+            segId={makeSegId(turnIndex, blockIndex, "tool-input")}
+          />
           {block.result ? (
             <ToolResult result={block.result} segId={makeSegId(turnIndex, blockIndex, "tool-result")} />
           ) : (
@@ -52,15 +58,99 @@ export default function ToolCall({ block, turnIndex, blockIndex, forceExpand }: 
   );
 }
 
-function ToolInput({ input, segId }: { input: Record<string, unknown>; segId: string }) {
+function ToolInput({
+  name,
+  input,
+  segId,
+}: {
+  name: string;
+  input: Record<string, unknown>;
+  segId: string;
+}) {
+  // Edit/Write/MultiEdit render as a diff, the way Claude Code shows them in
+  // the terminal; everything else keeps the JSON view.
+  const diff = toolDiff(name, input);
   return (
     <pre
       data-seg-id={segId}
       className="px-3 py-2 rounded text-xs whitespace-pre-wrap break-words overflow-hidden border-l-2 border-l-[var(--color-tool)] bg-[var(--color-tool-result-bg)] text-[var(--color-text)] mb-1"
       style={{ maxHeight: "300px", overflowY: "auto" }}
     >
-      {toolInputText(input)}
+      {diff ? <DiffBody lines={diff} name={name} input={input} /> : toolInputText(name, input)}
     </pre>
+  );
+}
+
+/** The diff lines, syntax-highlighted, each tinted across the full width the
+ *  way a diff view should be.
+ *
+ *  Every line still carries its own trailing newline, because the element's
+ *  textContent must equal `diffText(lines)` EXACTLY — the find bar paints
+ *  model-side matches onto those offsets. That costs nothing visually: a line
+ *  break at the END of a block box is trimmed by CSS, so the character lives in
+ *  the DOM text without drawing an empty row (verified in a browser — every
+ *  line box measures exactly one row tall). */
+function DiffBody({
+  lines,
+  name,
+  input,
+}: {
+  lines: DiffLine[];
+  name: string;
+  input: Record<string, unknown>;
+}) {
+  // Highlight each side once, whole: a multi-line string or block comment only
+  // parses with its context. Lines then index into their side's tokens.
+  const tokens = useMemo(() => {
+    const src = diffSources(name, input);
+    if (!src) return null;
+    const lang = languageForPath(src.path);
+    if (!lang) return null;
+    return { old: highlightToLines(src.old, lang), new: highlightToLines(src.new, lang) };
+  }, [name, input]);
+
+  return (
+    <>
+      {lines.map((l, i) => {
+        const marked = l.kind === "add" || l.kind === "del";
+        const side = tokens && l.side ? tokens[l.side][l.index ?? -1] : undefined;
+        const tail = i === lines.length - 1 ? "" : "\n";
+        return (
+          <span
+            key={i}
+            className={`block ${
+              l.kind === "add"
+                ? "bg-[color-mix(in_srgb,var(--color-assistant)_14%,transparent)]"
+                : l.kind === "del"
+                  ? "bg-[color-mix(in_srgb,var(--color-error)_14%,transparent)]"
+                  : ""
+            }`}
+          >
+            <span
+              className={
+                marked
+                  ? l.kind === "add"
+                    ? "text-[var(--color-assistant)]"
+                    : "text-[var(--color-error)]"
+                  : "text-[var(--color-text-dim)]"
+              }
+            >
+              {diffLineText({ ...l, text: "" })}
+            </span>
+            {side && side.length > 0 ? (
+              side.map((t: Token, k: number) => (
+                <span key={k} className={t.cls}>
+                  {t.text}
+                </span>
+              ))
+            ) : (
+              <span className={marked ? "" : "text-[var(--color-text-dim)]"}>{l.text}</span>
+            )}
+            {tail}
+          </span>
+        );
+      })}
+    </>
   );
 }
 

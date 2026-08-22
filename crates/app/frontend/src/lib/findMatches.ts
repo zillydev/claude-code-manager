@@ -4,6 +4,7 @@
 import type { RenderedTurn, ToolCallResult } from "../types";
 import { makeSegId, type SegField } from "./segments";
 import { prettyResultText } from "./toolDisplay";
+import { diffText, toolDiff } from "./toolDiff";
 import type { Span } from "./findMatcher";
 
 export interface FindMatch {
@@ -59,9 +60,11 @@ export function compareMatches(a: FindMatch, b: FindMatch): number {
 }
 
 /** The exact text ToolCall renders for a tool's input — one derivation, two
- *  consumers (renderer + find), so painted offsets always line up. */
-export function toolInputText(input: Record<string, unknown>): string {
-  return JSON.stringify(input, null, 2);
+ *  consumers (renderer + find), so painted offsets always line up. File-editing
+ *  tools render as a diff; everything else as pretty JSON. */
+export function toolInputText(name: string, input: Record<string, unknown>): string {
+  const d = toolDiff(name, input);
+  return d ? diffText(d) : JSON.stringify(input, null, 2);
 }
 
 /** The exact text ToolCall renders for a tool's result (MCP JSON prettified). */
@@ -85,7 +88,7 @@ export function modelMatches(turns: RenderedTurn[], find: (t: string) => Span[])
     } else if (turn.type === "assistant") {
       turn.blocks.forEach((b, bi) => {
         if (b.type !== "tool_call") return;
-        push(ti, bi, "tool-input", toolInputText(b.input_full));
+        push(ti, bi, "tool-input", toolInputText(b.name, b.input_full));
         if (b.result) push(ti, bi, "tool-result", toolResultText(b.result));
       });
     }

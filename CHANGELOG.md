@@ -10,6 +10,10 @@ What changed in each release, written for people using the app. Build-time detai
 
 - **About section in Settings** — shows the running build's version, and opens the repository, that version's release notes, and the issue tracker.
 
+**Changed**
+
+- **File edits render as diffs.** `Edit`, `Write` and `MultiEdit` used to show their raw JSON input, with the before/after text collapsed onto one `\n`-escaped line; they now show `-`/`+` lines like the terminal does, syntax-highlighted, with the changed lines tinted. Other tools keep the JSON view.
+
 ## v0.1.2 — 2026-08-22
 
 **Added**
