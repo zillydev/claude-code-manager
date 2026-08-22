@@ -559,7 +559,7 @@ checksum = "c8d4a3bb8b1e0c1050499d1815f5ab16d04f0959b233085fb31653fbfc9d98f9"
 
 [[package]]
 name = "claude-code-manager-app"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "base64 0.22.1",
  "claude-code-manager-core",
@@ -577,7 +577,7 @@ dependencies = [
 
 [[package]]
 name = "claude-code-manager-cli"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "anyhow",
  "clap",
@@ -586,7 +586,7 @@ dependencies = [
 
 [[package]]
 name = "claude-code-manager-core"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "anyhow",
  "chrono",
