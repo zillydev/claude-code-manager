@@ -1,4 +1,6 @@
-import { useEffect, useMemo, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { getVersion } from "@tauri-apps/api/app";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import { useConfig } from "../hooks/useConfig";
 import { THEME_LIST, UI_FONTS, MONO_FONTS } from "../lib/config";
 import { useSessions } from "../hooks/useSessions";
@@ -15,6 +17,14 @@ export default function Settings({ onClose }: { onClose: () => void }) {
   // The same session list the sidebar groups — served from the shared cache,
   // so opening Settings costs no extra scan.
   const { sessions } = useSessions();
+  // Read from the bundle rather than hardcoded, so it can't drift from the
+  // build someone is actually running when they report a problem.
+  const [version, setVersion] = useState<string | null>(null);
+  useEffect(() => {
+    getVersion()
+      .then(setVersion)
+      .catch(() => {});
+  }, []);
   const groups = useMemo(() => projectGroups(sessions), [sessions]);
   const defaultProjectLabel = useMemo(() => {
     const v = ui.defaultProject;
@@ -218,6 +228,22 @@ export default function Settings({ onClose }: { onClose: () => void }) {
             Removed when switched off.
           </div>
         </Section>
+
+        <Section title="About">
+          <Row label="Version">
+            <span className="text-xs tabular-nums text-[var(--color-text-dim)]">
+              {version ?? "…"}
+            </span>
+          </Row>
+          <div className="flex gap-2">
+            <LinkButton href={REPO_URL}>GitHub</LinkButton>
+            {/* Deep-links to THIS build's notes, not just the latest. */}
+            <LinkButton href={version ? `${REPO_URL}/releases/tag/v${version}` : `${REPO_URL}/releases`}>
+              Release notes
+            </LinkButton>
+            <LinkButton href={`${REPO_URL}/issues/new`}>Report an issue</LinkButton>
+          </div>
+        </Section>
       </div>
     </div>
   );
@@ -347,5 +373,21 @@ function FontSelect({
         />
       )}
     </div>
+  );
+}
+
+const REPO_URL = "https://github.com/zillydev/claude-code-manager";
+
+/** Opens in the user's browser, not in the webview — an external page inside
+ *  the app window would have no way back. */
+function LinkButton({ href, children }: { href: string; children: ReactNode }) {
+  return (
+    <button
+      onClick={() => openUrl(href).catch((e) => console.error("openUrl failed:", e))}
+      title={href}
+      className="flex items-center gap-1.5 text-xs px-2 py-1 rounded border border-[var(--color-border)] text-[var(--color-text-dim)] hover:border-[var(--color-accent)] hover:text-[var(--color-accent)] transition-colors"
+    >
+      {children}
+    </button>
   );
 }
