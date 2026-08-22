@@ -5,6 +5,7 @@ import type { RenderedTurn, ToolCallResult } from "../types";
 import { makeSegId, type SegField } from "./segments";
 import { prettyResultText } from "./toolDisplay";
 import { diffText, toolDiff } from "./toolDiff";
+import { askLines, askText } from "./askQuestion";
 import type { Span } from "./findMatcher";
 
 export interface FindMatch {
@@ -61,10 +62,16 @@ export function compareMatches(a: FindMatch, b: FindMatch): number {
 
 /** The exact text ToolCall renders for a tool's input — one derivation, two
  *  consumers (renderer + find), so painted offsets always line up. File-editing
- *  tools render as a diff; everything else as pretty JSON. */
+ *  tools render as a diff, AskUserQuestion as its question card; everything
+ *  else as pretty JSON. */
 export function toolInputText(name: string, input: Record<string, unknown>): string {
   const d = toolDiff(name, input);
-  return d ? diffText(d) : JSON.stringify(input, null, 2);
+  if (d) return diffText(d);
+  if (name === "AskUserQuestion") {
+    const lines = askLines(input);
+    if (lines) return askText(lines);
+  }
+  return JSON.stringify(input, null, 2);
 }
 
 /** The exact text ToolCall renders for a tool's result (MCP JSON prettified). */

@@ -5,6 +5,7 @@ import { prettyToolName } from "../lib/toolDisplay";
 import { toolInputText, toolResultText } from "../lib/findMatches";
 import { diffLineText, diffSources, toolDiff, type DiffLine } from "../lib/toolDiff";
 import { highlightToLines, languageForPath, type Token } from "../lib/syntax";
+import { askLines, chosenLabels, type AskLine } from "../lib/askQuestion";
 import { ImageStrip } from "./InlineImage";
 
 interface Props {
@@ -43,6 +44,7 @@ export default function ToolCall({ block, turnIndex, blockIndex, forceExpand }: 
           <ToolInput
             name={block.name}
             input={block.input_full}
+            resultText={block.result?.text ?? null}
             segId={makeSegId(turnIndex, blockIndex, "tool-input")}
           />
           {block.result ? (
@@ -61,22 +63,33 @@ export default function ToolCall({ block, turnIndex, blockIndex, forceExpand }: 
 function ToolInput({
   name,
   input,
+  resultText,
   segId,
 }: {
   name: string;
   input: Record<string, unknown>;
+  /** The tool's result, for AskUserQuestion to mark which option was picked. */
+  resultText: string | null;
   segId: string;
 }) {
   // Edit/Write/MultiEdit render as a diff, the way Claude Code shows them in
-  // the terminal; everything else keeps the JSON view.
+  // the terminal; AskUserQuestion as a question card; everything else keeps the
+  // JSON view.
   const diff = toolDiff(name, input);
+  const ask = diff ? null : name === "AskUserQuestion" ? askLines(input) : null;
   return (
     <pre
       data-seg-id={segId}
       className="px-3 py-2 rounded text-xs whitespace-pre-wrap break-words overflow-hidden border-l-2 border-l-[var(--color-tool)] bg-[var(--color-tool-result-bg)] text-[var(--color-text)] mb-1"
       style={{ maxHeight: "300px", overflowY: "auto" }}
     >
-      {diff ? <DiffBody lines={diff} name={name} input={input} /> : toolInputText(name, input)}
+      {diff ? (
+        <DiffBody lines={diff} name={name} input={input} />
+      ) : ask ? (
+        <AskBody lines={ask} resultText={resultText} />
+      ) : (
+        toolInputText(name, input)
+      )}
     </pre>
   );
 }
@@ -169,5 +182,39 @@ function ToolResult({ result, segId }: { result: ToolCallResult; segId: string }
       </pre>
       <ImageStrip images={result.images} label="tool result image" />
     </div>
+  );
+}
+
+/** An AskUserQuestion call as the question card it is, rather than raw JSON:
+ *  the question, then its options, with the one the user picked accented.
+ *
+ *  Same rule as the diff body — each line carries its own newline so the
+ *  element's textContent equals `askText(lines)` exactly, and the chosen option
+ *  is marked with COLOUR only. A "✓" in the text would shift every find offset
+ *  after it, since the matcher never sees the result. */
+function AskBody({ lines, resultText }: { lines: AskLine[]; resultText: string | null }) {
+  const chosen = useMemo(() => chosenLabels(resultText), [resultText]);
+  return (
+    <>
+      {lines.map((l, i) => {
+        const picked = l.kind === "option" && !!l.label && chosen.has(l.label);
+        const tail = i === lines.length - 1 ? "" : "\n";
+        return (
+          <span
+            key={i}
+            className={`block ${
+              l.kind === "question"
+                ? "font-medium text-[var(--color-text)]"
+                : picked
+                  ? "text-[var(--color-accent)] bg-[color-mix(in_srgb,var(--color-accent)_12%,transparent)]"
+                  : "text-[var(--color-text-dim)]"
+            }`}
+          >
+            {l.text}
+            {tail}
+          </span>
+        );
+      })}
+    </>
   );
 }

@@ -12,6 +12,7 @@ What changed in each release, written for people using the app. Build-time detai
 
 **Changed**
 
+- **Questions render as question cards.** An `AskUserQuestion` call showed its raw JSON; it now reads as the question with its options listed, and the option you chose is highlighted.
 - **File edits render as diffs.** `Edit`, `Write` and `MultiEdit` used to show their raw JSON input, with the before/after text collapsed onto one `\n`-escaped line; they now show `-`/`+` lines like the terminal does, syntax-highlighted, with the changed lines tinted. Other tools keep the JSON view.
 
 ## v0.1.2 — 2026-08-22
