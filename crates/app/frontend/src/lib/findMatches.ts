@@ -6,6 +6,7 @@ import { makeSegId, type SegField } from "./segments";
 import { prettyResultText } from "./toolDisplay";
 import { diffText, toolDiff } from "./toolDiff";
 import { askLines, askText } from "./askQuestion";
+import { bashLines, bashText } from "./bashBody";
 import type { Span } from "./findMatcher";
 
 export interface FindMatch {
@@ -62,11 +63,15 @@ export function compareMatches(a: FindMatch, b: FindMatch): number {
 
 /** The exact text ToolCall renders for a tool's input — one derivation, two
  *  consumers (renderer + find), so painted offsets always line up. File-editing
- *  tools render as a diff, AskUserQuestion as its question card; everything
- *  else as pretty JSON. */
+ *  tools render as a diff, Bash as a shell snippet, AskUserQuestion as its
+ *  question card; everything else as pretty JSON. */
 export function toolInputText(name: string, input: Record<string, unknown>): string {
   const d = toolDiff(name, input);
   if (d) return diffText(d);
+  if (name === "Bash") {
+    const lines = bashLines(input);
+    if (lines) return bashText(lines);
+  }
   if (name === "AskUserQuestion") {
     const lines = askLines(input);
     if (lines) return askText(lines);

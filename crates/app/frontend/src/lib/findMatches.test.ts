@@ -31,8 +31,8 @@ const turns: RenderedTurn[] = [
     blocks: [
       { type: "text", text: "needle in markdown" },
       {
-        type: "tool_call", id: "t1", name: "Bash", input_summary: "ls",
-        input_full: { command: "ls needle" },
+        type: "tool_call", id: "t1", name: "Grep", input_summary: "needle",
+        input_full: { pattern: "ls needle" },
         result: { text: '{"k":"needle"}', is_error: false },
       },
     ],
@@ -44,10 +44,10 @@ describe("modelMatches", () => {
   it("only searches collapsed-body fields, with the renderer's transforms", () => {
     const ms = modelMatches(turns, find("needle"));
     expect(ms.map((m) => m.field)).toEqual(["tool-input", "tool-result", "task-result"]);
-    // tool-input is the pretty-printed JSON (Bash isn't a diff tool), so the
+    // tool-input is the pretty-printed JSON (Grep has no special view), so the
     // offset is inside it
     const input = ms[0];
-    expect(toolInputText("Bash", { command: "ls needle" }).slice(input.start, input.end)).toBe(
+    expect(toolInputText("Grep", { pattern: "ls needle" }).slice(input.start, input.end)).toBe(
       "needle",
     );
     // tool-result is prettyResultText'd (JSON gets pretty-printed)
@@ -71,8 +71,14 @@ describe("toolInputText", () => {
     expect(t.slice(t.indexOf("B"), t.indexOf("B") + 1)).toBe("B");
   });
 
-  it("keeps JSON for everything else", () => {
-    expect(toolInputText("Bash", { command: "ls" })).toBe(JSON.stringify({ command: "ls" }, null, 2));
+  it("renders Bash as a shell snippet", () => {
+    expect(toolInputText("Bash", { command: "ls -la", description: "list" })).toBe(
+      "# list\nls -la",
+    );
+  });
+
+  it("keeps JSON for tools with no special view", () => {
+    expect(toolInputText("Grep", { pattern: "x" })).toBe(JSON.stringify({ pattern: "x" }, null, 2));
   });
 });
 

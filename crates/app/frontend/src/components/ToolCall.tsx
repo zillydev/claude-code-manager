@@ -6,6 +6,7 @@ import { toolInputText, toolResultText } from "../lib/findMatches";
 import { diffLineText, diffSources, toolDiff, type DiffLine } from "../lib/toolDiff";
 import { highlightToLines, languageForPath, type Token } from "../lib/syntax";
 import { askLines, chosenLabels, type AskLine } from "../lib/askQuestion";
+import { bashLines, type BashLine } from "../lib/bashBody";
 import { ImageStrip } from "./InlineImage";
 
 interface Props {
@@ -76,7 +77,8 @@ function ToolInput({
   // the terminal; AskUserQuestion as a question card; everything else keeps the
   // JSON view.
   const diff = toolDiff(name, input);
-  const ask = diff ? null : name === "AskUserQuestion" ? askLines(input) : null;
+  const bash = diff ? null : name === "Bash" ? bashLines(input) : null;
+  const ask = diff || bash ? null : name === "AskUserQuestion" ? askLines(input) : null;
   return (
     <pre
       data-seg-id={segId}
@@ -85,6 +87,8 @@ function ToolInput({
     >
       {diff ? (
         <DiffBody lines={diff} name={name} input={input} />
+      ) : bash ? (
+        <BashBody lines={bash} />
       ) : ask ? (
         <AskBody lines={ask} resultText={resultText} />
       ) : (
@@ -211,6 +215,57 @@ function AskBody({ lines, resultText }: { lines: AskLine[]; resultText: string |
             }`}
           >
             {l.text}
+            {tail}
+          </span>
+        );
+      })}
+    </>
+  );
+}
+
+/** A Bash call as the shell snippet it is: its description and settings as
+ *  dim `#` comments, then the script highlighted as bash.
+ *
+ *  Same rule as the other bodies — each line carries its own newline so the
+ *  element's textContent equals `bashText(lines)` exactly, keeping find-bar
+ *  offsets aligned. */
+function BashBody({ lines }: { lines: BashLine[] }) {
+  // Highlight the script as one unit: a heredoc or a quoted block only parses
+  // with its neighbours, and half of these calls are multi-line.
+  const tokens = useMemo(() => {
+    const script = lines
+      .filter((l) => l.kind === "cmd")
+      .map((l) => l.text)
+      .join("\n");
+    return highlightToLines(script, "bash");
+  }, [lines]);
+
+  let cmdIndex = -1;
+  return (
+    <>
+      {lines.map((l, i) => {
+        const tail = i === lines.length - 1 ? "" : "\n";
+        if (l.kind === "note") {
+          return (
+            <span key={i} className="block text-[var(--color-text-dim)] italic">
+              {l.text}
+              {tail}
+            </span>
+          );
+        }
+        cmdIndex += 1;
+        const line = tokens[cmdIndex];
+        return (
+          <span key={i} className="block">
+            {line && line.length > 0 ? (
+              line.map((t: Token, k: number) => (
+                <span key={k} className={t.cls}>
+                  {t.text}
+                </span>
+              ))
+            ) : (
+              l.text
+            )}
             {tail}
           </span>
         );
