@@ -618,10 +618,16 @@ const Turn = memo(function Turn({
               <span className="text-[var(--color-accent)] text-xs" title="Bookmarked">⚑</span>
             )}
           </div>
-          <div className="max-w-[75%] flex flex-col items-end">
+          <div className="max-w-[75%] min-w-0 flex flex-col items-end">
+            {/* wrap-anywhere, not break-words: `overflow-wrap: break-word`
+                doesn't reduce an element's intrinsic min-content width, so a
+                flex item still refuses to shrink below one unbreakable token —
+                a long URL blew the bubble past max-w-75% and out of the pane.
+                `anywhere` counts break opportunities in that measurement.
+                Measured: 1215px → 525px in a 700px pane. */}
             <div
               data-seg-id={makeSegId(turnIndex, null, "user-text")}
-              className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-sm whitespace-pre-wrap break-words"
+              className="min-w-0 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-sm whitespace-pre-wrap wrap-anywhere"
             >
               {turn.text}
             </div>
@@ -733,7 +739,7 @@ const Turn = memo(function Turn({
             {ts}
           </span>
           <span className="text-[var(--color-error)] shrink-0">⚠</span>
-          <span className="text-[var(--color-error)] break-words">{turn.text}</span>
+          <span className="min-w-0 text-[var(--color-error)] wrap-anywhere">{turn.text}</span>
         </div>
       );
 

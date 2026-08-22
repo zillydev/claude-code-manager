@@ -413,7 +413,7 @@ export default function GlobalFind({
                         the backend (≤3 excerpt windows), so showing it whole is the fix. */}
                     {/* Same type + rhythm as transcript message bodies (px-3/py-2 card,
                         text-sm) so results read like the conversation, not like chrome. */}
-                    <div className="mt-1 text-sm text-[var(--color-text)] whitespace-normal break-words">
+                    <div className="mt-1 text-sm text-[var(--color-text)] whitespace-normal wrap-anywhere">
                       {splitHighlight(h.snippet, result.term).map((seg, j) =>
                         seg.hit ? (
                           <mark
