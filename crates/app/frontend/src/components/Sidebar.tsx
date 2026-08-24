@@ -495,8 +495,13 @@ export default function Sidebar({
               }
             >
               {(status.running || unread) && (
+                /* Sits in the row's reserved left gutter (pl-4 below), centred
+                   on the first line: py-2 (8px) + half of a 16px line = 16px,
+                   less half the dot. It used to float at left-1 over the
+                   content, where it crowded the project label and sat above
+                   the text's centre. */
                 <span
-                  className={`absolute left-1 top-2.5 h-2 w-2 rounded-full ${
+                  className={`absolute left-1.5 top-3 h-1.5 w-1.5 rounded-full ${
                     status.running ? "bg-green-500 animate-pulse" : "bg-[var(--color-accent)]"
                   }`}
                   title={
@@ -508,7 +513,7 @@ export default function Sidebar({
               )}
               {renaming ? (
                 /* Inline alias input (an input can't live inside the row button) */
-                <div className="flex-1 px-3 py-2 min-w-0 flex items-center gap-2">
+                <div className="flex-1 pl-4 pr-3 py-2 min-w-0 flex items-center gap-2">
                   <input
                     autoFocus
                     value={draftAlias}
@@ -532,7 +537,7 @@ export default function Sidebar({
               /* Main clickable area */
               <button
                 onClick={() => onSelect(s)}
-                className="flex-1 text-left px-3 py-2 min-w-0"
+                className="flex-1 text-left pl-4 pr-3 py-2 min-w-0"
               >
                   <div className="flex items-center justify-between">
                     <span className="text-xs font-medium text-[var(--color-accent)] truncate">
