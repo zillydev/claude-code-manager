@@ -1,6 +1,7 @@
 mod commands;
 mod config;
 mod dock_name;
+mod hooks;
 mod session_meta;
 mod shared;
 mod status_file;
@@ -91,6 +92,10 @@ pub fn run() {
             let handle = app.handle().clone();
             // Last published status, so the file is rewritten only on change.
             let mut last_status: Option<status_file::StatusFile> = None;
+            // Claude's own hook events, tailed and folded across ticks.
+            let mut hook_tail = hooks::EventTail::new();
+            let mut hook_state: std::collections::HashMap<String, hooks::HookPhase> =
+                Default::default();
             std::thread::spawn(move || loop {
                 std::thread::sleep(Duration::from_secs(3));
                 if handle.webview_windows().is_empty() {
@@ -111,18 +116,22 @@ pub fn run() {
                     .map(|g| g.hosted())
                     .unwrap_or_default();
 
-                // Stamp `hosted`/`busy` on the scanned rows, and mint rows for
-                // hosted sessions the scan skipped — it only tail-reads files
-                // touched in the last 60s, and a session mid-way through a long
-                // tool call writes nothing, which is exactly when its indicator
-                // must stay lit.
+                hooks::fold_into(&mut hook_state, &hook_tail.read_new(&hooks::events_path()));
+                let now = terminal::now_secs();
+                // A week-old phase is a session that ended without saying so.
+                hook_state.retain(|_, h| now - h.since < 7 * 86_400);
+
+                // Stamp `hosted`/`busy`/`hook` on the scanned rows, and mint
+                // rows for sessions the scan skipped — it only tail-reads files
+                // touched in the last 60s, and a long tool call and a parked
+                // question both write nothing, exactly when their indicator
+                // matters.
                 //
                 // `busy` is hosted AND recently talking: a PTY that exists says
                 // claude is alive, not that it is working — a session parked on
                 // a question is alive and silent, and used to read as "running"
                 // forever.
-                if !hosted_now.is_empty() {
-                    let now = terminal::now_secs();
+                if !hosted_now.is_empty() || !hook_state.is_empty() {
                     let busy_at: std::collections::BTreeMap<&str, i64> = hosted_now
                         .iter()
                         .map(|h| (h.session_id.as_str(), h.last_busy_at))
@@ -138,14 +147,21 @@ pub fn run() {
                         a.hosted = hosted_ids.contains(a.id.as_str());
                         a.busy = busy_ids.contains(a.id.as_str());
                         a.busy_at = busy_at.get(a.id.as_str()).copied().unwrap_or(0);
+                        a.hook = hook_state.get(&a.id).cloned();
                     }
                     let have: std::collections::BTreeSet<String> =
                         outcome.activity.iter().map(|a| a.id.clone()).collect();
-                    let missing: Vec<&str> = hosted_ids
-                        .iter()
-                        .copied()
-                        .filter(|id| !have.contains(*id))
-                        .collect();
+                    // Awaiting needs no minted row — the discovery snapshot
+                    // already says so; attention/running have no other carrier.
+                    let mut want: std::collections::BTreeSet<&str> = hosted_ids.clone();
+                    want.extend(
+                        hook_state
+                            .iter()
+                            .filter(|(_, h)| h.phase != "awaiting")
+                            .map(|(id, _)| id.as_str()),
+                    );
+                    let missing: Vec<&str> =
+                        want.iter().copied().filter(|id| !have.contains(*id)).collect();
                     if !missing.is_empty() {
                         let sessions =
                             handle.state::<shared::Shared>().sessions(&root).unwrap_or_default();
@@ -159,12 +175,13 @@ pub fn run() {
                                     .map(|d| d.as_secs() as i64)
                                     .unwrap_or(0),
                                 awaiting_input: s.awaiting_input,
-                                hosted: true,
+                                hosted: hosted_ids.contains(&s.id.to_string().as_str()),
                                 busy: busy_ids.contains(&s.id.to_string().as_str()),
                                 busy_at: busy_at
                                     .get(&s.id.to_string().as_str())
                                     .copied()
                                     .unwrap_or(0),
+                                hook: hook_state.get(&s.id.to_string()).cloned(),
                             });
                         }
                     }
@@ -244,6 +261,9 @@ pub fn run() {
             commands::open_session,
             commands::stop_watching,
             commands::search_messages,
+            commands::hooks_install,
+            commands::hooks_uninstall,
+            commands::hooks_installed,
             commands::fork_session,
             commands::message_previews,
             commands::delete_session,

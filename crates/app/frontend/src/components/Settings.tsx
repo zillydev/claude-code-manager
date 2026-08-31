@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { getVersion } from "@tauri-apps/api/app";
+import { invoke } from "@tauri-apps/api/core";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { useConfig } from "../hooks/useConfig";
 import { THEME_LIST, UI_FONTS, MONO_FONTS } from "../lib/config";
@@ -20,6 +21,18 @@ export default function Settings({ onClose }: { onClose: () => void }) {
   // Read from the bundle rather than hardcoded, so it can't drift from the
   // build someone is actually running when they report a problem.
   const [version, setVersion] = useState<string | null>(null);
+  // Truth lives in ~/.claude/settings.json, so probe rather than mirror in config.
+  const [hooksOn, setHooksOn] = useState<boolean | null>(null);
+  const [hooksError, setHooksError] = useState<string | null>(null);
+  useEffect(() => {
+    invoke<boolean>("hooks_installed").then(setHooksOn).catch(() => {});
+  }, []);
+  const toggleHooks = (want: boolean) => {
+    setHooksError(null);
+    invoke(want ? "hooks_install" : "hooks_uninstall")
+      .then(() => setHooksOn(want))
+      .catch((e) => setHooksError(String(e)));
+  };
   useEffect(() => {
     getVersion()
       .then(setVersion)
@@ -230,6 +243,22 @@ export default function Settings({ onClose }: { onClose: () => void }) {
             in the config folder, for other tools to read. Removed when switched off.
             {import.meta.env.DEV && " A dev build writes its own file so it can't disturb the installed app's."}
           </div>
+          <CheckRow
+            label="Precise status via Claude Code hooks"
+            checked={hooksOn ?? false}
+            onChange={toggleHooks}
+          />
+          <div className="text-[10px] text-[var(--color-text-dim)] leading-relaxed">
+            Installs a small relay into <code>~/.claude/settings.json</code> so Claude itself
+            reports each session's state: a question or permission prompt shows as needing you
+            the moment it appears, and a finished turn within seconds. Without it, status is
+            inferred from session files and terminal output. Applies to sessions started after
+            toggling; your existing hooks are left untouched (a one-time backup is kept as{" "}
+            <code>settings.json.ccm-backup</code>).
+          </div>
+          {hooksError && (
+            <div className="text-[10px] text-[var(--color-error)]">{hooksError}</div>
+          )}
         </Section>
 
         <Section title="About">

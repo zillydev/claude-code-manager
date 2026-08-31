@@ -91,25 +91,41 @@ pub fn desired_state(input: Inputs<'_>) -> StatusFile {
             },
         };
         let hosted = input.hosted.get(&id);
-        // For a session ccm HOSTS, its terminal is the authority: claude's TUI
-        // talks continuously while it works and falls silent when it waits, so
-        // `busy` answers "is it working?" outright. The file-mtime backstop is
-        // a guess for sessions ccm cannot see into — and a poor one here, since
-        // a question asked seconds after the prompt keeps that guess true while
-        // claude just sits there.
-        let running = !awaiting
-            && if hosted.is_some() {
-                busy
-            } else {
-                input.now - last_event_at < RUNNING_STALE_SECS
-            };
-        // A hosted terminal that has fallen quiet without the file showing a
-        // finished turn means claude is parked on something it has not written
-        // down yet — a question, a permission prompt, a plan. That is your turn
-        // as much as a finished one is, so it reads as unread; but it has to be
-        // dated from the moment the terminal went quiet, because the file's last
+        // Claude's own account (the opt-in hook relay) outranks inference while
+        // it is at least as fresh as the file: hooks see a question the file
+        // cannot, and the file records the interrupts and kills that fire no
+        // hook — each covers the other's blind spot.
+        let hook = live
+            .get(id.as_str())
+            .and_then(|a| a.hook.as_ref())
+            .filter(|h| h.since >= last_event_at);
+        // Without hooks, a hosted session's terminal is the authority: claude's
+        // TUI talks while working and falls silent when it waits. The
+        // file-mtime backstop stays for sessions ccm cannot see into at all.
+        let running = match hook {
+            Some(h) => {
+                h.phase == "running"
+                    && (hosted.is_some() || input.now - h.since < RUNNING_STALE_SECS)
+            }
+            None => {
+                !awaiting
+                    && if hosted.is_some() {
+                        busy
+                    } else {
+                        input.now - last_event_at < RUNNING_STALE_SECS
+                    }
+            }
+        };
+        // Something is waiting on the user that the file cannot show — a
+        // question, a permission prompt, a plan. Hooks date it exactly; the
+        // quiet-terminal inference dates it by when the talking stopped. Either
+        // way it reads as unread from that moment, because the file's last
         // event is your own prompt, which you have by definition already seen.
-        let waiting_since = (hosted.is_some() && !busy && !awaiting).then_some(busy_at);
+        let waiting_since = match hook {
+            Some(h) if h.phase != "running" => Some(h.since),
+            Some(_) => None,
+            None => (hosted.is_some() && !busy && !awaiting).then_some(busy_at),
+        };
         let attention_at = waiting_since.unwrap_or(last_event_at);
         let unread = (awaiting || waiting_since.is_some())
             && input.last_viewed.get(&id).is_some_and(|v| attention_at > *v);
@@ -234,6 +250,7 @@ mod tests {
             hosted: false,
             busy: false,
             busy_at: 0,
+            hook: None,
         }
     }
     /// Hosted with a talking terminal — claude is actually working.
@@ -245,6 +262,7 @@ mod tests {
             hosted: true,
             busy: true,
             busy_at: last,
+            hook: None,
         }
     }
     /// Hosted but silent since `quiet_at` — parked on a question, or just sitting.
@@ -256,6 +274,7 @@ mod tests {
             hosted: true,
             busy: false,
             busy_at: quiet_at,
+            hook: None,
         }
     }
 
@@ -411,6 +430,61 @@ mod tests {
             last_viewed: &inputs(NOW - 30),
             now: NOW,
         });
+        assert_eq!(out.sessions[A].state, "running");
+    }
+
+    /// `act` + a hook phase.
+    fn hooked(mut a: SessionActivity, phase: &'static str, since: i64) -> SessionActivity {
+        a.hook = Some(crate::hooks::HookPhase { phase, since });
+        a
+    }
+
+    #[test]
+    fn a_hook_phase_outranks_every_inference() {
+        let sessions = vec![summary(A, "hooked", NOW - 30, false)];
+        let viewed = BTreeMap::from([(A.to_string(), NOW - 30)]);
+        let state = |activity: Vec<SessionActivity>, hosted: BTreeMap<String, Option<i64>>| {
+            desired_state(Inputs {
+                activity: &activity,
+                sessions: &sessions,
+                hosted: &hosted,
+                last_viewed: &viewed,
+                now: NOW,
+            })
+            .sessions
+            .get(A)
+            .map(|s| s.state.clone())
+            // Idle + unhosted sessions are excluded from the file entirely.
+            .unwrap_or_else(|| "idle".into())
+        };
+        let hosted_a = || BTreeMap::from([(A.to_string(), Some(1))]);
+
+        // Question on screen: attention says unread even while the terminal is
+        // still repainting (the user is browsing the options).
+        assert_eq!(state(vec![hooked(busy_act(A, NOW - 30), "attention", NOW - 10)], hosted_a()), "unread");
+        // Mid-turn through a silent tool call: running with no volume at all.
+        assert_eq!(state(vec![hooked(quiet_act(A, NOW - 30, NOW - 25), "running", NOW - 29)], hosted_a()), "running");
+        // Turn finished: unread instantly, no quiet-hold to wait out.
+        assert_eq!(state(vec![hooked(quiet_act(A, NOW - 30, NOW - 2), "awaiting", NOW - 1)], hosted_a()), "unread");
+        // Not hosted: hook running still decays like the mtime guess would, so
+        // a SIGKILLed session (which fires no hook) cannot strand as running.
+        assert_eq!(state(vec![hooked(act(A, NOW - 30, false), "running", NOW - 29)], BTreeMap::new()), "running");
+        assert_eq!(state(vec![hooked(act(A, NOW - 300, false), "running", NOW - 299)], BTreeMap::new()), "idle");
+    }
+
+    #[test]
+    fn a_stale_hook_phase_defers_to_the_file() {
+        // The file has a newer event than the hook saw — an interrupt, or a
+        // turn continued elsewhere. Whatever the hook thinks is over.
+        let sessions = vec![summary(A, "interrupted", NOW - 5, false)];
+        let out = desired_state(Inputs {
+            activity: &[hooked(act(A, NOW - 5, false), "attention", NOW - 60)],
+            sessions: &sessions,
+            hosted: &BTreeMap::new(),
+            last_viewed: &BTreeMap::from([(A.to_string(), NOW - 300)]),
+            now: NOW,
+        });
+        // Falls back to the mtime guess: 5s-old file, not awaiting → running.
         assert_eq!(out.sessions[A].state, "running");
     }
 

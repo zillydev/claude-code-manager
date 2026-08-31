@@ -86,3 +86,32 @@ describe("showsUnread", () => {
     expect(showsUnread({ running: true, unread: false }, false, false)).toBe(false);
   });
 });
+
+describe("hook phases", () => {
+  it("attention means unread the moment the question appears — repaints be damned", () => {
+    // Terminal is busy (the user is browsing the options); hooks know better.
+    const busy = { busy: true, busyAt: 1090 };
+    const s = deriveStatus(1000, false, 1000, 1100, busy, { phase: "attention", since: 1050 });
+    expect(s).toEqual({ running: false, unread: true });
+  });
+  it("running through a silent tool call, no volume needed", () => {
+    const quiet = { busy: false, busyAt: 1010 };
+    expect(deriveStatus(1000, false, 0, 1100, quiet, { phase: "running", since: 1001 }).running).toBe(true);
+  });
+  it("awaiting goes unread instantly, and viewing clears it", () => {
+    expect(deriveStatus(1000, false, 1000, 1004, { busy: false, busyAt: 1002 }, { phase: "awaiting", since: 1003 }).unread).toBe(true);
+    expect(deriveStatus(1000, false, 1005, 1010, { busy: false, busyAt: 1002 }, { phase: "awaiting", since: 1003 }).unread).toBe(false);
+  });
+  it("a hook that has not seen the file's newest event defers to inference", () => {
+    // An interrupt wrote a user line at 1080; the hook still thinks a question
+    // from 1050 is up. The file wins: fresh + not awaiting ⇒ the mtime guess.
+    expect(deriveStatus(1080, false, 0, 1085, null, { phase: "attention", since: 1050 })).toEqual({
+      running: true,
+      unread: false,
+    });
+  });
+  it("unhosted hook-running decays so a SIGKILLed session cannot strand", () => {
+    expect(deriveStatus(1000, false, 0, 1100, null, { phase: "running", since: 1001 }).running).toBe(true);
+    expect(deriveStatus(1000, false, 0, 1300, null, { phase: "running", since: 1001 }).running).toBe(false);
+  });
+});

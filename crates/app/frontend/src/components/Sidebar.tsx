@@ -459,6 +459,7 @@ export default function Sidebar({
               lastViewed[s.id] ?? liveEventAt ?? 0,
               now,
               act?.hosted ? { busy: act.busy, busyAt: act.busyAt } : null,
+              act?.hook ?? null,
             );
             const unread = showsUnread(status, s.id === activeId, windowFocused);
             return (

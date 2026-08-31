@@ -94,6 +94,7 @@ impl Shared {
                 hosted: false, // filled in by the poller, which knows the PTY pool
                 busy: false,
                 busy_at: 0,
+                hook: None,
             })
             .collect();
         self.data.lock().unwrap().activity = activity.clone();

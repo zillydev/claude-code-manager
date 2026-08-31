@@ -8,6 +8,8 @@ What changed in each release, written for people using the app. Build-time detai
 
 **Added**
 
+- **Precise status via Claude Code hooks** (opt-in, Settings → Integrations) — Claude itself now reports each session's state, so the sidebar and the published status file can say **needs you** the instant a question, permission prompt, or plan appears, and **your turn** within seconds of a reply finishing — no more waiting out the quiet-terminal hold. It installs a small relay into `~/.claude/settings.json` (your existing hooks are untouched; a one-time backup is kept, and switching off removes exactly what was added). Sessions started before toggling keep the inferred status.
+
 - **About section in Settings** — shows the running build's version, and opens the repository, that version's release notes, and the issue tracker.
 
 **Fixed**

@@ -464,6 +464,23 @@ pub fn set_last_viewed(
     shared.merge_last_viewed(map);
 }
 
+/// Install / remove / probe the Claude Code hook relay (Settings toggle).
+/// State lives in `~/.claude/settings.json` itself — no ccm config duplicates it.
+#[tauri::command]
+pub fn hooks_install() -> Result<(), String> {
+    crate::hooks::install()
+}
+
+#[tauri::command]
+pub fn hooks_uninstall() -> Result<(), String> {
+    crate::hooks::uninstall()
+}
+
+#[tauri::command]
+pub fn hooks_installed() -> bool {
+    crate::hooks::installed()
+}
+
 #[derive(Serialize, Clone)]
 pub struct SessionActivity {
     pub id: String,
@@ -480,6 +497,9 @@ pub struct SessionActivity {
     /// Hosted AND claude authored real output recently — not just alive, and
     /// not merely repainting in answer to the user's own keys.
     pub busy: bool,
+    /// Claude's own account of its state, from the opt-in hook relay: the one
+    /// source that can see a question the session file hasn't recorded yet.
+    pub hook: Option<crate::hooks::HookPhase>,
     /// Epoch seconds this session's terminal was last visibly working. Only
     /// meaningful while `hosted` (0 otherwise).
     ///

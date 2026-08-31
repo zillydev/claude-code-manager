@@ -1,6 +1,16 @@
 export type SessionStatus = { running: boolean; unread: boolean };
 
 /**
+ * Claude's own account of a session's state, relayed by the opt-in hooks:
+ * `attention` means a question / permission / plan card is on screen — the one
+ * state neither the session file nor the terminal can prove.
+ */
+export type HookPhase = {
+  phase: "running" | "attention" | "awaiting";
+  since: number;
+} | null;
+
+/**
  * What ccm's own terminal knows about a session, or null when ccm isn't running
  * it (then only the session file's mtime is available to guess from).
  */
@@ -60,8 +70,22 @@ export function deriveStatus(
   lastViewed: number,
   now: number,
   terminal: TerminalState = null,
+  hook: HookPhase = null,
 ): SessionStatus {
   if (lastEventAt == null) return { running: false, unread: false };
+  // Claude's own account outranks inference while it is at least as fresh as
+  // the file: hooks see a question the file cannot, and the file records the
+  // interrupts and kills that fire no hook.
+  if (hook && hook.since >= lastEventAt) {
+    return {
+      // Unhosted hook-running still decays like the mtime guess, so a killed
+      // session (which fires no hook) cannot strand as running.
+      running:
+        hook.phase === "running" &&
+        (terminal ? true : now - hook.since < RUNNING_STALE_SECS),
+      unread: hook.phase !== "running" && hook.since > lastViewed,
+    };
+  }
   // A quiet terminal with no finished turn in the file means claude is parked
   // on something it hasn't written down — a question, a permission prompt, a
   // plan. Claude Code records a question only once it is answered, so the file
