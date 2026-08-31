@@ -32,13 +32,15 @@ import {
   tagColor,
 } from "../lib/sessionMeta";
 import { sessionUpdatedAt } from "../lib/sessions";
-import { deriveStatus } from "../lib/sessionStatus";
+import { deriveStatus, showsUnread } from "../lib/sessionStatus";
 import type { LiveActivity } from "../hooks/useActivity";
 
 interface Props {
   sessions: SessionSummary[];
   loading: boolean;
   activeId: string | null;
+  /** Whether THIS window has focus — an unseen window doesn't count as read. */
+  windowFocused: boolean;
   activity: Map<string, LiveActivity>;
   lastViewed: Record<string, number>;
   /** Open a session; with a message uuid, scrolled to + flashing that message. */
@@ -60,6 +62,7 @@ export default function Sidebar({
   sessions,
   loading,
   activeId,
+  windowFocused,
   activity,
   lastViewed,
   onSelect,
@@ -455,10 +458,9 @@ export default function Sidebar({
               awaiting,
               lastViewed[s.id] ?? liveEventAt ?? 0,
               now,
-              act?.hosted ?? false,
+              act?.hosted ? { busy: act.busy, busyAt: act.busyAt } : null,
             );
-            // You're looking at the open session — never flag it unread.
-            const unread = status.unread && s.id !== activeId;
+            const unread = showsUnread(status, s.id === activeId, windowFocused);
             return (
             <div
               key={s.id}

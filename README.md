@@ -120,7 +120,9 @@ With **Publish session status** enabled (Settings → Integrations), ccm keeps `
 }
 ```
 
-`state` is ccm's opinion — `running` (Claude is mid-turn), `unread` (finished, newer than the last time you opened it), `idle` (finished and seen) — while `awaiting_input` and `last_event_at` are the raw facts, so a consumer can apply its own rules. `window` is the macOS window id (the same integer yabai and similar tools use) when ccm is running that session in a terminal tab, `null` otherwise; `hosted` says which. Only sessions that are running, unread, or hosted appear.
+`state` is ccm's opinion — `running` (Claude is mid-turn), `unread` (your turn, and newer than the last time you opened it), `idle` (seen) — while `awaiting_input` and `last_event_at` are the raw facts, so a consumer can apply its own rules. For a session ccm hosts, `unread` also covers Claude sitting on a question: Claude Code records a question only once it is answered, so `awaiting_input` is still `false` and `last_event_at` is still your own prompt — ccm dates that wait from the moment the terminal went quiet instead. `window` is the macOS window id (the same integer yabai and similar tools use) when ccm is running that session in a terminal tab, `null` otherwise; `hosted` says which. Only sessions that are running, unread, or hosted appear.
+
+A **dev build writes `session-status.dev.json` instead**, so running `make dev` next to the installed app leaves the real file — and whatever polls it — alone.
 
 State is derived from the session files themselves — the same 3s poller behind the sidebar's status dots — so it self-corrects and can't be stranded the way Claude Code hook-driven state can. The file is replaced atomically, rewritten only when the contents change, and removed when publishing is switched off or the app exits, so a stale snapshot never outlives the app.
 

@@ -224,8 +224,11 @@ export default function Settings({ onClose }: { onClose: () => void }) {
           />
           <div className="text-[10px] text-[var(--color-text-dim)] leading-relaxed">
             Writes live session state (running / unread / idle) to{" "}
-            <code>session-status.json</code> in the config folder, for other tools to read.
-            Removed when switched off.
+            <code>
+              {import.meta.env.DEV ? "session-status.dev.json" : "session-status.json"}
+            </code>{" "}
+            in the config folder, for other tools to read. Removed when switched off.
+            {import.meta.env.DEV && " A dev build writes its own file so it can't disturb the installed app's."}
           </div>
         </Section>
 

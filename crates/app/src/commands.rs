@@ -477,6 +477,17 @@ pub struct SessionActivity {
     /// staleness backstop — a 20-minute tool call is still "running".
     #[serde(default)]
     pub hosted: bool,
+    /// Hosted AND claude authored real output recently — not just alive, and
+    /// not merely repainting in answer to the user's own keys.
+    pub busy: bool,
+    /// Epoch seconds this session's terminal was last visibly working. Only
+    /// meaningful while `hosted` (0 otherwise).
+    ///
+    /// Once it goes quiet, this is the moment claude started waiting on you —
+    /// which the session file cannot tell anyone, because it records a question
+    /// only after it is answered, leaving your own prompt as the last event.
+    #[serde(default)]
+    pub busy_at: i64,
 }
 
 /// The sidebar "running"/"unread" signal, served from the `Shared` cache that

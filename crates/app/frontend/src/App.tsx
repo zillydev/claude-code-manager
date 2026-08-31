@@ -219,8 +219,13 @@ export default function App() {
   useEffect(() => {
     if (!target || !windowFocused) return;
     const summary = sessions.find((s) => s.id === target.sessionId);
-    const seen = activity.get(target.sessionId)?.at ?? summary?.last_event_at?.secs_since_epoch;
-    if (seen == null) return;
+    const live = activity.get(target.sessionId);
+    const at = live?.at ?? summary?.last_event_at?.secs_since_epoch ?? 0;
+    // A question parked in the terminal writes no event, so its wait is dated by
+    // the terminal falling quiet; looking at the window clears that too. Only
+    // once quiet: while claude works that stamp advances every tick.
+    const seen = Math.max(at, live?.hosted && !live.busy ? live.busyAt : 0);
+    if (!seen) return;
     setLastViewed((m) => (seen > (m[target.sessionId] ?? 0) ? { ...m, [target.sessionId]: seen } : m));
   }, [activity, sessions, target, windowFocused, setLastViewed]);
 
@@ -339,6 +344,7 @@ export default function App() {
               sessions={sessions}
               loading={loading}
               activeId={target?.sessionId ?? null}
+              windowFocused={windowFocused}
               activity={activity}
               lastViewed={lastViewed}
               onSelect={(s, messageUuid) => openSession(s, messageUuid)}

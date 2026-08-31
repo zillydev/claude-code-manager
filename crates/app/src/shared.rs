@@ -92,6 +92,8 @@ impl Shared {
                     .unwrap_or(0),
                 awaiting_input: awaiting,
                 hosted: false, // filled in by the poller, which knows the PTY pool
+                busy: false,
+                busy_at: 0,
             })
             .collect();
         self.data.lock().unwrap().activity = activity.clone();

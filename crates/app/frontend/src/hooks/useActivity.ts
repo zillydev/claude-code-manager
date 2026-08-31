@@ -8,11 +8,25 @@ type Activity = {
   awaiting_input: boolean;
   /** ccm is running this session's claude process (live PTY in a terminal tab). */
   hosted: boolean;
+  busy: boolean;
+  /** Epoch s the terminal was last working; once quiet, when claude began waiting. */
+  busy_at: number;
 };
-export type LiveActivity = { at: number; awaiting: boolean; hosted: boolean };
+export type LiveActivity = {
+  at: number;
+  awaiting: boolean;
+  hosted: boolean;
+  busy: boolean;
+  busyAt: number;
+};
 
 const toMap = (rows: Activity[]): Map<string, LiveActivity> =>
-  new Map(rows.map((r) => [r.id, { at: r.last_event_at, awaiting: r.awaiting_input, hosted: r.hosted }]));
+  new Map(
+    rows.map((r) => [
+      r.id,
+      { at: r.last_event_at, awaiting: r.awaiting_input, hosted: r.hosted, busy: r.busy, busyAt: r.busy_at },
+    ]),
+  );
 
 /**
  * Live per-session activity, pushed by the single backend poller (one scan

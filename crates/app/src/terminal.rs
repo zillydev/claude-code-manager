@@ -1,5 +1,7 @@
 use std::collections::HashMap;
 use std::io::{Read, Write};
+use std::sync::atomic::{AtomicI64, Ordering};
+use std::sync::Arc;
 use std::sync::OnceLock;
 
 use base64::Engine;
@@ -195,6 +197,75 @@ pub struct PtyHandle {
     writer: Box<dyn Write + Send>,
     child: Box<dyn Child + Send + Sync>,
     owner: String,
+    /// Epoch seconds claude last produced output that was its own doing (a
+    /// `BUSY_MIN_BYTES` burst not caused by user input). Stamped by the reader.
+    last_busy: Arc<AtomicI64>,
+    /// Epoch seconds of the user's last keystroke or resize on this PTY, so the
+    /// reader can tell an echo repaint from claude actually saying something.
+    last_input: Arc<AtomicI64>,
+}
+
+/// One session ccm is running, for the poller.
+pub struct Hosted {
+    pub session_id: String,
+    pub owner: String,
+    /// Epoch seconds of the last substantial burst of claude-authored output.
+    pub last_busy_at: i64,
+}
+
+/// How long after claude's last burst of output we still call the session busy.
+/// Working output is bursty — measured at 1–2.6 kB/s with 2–4s of silence
+/// between bursts inside a single turn — so this has to ride out those gaps
+/// while still dropping the session soon after it really stops.
+pub const BUSY_QUIET_SECS: i64 = 10;
+
+/// Bytes within a second that mean "claude is working", not "the TUI twitched".
+///
+/// A parked TUI is not silent: it repaints its footer now and then, measured at
+/// 42 and 79 bytes, twice in 75 seconds of sitting at the prompt. Treating any
+/// output as work therefore left a session parked on a question reading as busy
+/// forever. Working output is an order of magnitude bigger — a spinner with a
+/// ticking elapsed counter, plus streamed text — so volume, not mere presence,
+/// is what separates them. 256 leaves ~3x headroom over the loudest idle
+/// repaint and ~4x under the quietest working second.
+pub const BUSY_MIN_BYTES: usize = 256;
+
+/// Output within this window after a keystroke or resize is the TUI answering
+/// the user (echo, a question card repaint), not claude working.
+pub const INPUT_ECHO_SECS: i64 = 2;
+
+/// Rolling per-second byte count behind the busy stamp: a burst split across
+/// several reads still counts as one, since reads arrive in chunks of whatever
+/// the kernel had, not in tidy seconds.
+struct BusyWindow {
+    second: i64,
+    bytes: usize,
+}
+
+impl BusyWindow {
+    fn new(now: i64) -> Self {
+        BusyWindow { second: now, bytes: 0 }
+    }
+
+    /// Feed one read. True once this second's output looks like claude working:
+    /// loud enough to be more than a footer twitch, and not an echo of input.
+    fn feed(&mut self, now: i64, n: usize, last_input: i64) -> bool {
+        if now.saturating_sub(last_input) < INPUT_ECHO_SECS {
+            return false; // the user caused this repaint, whatever its size
+        }
+        if now != self.second {
+            *self = BusyWindow::new(now);
+        }
+        self.bytes += n;
+        self.bytes >= BUSY_MIN_BYTES
+    }
+}
+
+pub fn now_secs() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0)
 }
 
 /// Tear down a PTY child AND its whole process group, then reap it.
@@ -234,14 +305,22 @@ impl TerminalState {
     /// Every live PTY as `(session id, owning window label)` — the app's own
     /// answer to "where is this session running", used to attribute published
     /// status entries to a macOS window.
-    pub fn hosted(&self) -> Vec<(String, String)> {
-        self.ptys.iter().map(|(id, h)| (id.clone(), h.owner.clone())).collect()
+    pub fn hosted(&self) -> Vec<Hosted> {
+        self.ptys
+            .iter()
+            .map(|(id, h)| Hosted {
+                session_id: id.clone(),
+                owner: h.owner.clone(),
+                last_busy_at: h.last_busy.load(Ordering::Relaxed),
+            })
+            .collect()
     }
     pub fn insert(&mut self, session_id: &str, handle: PtyHandle) {
         self.ptys.insert(session_id.to_string(), handle);
     }
     pub fn write(&mut self, session_id: &str, data: &[u8]) -> std::io::Result<()> {
         if let Some(h) = self.ptys.get_mut(session_id) {
+            h.last_input.store(now_secs(), Ordering::Relaxed);
             h.writer.write_all(data)?;
             h.writer.flush()?;
         }
@@ -249,6 +328,8 @@ impl TerminalState {
     }
     pub fn resize(&self, session_id: &str, rows: u16, cols: u16) {
         if let Some(h) = self.ptys.get(session_id) {
+            // A resize triggers a full repaint; that burst is the user's doing.
+            h.last_input.store(now_secs(), Ordering::Relaxed);
             let _ = h.master.resize(PtySize { rows, cols, pixel_width: 0, pixel_height: 0 });
         }
     }
@@ -326,12 +407,24 @@ pub fn spawn_terminal(
 
     let owner = label.clone();
     let cleanup_id = session_id.clone();
+    // The TUI repaints both when claude talks and when the user pokes it, so
+    // work = a loud burst NOT attributable to recent input (see BusyWindow).
+    let last_busy = Arc::new(AtomicI64::new(0));
+    // Spawn counts as input: the boot paint answers the user opening the tab.
+    let last_input = Arc::new(AtomicI64::new(now_secs()));
+    let stamp = Arc::clone(&last_busy);
+    let input_at = Arc::clone(&last_input);
     std::thread::spawn(move || {
         let mut buf = [0u8; 8192];
+        let mut window = BusyWindow::new(now_secs());
         loop {
             match reader.read(&mut buf) {
                 Ok(0) | Err(_) => break,
                 Ok(n) => {
+                    let now = now_secs();
+                    if window.feed(now, n, input_at.load(Ordering::Relaxed)) {
+                        stamp.store(now, Ordering::Relaxed);
+                    }
                     let data = base64::engine::general_purpose::STANDARD.encode(&buf[..n]);
                     let _ = app.emit_to(
                         label.as_str(),
@@ -360,7 +453,7 @@ pub fn spawn_terminal(
         let _ = app.emit("terminal-released", json!({ "sessionId": session_id }));
     });
 
-    Ok(PtyHandle { master: pair.master, writer, child, owner })
+    Ok(PtyHandle { master: pair.master, writer, child, owner, last_busy, last_input })
 }
 
 #[cfg(test)]
@@ -462,5 +555,96 @@ mod tests {
         );
         // Keep the master alive until here so the slave isn't torn down early.
         drop(pair.master);
+    }
+
+    /// Per-second byte counts measured off a real `claude` TUI under a PTY.
+    /// A turn is bursty — kilobyte repaints separated by seconds of silence —
+    /// and once it ends the TUI only repaints its footer, twice in 75 seconds.
+    const WORKING_TRACE: &[usize] = &[81, 2618, 0, 0, 1374, 264, 120, 1950, 0, 0, 1024, 1457];
+    const IDLE_TRACE: &[usize] = &[0, 0, 0, 42, 0, 79, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+
+    /// Seconds at which a trace would stamp the session busy. `inputs` are the
+    /// seconds the user typed (or resized) — output near them is echo.
+    fn busy_seconds(trace: &[usize], from: i64, inputs: &[i64]) -> Vec<i64> {
+        let mut w = BusyWindow::new(from);
+        (0..trace.len() as i64)
+            .filter(|i| {
+                let now = from + i;
+                let last_input = inputs.iter().copied().filter(|t| *t <= now).max().unwrap_or(i64::MIN);
+                trace[*i as usize] > 0 && w.feed(now, trace[*i as usize], last_input)
+            })
+            .map(|i| from + i)
+            .collect()
+    }
+
+    #[test]
+    fn an_idle_tui_never_looks_busy() {
+        assert!(busy_seconds(IDLE_TRACE, 0, &[]).is_empty(), "a footer repaint read as work");
+        // Worst case: a whole idle stretch arriving inside one second.
+        let total: usize = IDLE_TRACE.iter().sum();
+        assert!(!BusyWindow::new(0).feed(0, total, i64::MIN), "{total}B of idle repaints read as work");
+    }
+
+    #[test]
+    fn a_working_tui_stays_busy_across_its_silent_gaps() {
+        let busy = busy_seconds(WORKING_TRACE, 0, &[]);
+        assert!(!busy.is_empty(), "a whole turn went unnoticed");
+        // Not every working second crosses the bar (that 120B repaint doesn't);
+        // what matters is that no gap between stamps outlasts the hold, or the
+        // indicator would blink out mid-turn.
+        let longest = busy.windows(2).map(|w| w[1] - w[0]).max().unwrap_or(0);
+        assert!(longest < BUSY_QUIET_SECS, "{longest}s between stamps drops the dot mid-turn");
+        // And the turn's end is what clears it, within the hold.
+        assert_eq!(*busy.last().unwrap(), 11);
+    }
+
+    #[test]
+    fn a_burst_split_across_reads_still_counts() {
+        let mut w = BusyWindow::new(7);
+        // 1kB arriving as four reads inside one second: reads are chunks, not seconds.
+        let quiet = i64::MIN;
+        assert!(w.feed(7, 64, quiet) || w.feed(7, 64, quiet) || w.feed(7, 64, quiet) || w.feed(7, 64, quiet));
+        // …and the count does not leak into the next second.
+        assert!(!w.feed(8, 79, quiet));
+    }
+
+    #[test]
+    fn toggling_a_parked_question_never_looks_like_work() {
+        // Arrow keys through an AskUserQuestion card: every kilobyte repaint
+        // lands the same second as the keystroke that caused it. However long
+        // the user browses the options, claude is still just waiting.
+        let inputs: Vec<i64> = (0..30).step_by(2).collect();
+        let mut trace = [0usize; 30];
+        for t in inputs.iter() {
+            trace[*t as usize] = 1500;
+        }
+        assert!(busy_seconds(&trace, 0, &inputs).is_empty(), "an echo repaint read as work");
+    }
+
+    #[test]
+    fn answering_a_question_reads_as_work_once_the_echo_window_passes() {
+        // Enter at t=0, claude streams from t=0 on. The first INPUT_ECHO_SECS
+        // are indistinguishable from echo; everything after must count.
+        let trace = [1500usize; 10];
+        let busy = busy_seconds(&trace, 0, &[0]);
+        assert_eq!(busy.first().copied(), Some(INPUT_ECHO_SECS), "work never attributed to claude");
+        // The gap until then stays within the hold, so the dot never drops.
+        const { assert!(INPUT_ECHO_SECS < BUSY_QUIET_SECS) }
+    }
+
+    #[test]
+    fn typing_while_claude_works_keeps_the_dot_lit() {
+        // Queueing a message mid-turn: keystrokes pepper the stream, but the
+        // spinner keeps painting in the pauses, and pauses longer than the echo
+        // window re-stamp before the hold runs out.
+        let trace = [900usize; 20];
+        let inputs = [0, 1, 2, 6, 7, 12, 13];
+        let busy = busy_seconds(&trace, 0, &inputs);
+        let mut last = 0;
+        for t in busy {
+            assert!(t - last < BUSY_QUIET_SECS, "{}s unstamped drops the dot mid-turn", t - last);
+            last = t;
+        }
+        assert!(20 - last < BUSY_QUIET_SECS);
     }
 }

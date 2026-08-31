@@ -14,3 +14,8 @@
 - [x] in settings panel, add default project option
 - [x] in the sessions sidebar, the branch of each session doesn't reflect current state
 - [x] add github repo link somewhere in the app
+- [ ] after clicking on a global search result, the result session opens and focuses on the message, but the exact string that was searched isn't highlighted to it's hard to find it if the message text is big
+- [ ] need UX to list open claude sessions and give option to close them
+- [ ] after forking from a message, if the message was old and the sidebar is ordered by updated descending, and is currently scrolled to recent sessions, the forked session disappears somewhere below in the sidebar. how can we improve experience here
+- [ ] selecting a user message in global find doesn't scroll to the message
+- [ ] fetch latest version and show upgrade notice or button to upgrade to latest version

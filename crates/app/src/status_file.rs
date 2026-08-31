@@ -83,17 +83,36 @@ pub fn desired_state(input: Inputs<'_>) -> StatusFile {
         let id = s.id.to_string();
         // The activity scan is fresher than discovery; fall back to the
         // snapshot for sessions it skipped (not touched recently).
-        let (last_event_at, awaiting) = match live.get(id.as_str()) {
-            Some(a) => (a.last_event_at, a.awaiting_input),
+        let (last_event_at, awaiting, busy, busy_at) = match live.get(id.as_str()) {
+            Some(a) => (a.last_event_at, a.awaiting_input, a.busy, a.busy_at),
             None => match s.last_event_at {
-                Some(t) => (epoch_secs(t), s.awaiting_input),
+                Some(t) => (epoch_secs(t), s.awaiting_input, false, 0),
                 None => continue, // no turns yet — nothing to report
             },
         };
         let hosted = input.hosted.get(&id);
+        // For a session ccm HOSTS, its terminal is the authority: claude's TUI
+        // talks continuously while it works and falls silent when it waits, so
+        // `busy` answers "is it working?" outright. The file-mtime backstop is
+        // a guess for sessions ccm cannot see into — and a poor one here, since
+        // a question asked seconds after the prompt keeps that guess true while
+        // claude just sits there.
         let running = !awaiting
-            && (hosted.is_some() || input.now - last_event_at < RUNNING_STALE_SECS);
-        let unread = awaiting && input.last_viewed.get(&id).is_some_and(|v| last_event_at > *v);
+            && if hosted.is_some() {
+                busy
+            } else {
+                input.now - last_event_at < RUNNING_STALE_SECS
+            };
+        // A hosted terminal that has fallen quiet without the file showing a
+        // finished turn means claude is parked on something it has not written
+        // down yet — a question, a permission prompt, a plan. That is your turn
+        // as much as a finished one is, so it reads as unread; but it has to be
+        // dated from the moment the terminal went quiet, because the file's last
+        // event is your own prompt, which you have by definition already seen.
+        let waiting_since = (hosted.is_some() && !busy && !awaiting).then_some(busy_at);
+        let attention_at = waiting_since.unwrap_or(last_event_at);
+        let unread = (awaiting || waiting_since.is_some())
+            && input.last_viewed.get(&id).is_some_and(|v| attention_at > *v);
 
         if !running && !unread && hosted.is_none() {
             continue;
@@ -125,10 +144,26 @@ fn epoch_secs(t: std::time::SystemTime) -> i64 {
     t.duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs() as i64).unwrap_or(0)
 }
 
+/// What the published file is called. A dev build writes its own, so running
+/// `make dev` beside the installed app cannot disturb whatever reads the real
+/// one: both poll the same config dir, and a single file with two writers means
+/// each overwrites the other's opinion every few seconds.
+///
+/// Keyed on the build profile rather than `tauri::is_dev()` — that is only
+/// `!cfg!(feature = "custom-protocol")`, a feature this crate never declares,
+/// so it would read as "dev" inside the installed app too.
+pub fn status_file_name(dev_build: bool) -> &'static str {
+    if dev_build {
+        "session-status.dev.json"
+    } else {
+        "session-status.json"
+    }
+}
+
 /// `<config-dir>/session-status.json` — beside `session-meta.json`, so the whole
 /// of ccm's state lives in one place a consumer can find.
 pub fn status_path() -> PathBuf {
-    crate::config::config_dir().join("session-status.json")
+    crate::config::config_dir().join(status_file_name(cfg!(debug_assertions)))
 }
 
 /// Write `next` iff it differs from `last` in a way consumers can see (the
@@ -192,18 +227,57 @@ mod tests {
         }
     }
     fn act(id: &str, last: i64, awaiting: bool) -> SessionActivity {
-        SessionActivity { id: id.into(), last_event_at: last, awaiting_input: awaiting, hosted: false }
+        SessionActivity {
+            id: id.into(),
+            last_event_at: last,
+            awaiting_input: awaiting,
+            hosted: false,
+            busy: false,
+            busy_at: 0,
+        }
+    }
+    /// Hosted with a talking terminal — claude is actually working.
+    fn busy_act(id: &str, last: i64) -> SessionActivity {
+        SessionActivity {
+            id: id.into(),
+            last_event_at: last,
+            awaiting_input: false,
+            hosted: true,
+            busy: true,
+            busy_at: last,
+        }
+    }
+    /// Hosted but silent since `quiet_at` — parked on a question, or just sitting.
+    fn quiet_act(id: &str, last: i64, quiet_at: i64) -> SessionActivity {
+        SessionActivity {
+            id: id.into(),
+            last_event_at: last,
+            awaiting_input: false,
+            hosted: true,
+            busy: false,
+            busy_at: quiet_at,
+        }
+    }
+
+    #[test]
+    fn a_dev_build_publishes_to_its_own_file() {
+        // Two apps polling one config dir means two writers on one file, each
+        // undoing the other every few seconds — which is what a status bar sees.
+        assert_ne!(status_file_name(true), status_file_name(false));
+        assert_eq!(status_file_name(false), "session-status.json", "consumers poll this name");
+        assert!(status_file_name(true).ends_with(".json"), "still parseable by hand");
     }
 
     #[test]
     fn states_follow_the_sidebar_rules() {
         let sessions = vec![
-            summary(A, "mid turn", NOW - 5, false),  // running
+            summary(A, "mid turn", NOW - 5, false),  // running (hosted + busy)
             summary(B, "your turn", NOW - 60, true), // unread (viewed before the turn)
             summary(C, "seen", NOW - 600, true),     // idle (viewed after the turn)
             summary(D, "quiet", NOW - 99_999, true), // excluded
         ];
-        let activity = vec![act(A, NOW - 5, false)];
+        // A is hosted, so its terminal decides: busy ⇒ running.
+        let activity = vec![busy_act(A, NOW - 5)];
         let hosted = BTreeMap::from([(A.to_string(), Some(61729)), (C.to_string(), None)]);
         let last_viewed = BTreeMap::from([(B.to_string(), NOW - 900), (C.to_string(), NOW - 100)]);
         let out = desired_state(Inputs {
@@ -260,17 +334,81 @@ mod tests {
     }
 
     #[test]
-    fn a_hosted_session_stays_running_through_a_long_tool_call() {
-        // Mid-turn and silent far past the backstop, but ccm holds its PTY —
-        // liveness is known, so the guess doesn't apply (a 20-minute build
-        // used to drop the indicator).
+    fn a_busy_terminal_stays_running_through_a_long_tool_call() {
+        // Mid-turn and silent in the .jsonl far past the backstop, but the TUI
+        // is still redrawing — a 20-minute build must keep its indicator.
         let sessions = vec![summary(A, "t", NOW - 99_999, false)];
         let hosted = BTreeMap::from([(A.to_string(), Some(1))]);
         let out = desired_state(Inputs {
-            activity: &[],
+            activity: &[busy_act(A, NOW - 99_999)],
             sessions: &sessions,
             hosted: &hosted,
             last_viewed: &BTreeMap::new(),
+            now: NOW,
+        });
+        assert_eq!(out.sessions[A].state, "running");
+    }
+
+    #[test]
+    fn a_hosted_session_with_a_quiet_terminal_is_not_running() {
+        // The reported bug: claude asks a question and waits. Claude Code
+        // writes nothing until it is answered, so the last turn stays a
+        // tool_result (awaiting_input = false) while the PTY sits alive and
+        // silent — which read as "running" forever when `hosted` alone
+        // bypassed the backstop.
+        let sessions = vec![summary(A, "parked on a question", NOW - 5, false)];
+        let hosted = BTreeMap::from([(A.to_string(), Some(1))]);
+        // Five seconds old, so the mtime backstop would say "running" — but the
+        // terminal outranks it for a hosted session, which is the whole point:
+        // a question asked right after a prompt lands inside that window.
+        let out = desired_state(Inputs {
+            activity: &[quiet_act(A, NOW - 5, NOW - 3)],
+            sessions: &sessions,
+            hosted: &hosted,
+            last_viewed: &BTreeMap::new(), // never opened ⇒ can't be unread either
+            now: NOW,
+        });
+        assert_eq!(out.sessions[A].state, "idle");
+    }
+
+    #[test]
+    fn a_session_parked_on_a_question_is_unread() {
+        // The other half of that bug: once it stopped reading as "running" it
+        // read as nothing at all, when in fact claude is waiting on you. The
+        // file can't date this — it still ends on YOUR prompt — so the moment
+        // the terminal fell quiet is what "have I seen this?" compares against.
+        let sessions = vec![summary(A, "parked on a question", NOW - 30, false)];
+        let hosted = BTreeMap::from([(A.to_string(), Some(1))]);
+        let inputs = |viewed: i64| {
+            BTreeMap::from([(A.to_string(), viewed)])
+        };
+        // Prompted at NOW-30 (seen), claude worked until NOW-10 and has sat
+        // silent since: that silence is news.
+        let out = desired_state(Inputs {
+            activity: &[quiet_act(A, NOW - 30, NOW - 10)],
+            sessions: &sessions,
+            hosted: &hosted,
+            last_viewed: &inputs(NOW - 30),
+            now: NOW,
+        });
+        assert_eq!(out.sessions[A].state, "unread");
+
+        // …but not once you have looked at it since it went quiet.
+        let out = desired_state(Inputs {
+            activity: &[quiet_act(A, NOW - 30, NOW - 10)],
+            sessions: &sessions,
+            hosted: &hosted,
+            last_viewed: &inputs(NOW - 5),
+            now: NOW,
+        });
+        assert_eq!(out.sessions[A].state, "idle");
+
+        // …and a talking terminal is claude's turn, not yours.
+        let out = desired_state(Inputs {
+            activity: &[busy_act(A, NOW - 30)],
+            sessions: &sessions,
+            hosted: &hosted,
+            last_viewed: &inputs(NOW - 30),
             now: NOW,
         });
         assert_eq!(out.sessions[A].state, "running");
