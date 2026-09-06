@@ -20,3 +20,5 @@
 - [ ] selecting a user message in global find doesn't scroll to the message
 - [ ] fetch latest version and show upgrade notice or button to upgrade to latest version
 - [ ] the last user prompt in the sidebar and title bar becomes stale sometimes
+- [ ] confirmation dialog when closing a window with cmd+w or closing the whole app with cmd+q, if there are open sessions running
+- [ ] a cross button in the global find search bar, similar to filter sessions search bar

@@ -73,16 +73,16 @@ export function deriveStatus(
   hook: HookPhase = null,
 ): SessionStatus {
   if (lastEventAt == null) return { running: false, unread: false };
-  // Claude's own account outranks inference while it is at least as fresh as
-  // the file: hooks see a question the file cannot, and the file records the
-  // interrupts and kills that fire no hook.
-  if (hook && hook.since >= lastEventAt) {
+  // Claude's own account outranks inference unless the file refutes it: a
+  // running phase is contradicted only by a finished turn or an interrupt
+  // (both `awaitingInput`), never by the tool lines a turn writes.
+  if (hook && (hook.since >= lastEventAt || (hook.phase === "running" && !awaitingInput))) {
     return {
-      // Unhosted hook-running still decays like the mtime guess, so a killed
-      // session (which fires no hook) cannot strand as running.
+      // Unhosted: no PTY to prove liveness, so decay like the mtime guess —
+      // from the last sign of life, hook or file line.
       running:
         hook.phase === "running" &&
-        (terminal ? true : now - hook.since < RUNNING_STALE_SECS),
+        (terminal ? true : now - Math.max(hook.since, lastEventAt) < RUNNING_STALE_SECS),
       unread: hook.phase !== "running" && hook.since > lastViewed,
     };
   }

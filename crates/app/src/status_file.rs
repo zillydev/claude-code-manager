@@ -91,21 +91,25 @@ pub fn desired_state(input: Inputs<'_>) -> StatusFile {
             },
         };
         let hosted = input.hosted.get(&id);
-        // Claude's own account (the opt-in hook relay) outranks inference while
-        // it is at least as fresh as the file: hooks see a question the file
-        // cannot, and the file records the interrupts and kills that fire no
-        // hook — each covers the other's blind spot.
+        // Claude's own account (the opt-in hook relay) outranks inference
+        // unless the file refutes it: a running phase is only contradicted by
+        // a finished turn or an interrupt (both `awaiting`), never by the tool
+        // lines a turn writes — those handed mid-turn verdicts back to the
+        // quiet-terminal guess, which read a long silence as "parked".
         let hook = live
             .get(id.as_str())
             .and_then(|a| a.hook.as_ref())
-            .filter(|h| h.since >= last_event_at);
+            .filter(|h| h.since >= last_event_at || (h.phase == "running" && !awaiting));
         // Without hooks, a hosted session's terminal is the authority: claude's
         // TUI talks while working and falls silent when it waits. The
         // file-mtime backstop stays for sessions ccm cannot see into at all.
         let running = match hook {
+            // Unhosted: no PTY to prove liveness, so decay like the mtime guess —
+            // from the last sign of life, hook or file line.
             Some(h) => {
                 h.phase == "running"
-                    && (hosted.is_some() || input.now - h.since < RUNNING_STALE_SECS)
+                    && (hosted.is_some()
+                        || input.now - h.since.max(last_event_at) < RUNNING_STALE_SECS)
             }
             None => {
                 !awaiting
@@ -470,6 +474,49 @@ mod tests {
         // a SIGKILLed session (which fires no hook) cannot strand as running.
         assert_eq!(state(vec![hooked(act(A, NOW - 30, false), "running", NOW - 29)], BTreeMap::new()), "running");
         assert_eq!(state(vec![hooked(act(A, NOW - 300, false), "running", NOW - 299)], BTreeMap::new()), "idle");
+    }
+
+    #[test]
+    fn tool_lines_mid_turn_do_not_hand_the_verdict_back_to_the_terminal() {
+        // Hook says running since the prompt; the file has newer tool lines
+        // (a turn in progress) and the terminal has been quiet a while (a long
+        // API wait). The quiet-terminal guess would call that "parked" → unread.
+        let sessions = vec![summary(A, "mid-turn", NOW - 5, false)];
+        let hosted = BTreeMap::from([(A.to_string(), Some(1))]);
+        let out = desired_state(Inputs {
+            activity: &[hooked(quiet_act(A, NOW - 5, NOW - 40), "running", NOW - 120)],
+            sessions: &sessions,
+            hosted: &hosted,
+            last_viewed: &BTreeMap::from([(A.to_string(), NOW - 300)]),
+            now: NOW,
+        });
+        assert_eq!(out.sessions[A].state, "running");
+
+        // Unhosted: the file's own lines are the liveness evidence.
+        let out = desired_state(Inputs {
+            activity: &[hooked(act(A, NOW - 5, false), "running", NOW - 600)],
+            sessions: &sessions,
+            hosted: &BTreeMap::new(),
+            last_viewed: &BTreeMap::new(),
+            now: NOW,
+        });
+        assert_eq!(out.sessions[A].state, "running");
+    }
+
+    #[test]
+    fn a_finished_or_interrupted_turn_refutes_hook_running() {
+        // awaiting_input covers end_turn, an interrupt, and an API error.
+        let sessions = vec![summary(A, "done", NOW - 5, true)];
+        let mut done = quiet_act(A, NOW - 5, NOW - 40);
+        done.awaiting_input = true;
+        let out = desired_state(Inputs {
+            activity: &[hooked(done, "running", NOW - 120)],
+            sessions: &sessions,
+            hosted: &BTreeMap::from([(A.to_string(), Some(1))]),
+            last_viewed: &BTreeMap::from([(A.to_string(), NOW - 300)]),
+            now: NOW,
+        });
+        assert_eq!(out.sessions[A].state, "unread", "the file's finished turn wins");
     }
 
     #[test]

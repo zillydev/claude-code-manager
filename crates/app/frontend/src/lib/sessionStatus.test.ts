@@ -115,3 +115,28 @@ describe("hook phases", () => {
     expect(deriveStatus(1000, false, 0, 1300, null, { phase: "running", since: 1001 }).running).toBe(false);
   });
 });
+
+describe("hook running through a turn", () => {
+  it("is not handed back to the quiet-terminal guess by tool lines", () => {
+    // Prompt at 1000 (hook running), tool lines up to 1200, terminal silent
+    // since 1160 (a long API wait). Inference would read that as parked.
+    const quiet = { busy: false, busyAt: 1160 };
+    expect(deriveStatus(1200, false, 900, 1205, quiet, { phase: "running", since: 1000 })).toEqual({
+      running: true,
+      unread: false,
+    });
+  });
+  it("is refuted by a finished turn or an interrupt in the file", () => {
+    const quiet = { busy: false, busyAt: 1160 };
+    // awaitingInput covers end_turn, [Request interrupted], and API errors.
+    expect(deriveStatus(1200, true, 900, 1205, quiet, { phase: "running", since: 1000 })).toEqual({
+      running: false,
+      unread: true,
+    });
+  });
+  it("unhosted, decays from the last sign of life rather than the prompt", () => {
+    const h = { phase: "running" as const, since: 1000 };
+    expect(deriveStatus(1500, false, 0, 1600, null, h).running).toBe(true);   // file still moving
+    expect(deriveStatus(1500, false, 0, 1700, null, h).running).toBe(false);  // 200s of nothing
+  });
+});
