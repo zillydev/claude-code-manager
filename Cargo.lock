@@ -589,6 +589,7 @@ name = "claude-code-manager-core"
 version = "0.1.2"
 dependencies = [
  "anyhow",
+ "base64 0.22.1",
  "chrono",
  "dirs 5.0.1",
  "insta",

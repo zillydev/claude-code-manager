@@ -357,7 +357,7 @@ fn turn_scan(events: &[Event], i: usize) -> TurnScan {
                             scan.texts.push(text.clone());
                         }
                         Block::ToolUse { name, .. } => scan.tools.push(name.clone()),
-                        Block::Thinking { thinking: th }
+                        Block::Thinking { thinking: th, .. }
                             if scan.thinking.is_none() && !th.trim().is_empty() =>
                         {
                             scan.thinking = Some(th.trim().to_string());

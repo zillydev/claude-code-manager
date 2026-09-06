@@ -3,6 +3,7 @@ import type { RenderedTurn } from "../types";
 export type SegField =
   | "user-text"
   | "assistant-text"
+  | "narration"
   | "system"
   | "command"
   | "summary"

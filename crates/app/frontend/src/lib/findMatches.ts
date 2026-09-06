@@ -41,6 +41,7 @@ export function parseSegId(segId: string): {
 const FIELD_RANK: Record<SegField, number> = {
   "user-text": 0,
   "assistant-text": 0,
+  narration: 0,
   system: 0,
   command: 0,
   summary: 0,

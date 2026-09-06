@@ -1005,6 +1005,17 @@ const BlockRenderer = memo(function BlockRenderer({
     case "thinking":
       return null;
 
+    case "narration":
+      return (
+        <div
+          data-seg-id={makeSegId(turnIndex, blockIndex, "narration")}
+          className="prose prose-sm max-w-none mb-2 [&_p]:inline"
+        >
+          <MarkdownBlock text={block.text} />
+          <span className="text-[11px] text-[var(--color-thinking)]"> · summarized</span>
+        </div>
+      );
+
     case "tool_call":
       return (
         <ToolCall

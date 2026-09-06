@@ -154,6 +154,10 @@ pub enum RenderedBlock {
     Text { text: String },
     #[serde(rename = "thinking")]
     Thinking { thinking: String },
+    /// Claude Code's "summarized" line: a thinking block carrying a short
+    /// summary of the reasoning, shown in the TUI while real thinking is not.
+    #[serde(rename = "narration")]
+    Narration { text: String },
     #[serde(rename = "tool_call")]
     ToolCall {
         id: String,
@@ -162,6 +166,22 @@ pub enum RenderedBlock {
         input_full: serde_json::Value,
         result: Option<ToolCallResult>,
     },
+}
+
+/// Claude Code persists real thinking as an empty string and its "summarized"
+/// line as a text-bearing thinking block; since 2.1.263 the signature's
+/// protobuf header also names the kind. Text is the primary signal; a header
+/// that explicitly says `thinking` overrides it.
+fn is_narration(thinking: &str, signature: Option<&str>) -> bool {
+    use base64::Engine as _;
+    if thinking.trim().is_empty() {
+        return false;
+    }
+    let Some(sig) = signature else { return true };
+    // The kind sits in the first few dozen bytes; decode a 4-aligned prefix.
+    let head = &sig[..sig.len().min(64) & !3];
+    let Ok(bytes) = base64::engine::general_purpose::STANDARD.decode(head) else { return true };
+    !bytes.windows(8).any(|w| w == b"thinking")
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -242,10 +262,12 @@ fn render_path_turns(path: &[&Event], editable: bool) -> Vec<RenderedTurn> {
                 Block::Text { text } => {
                     blocks.push(RenderedBlock::Text { text: text.clone() });
                 }
-                Block::Thinking { thinking } => {
-                    blocks.push(RenderedBlock::Thinking {
-                        thinking: thinking.clone(),
-                    });
+                Block::Thinking { thinking, signature } => {
+                    if is_narration(thinking, signature.as_deref()) {
+                        blocks.push(RenderedBlock::Narration { text: thinking.trim().to_string() });
+                    } else {
+                        blocks.push(RenderedBlock::Thinking { thinking: thinking.clone() });
+                    }
                 }
                 Block::ToolUse { id, name, input } => {
                     let result = tool_results.get(id.as_str()).map(|r| ToolCallResult {
@@ -1385,5 +1407,44 @@ mod render_tests {
             }
             other => panic!("expected TaskNotification, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn narration_blocks_render_and_real_thinking_stays_hidden() {
+        // Claude Code stores its "summarized" line as a thinking block whose
+        // text is present. Real thinking is persisted as an empty string, and
+        // from 2.1.263 the signed blob tags each: `narration` vs `thinking`.
+        let narration_sig = "CAQS3AsKEQgRGAI4AUIJbmFycmF0aW9uEgxeLYZBo19ITjALvVkaDGi9gbiBSXwmSG4ckSIw";
+        let thinking_sig = "CAQSgA8KEAgRGAI4AUIIdGhpbmtpbmcSDNqP4yjVRuVuvUJ/";
+        let mk = |thinking: &str, sig: Option<&str>| -> RenderedBlock {
+            let sig = sig.map(|s| format!(r#","signature":"{s}""#)).unwrap_or_default();
+            let line = format!(
+                r#"{{"type":"assistant","uuid":"00000000-0000-0000-0000-0000000000d1","message":{{"role":"assistant","content":[{{"type":"thinking","thinking":"{thinking}"{sig}}}]}}}}"#
+            );
+            let ev: Event = serde_json::from_str(&line).unwrap();
+            let events = [ev];
+            let path: Vec<&Event> = events.iter().collect();
+            let mut turns = render_path_turns(&path, true);
+            let RenderedTurn::Assistant { blocks, .. } = turns.remove(0) else { panic!("assistant turn") };
+            blocks.into_iter().next().unwrap()
+        };
+
+        // Tagged narration (2.1.263+).
+        let RenderedBlock::Narration { text } = mk("Found the bug.", Some(narration_sig)) else {
+            panic!("tagged narration renders")
+        };
+        assert_eq!(text, "Found the bug.");
+
+        // Untagged but text-bearing (2.1.251 – 2.1.260 wrote summaries without the tag).
+        assert!(matches!(mk("Older summary.", None), RenderedBlock::Narration { .. }));
+        let opaque = "CAQS3AsKEQgRGAI4AUIJ";
+        assert!(matches!(mk("Older summary.", Some(opaque)), RenderedBlock::Narration { .. }));
+
+        // Empty text is redacted thinking whatever the tag says.
+        assert!(matches!(mk("", Some(thinking_sig)), RenderedBlock::Thinking { .. }));
+        assert!(matches!(mk("", None), RenderedBlock::Thinking { .. }));
+
+        // Text explicitly tagged `thinking` is reasoning, not a summary.
+        assert!(matches!(mk("raw reasoning", Some(thinking_sig)), RenderedBlock::Thinking { .. }));
     }
 }

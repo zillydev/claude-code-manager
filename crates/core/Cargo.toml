@@ -14,6 +14,7 @@ notify = "7"
 uuid = { version = "1", features = ["serde", "v4"] }
 dirs = "5"
 anyhow = "1"
+base64 = "0.22"
 
 [dev-dependencies]
 insta = "1"

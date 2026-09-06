@@ -126,6 +126,8 @@ export type RenderedTurn =
 export type RenderedBlock =
   | { type: "text"; text: string }
   | { type: "thinking"; thinking: string }
+  /** Claude Code's "summarized" line: a short summary of the reasoning. */
+  | { type: "narration"; text: string }
   | {
       type: "tool_call";
       id: string;

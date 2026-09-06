@@ -286,6 +286,9 @@ pub enum Block {
     Thinking {
         #[serde(default)]
         thinking: String,
+        /// Signed blob; from CC 2.1.263 it tags the block `narration` or `thinking`.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        signature: Option<String>,
     },
     ToolUse {
         id: String,
@@ -507,7 +510,7 @@ mod tests {
                 assert_eq!(a.message.model.as_deref(), Some("claude-opus-4-7"));
                 assert_eq!(a.message.content.len(), 2);
                 match &a.message.content[0] {
-                    Block::Thinking { thinking } => assert_eq!(thinking, "hmm"),
+                    Block::Thinking { thinking, .. } => assert_eq!(thinking, "hmm"),
                     _ => panic!("expected thinking"),
                 }
                 match &a.message.content[1] {
