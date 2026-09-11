@@ -22,3 +22,4 @@
 - [ ] the last user prompt in the sidebar and title bar becomes stale sometimes
 - [ ] confirmation dialog when closing a window with cmd+w or closing the whole app with cmd+q, if there are open sessions running
 - [ ] a cross button in the global find search bar, similar to filter sessions search bar
+- [ ] copy link to a session, which when opened will open the app and will navigate to that session

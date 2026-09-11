@@ -136,6 +136,10 @@ pub fn run() {
                         .iter()
                         .map(|h| (h.session_id.as_str(), h.last_busy_at))
                         .collect();
+                    let interrupt_at: std::collections::BTreeMap<&str, i64> = hosted_now
+                        .iter()
+                        .map(|h| (h.session_id.as_str(), h.last_interrupt_at))
+                        .collect();
                     let busy_ids: std::collections::BTreeSet<&str> = hosted_now
                         .iter()
                         .filter(|h| now - h.last_busy_at < terminal::BUSY_QUIET_SECS)
@@ -148,6 +152,7 @@ pub fn run() {
                         a.busy = busy_ids.contains(a.id.as_str());
                         a.busy_at = busy_at.get(a.id.as_str()).copied().unwrap_or(0);
                         a.hook = hook_state.get(&a.id).cloned();
+                        a.interrupt_at = interrupt_at.get(a.id.as_str()).copied().unwrap_or(0);
                     }
                     let have: std::collections::BTreeSet<String> =
                         outcome.activity.iter().map(|a| a.id.clone()).collect();
@@ -182,6 +187,10 @@ pub fn run() {
                                     .copied()
                                     .unwrap_or(0),
                                 hook: hook_state.get(&s.id.to_string()).cloned(),
+                                interrupt_at: interrupt_at
+                                    .get(&s.id.to_string().as_str())
+                                    .copied()
+                                    .unwrap_or(0),
                             });
                         }
                     }

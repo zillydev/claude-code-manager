@@ -83,14 +83,22 @@ pub fn desired_state(input: Inputs<'_>) -> StatusFile {
         let id = s.id.to_string();
         // The activity scan is fresher than discovery; fall back to the
         // snapshot for sessions it skipped (not touched recently).
-        let (last_event_at, awaiting, busy, busy_at) = match live.get(id.as_str()) {
-            Some(a) => (a.last_event_at, a.awaiting_input, a.busy, a.busy_at),
-            None => match s.last_event_at {
-                Some(t) => (epoch_secs(t), s.awaiting_input, false, 0),
-                None => continue, // no turns yet — nothing to report
-            },
-        };
+        let (mut last_event_at, mut awaiting, busy, busy_at, interrupt_at) =
+            match live.get(id.as_str()) {
+                Some(a) => (a.last_event_at, a.awaiting_input, a.busy, a.busy_at, a.interrupt_at),
+                None => match s.last_event_at {
+                    Some(t) => (epoch_secs(t), s.awaiting_input, false, 0, 0),
+                    None => continue, // no turns yet — nothing to report
+                },
+            };
         let hosted = input.hosted.get(&id);
+        // An Esc / Ctrl-C in ccm's own terminal ends the turn as surely as the
+        // file's interrupt marker — and Esc before the first token writes no
+        // marker and fires no hook, so the keystroke is the only witness.
+        if interrupt_at > last_event_at && !awaiting {
+            last_event_at = interrupt_at;
+            awaiting = true;
+        }
         // Claude's own account (the opt-in hook relay) outranks inference
         // unless the file refutes it: a running phase is only contradicted by
         // a finished turn or an interrupt (both `awaiting`), never by the tool
@@ -255,6 +263,7 @@ mod tests {
             busy: false,
             busy_at: 0,
             hook: None,
+            interrupt_at: 0,
         }
     }
     /// Hosted with a talking terminal — claude is actually working.
@@ -267,6 +276,7 @@ mod tests {
             busy: true,
             busy_at: last,
             hook: None,
+            interrupt_at: 0,
         }
     }
     /// Hosted but silent since `quiet_at` — parked on a question, or just sitting.
@@ -279,7 +289,45 @@ mod tests {
             busy: false,
             busy_at: quiet_at,
             hook: None,
+            interrupt_at: 0,
         }
+    }
+
+    #[test]
+    fn an_esc_before_the_first_token_ends_the_turn() {
+        // Prompt written, Esc 0.4s later: the file gets no reply and no
+        // interrupt marker, hooks record only UserPromptSubmit, and the PTY
+        // stays open. Every source but the keystroke says "running".
+        let sessions = vec![summary(A, "escaped", NOW - 60, false)];
+        let hosted = BTreeMap::from([(A.to_string(), Some(1))]);
+        let mut a = hooked(quiet_act(A, NOW - 60, NOW - 59), "running", NOW - 60);
+        a.interrupt_at = NOW - 59;
+        let state = |a: SessionActivity, viewed: i64| {
+            desired_state(Inputs {
+                activity: &[a],
+                sessions: &sessions,
+                hosted: &hosted,
+                last_viewed: &BTreeMap::from([(A.to_string(), viewed)]),
+                now: NOW,
+            })
+            .sessions[A]
+                .state
+                .clone()
+        };
+        assert_eq!(state(a.clone(), NOW - 100), "unread", "your turn, dated at the Esc");
+        assert_eq!(state(a.clone(), NOW - 59), "idle", "…and seen, since you pressed it");
+
+        // An Esc that cleared typed text at an idle prompt changes nothing.
+        let mut idle = quiet_act(A, NOW - 60, NOW - 59);
+        idle.awaiting_input = true;
+        idle.interrupt_at = NOW - 5;
+        assert_eq!(state(idle, NOW - 59), "idle", "already your turn; the Esc is not news");
+
+        // A file line newer than the Esc (a fresh prompt, claude working on it)
+        // outranks it: the keystroke is history.
+        let mut later = busy_act(A, NOW - 30);
+        later.interrupt_at = NOW - 59;
+        assert_eq!(state(later, NOW - 100), "running", "the Esc is older than the file — inference decides");
     }
 
     #[test]

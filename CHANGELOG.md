@@ -14,6 +14,9 @@ What changed in each release, written for people using the app. Build-time detai
 
 **Fixed**
 
+- **Pressing Esc before Claude's first token no longer leaves the session "running".** Claude Code writes no interrupt marker when there was nothing to interrupt, and no hook fires on Esc — so ccm now treats the Esc / Ctrl-C you press in its own terminal as the end of the turn.
+- **Interrupting Claude while nothing was streaming no longer leaves the session "running".** Esc during a queued prompt or a task notification writes the interrupt marker without the message id the previous detection relied on — a third of all interrupts. The marker text itself now ends the turn.
+
 - **A session waiting on a question shows as unread, not running.** Claude Code writes nothing to its session file while a question is on screen, and a live terminal only proves the process exists — so for a session ccm is running, the terminal itself now answers, by attribution: output that follows your own keystroke or a resize is the TUI answering *you* (browsing a question's options, typing, scrolling), while a real burst Claude wasn't asked for — a spinner tick, streamed text — is work. That moment of falling silent is also what dates the wait, since the file still ends on your own prompt: the session goes unread, the way a finished turn does, and clears when you look at it — including the session you have open, if its window is behind another or on a Space you're not on. A long build keeps its running indicator throughout.
 
 **Changed**

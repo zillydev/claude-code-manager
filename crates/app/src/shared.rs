@@ -95,6 +95,7 @@ impl Shared {
                 busy: false,
                 busy_at: 0,
                 hook: None,
+                interrupt_at: 0,
             })
             .collect();
         self.data.lock().unwrap().activity = activity.clone();

@@ -21,7 +21,7 @@ describe("deriveStatus", () => {
   });
   it("a busy terminal keeps running however long a tool call runs", () => {
     // The .jsonl is silent during a build, but claude's TUI keeps redrawing.
-    const busy = { busy: true, busyAt: 1000 + 3599 };
+    const busy = { busy: true, busyAt: 1000 + 3599, interruptAt: 0 };
     expect(deriveStatus(1000, false, 0, 1000 + 3600, busy).running).toBe(true);
     // …but a finished turn still ends "running" at once, busy or not.
     expect(deriveStatus(1000, true, 0, 1001, busy).running).toBe(false);
@@ -31,7 +31,7 @@ describe("deriveStatus", () => {
     // Parked on a question: the process is alive but silent, and Claude Code
     // writes nothing until it is answered. The terminal outranks the mtime
     // guess here — even seconds after the prompt was written.
-    const quiet = { busy: false, busyAt: 1002 };
+    const quiet = { busy: false, busyAt: 1002, interruptAt: 0 };
     expect(deriveStatus(1000, false, 0, 1000 + 900, quiet).running).toBe(false);
     expect(deriveStatus(1000, false, 0, 1000 + 5, quiet).running).toBe(false);
     // A session ccm does NOT host keeps the guess, since nothing better exists.
@@ -42,7 +42,7 @@ describe("deriveStatus", () => {
     // You prompted at 1000 (so you have seen that far), claude worked until
     // 1050 and has been sitting on a question since. Nothing is written to the
     // file until you answer, so only the terminal can date this.
-    const parked = { busy: false, busyAt: 1050 };
+    const parked = { busy: false, busyAt: 1050, interruptAt: 0 };
     expect(deriveStatus(1000, false, 1000, 1100, parked)).toEqual({
       running: false,
       unread: true,
@@ -50,16 +50,16 @@ describe("deriveStatus", () => {
     // Looked at it since it fell quiet → seen.
     expect(deriveStatus(1000, false, 1060, 1100, parked).unread).toBe(false);
     // Still working → your turn hasn't come.
-    expect(deriveStatus(1000, false, 1000, 1100, { busy: true, busyAt: 1099 }).unread).toBe(false);
+    expect(deriveStatus(1000, false, 1000, 1100, { busy: true, busyAt: 1099, interruptAt: 0 }).unread).toBe(false);
     // Not hosted: ccm can't see a question, so it can't claim one.
     expect(deriveStatus(1000, false, 1000, 1100, null).unread).toBe(false);
   });
 
   it("never both running and unread", () => {
     const cases = [
-      [false, { busy: true, busyAt: 1099 }],
-      [false, { busy: false, busyAt: 1050 }],
-      [true, { busy: true, busyAt: 1099 }],
+      [false, { busy: true, busyAt: 1099, interruptAt: 0 }],
+      [false, { busy: false, busyAt: 1050, interruptAt: 0 }],
+      [true, { busy: true, busyAt: 1099, interruptAt: 0 }],
       [true, null],
       [false, null],
     ] as const;
@@ -90,17 +90,17 @@ describe("showsUnread", () => {
 describe("hook phases", () => {
   it("attention means unread the moment the question appears — repaints be damned", () => {
     // Terminal is busy (the user is browsing the options); hooks know better.
-    const busy = { busy: true, busyAt: 1090 };
+    const busy = { busy: true, busyAt: 1090, interruptAt: 0 };
     const s = deriveStatus(1000, false, 1000, 1100, busy, { phase: "attention", since: 1050 });
     expect(s).toEqual({ running: false, unread: true });
   });
   it("running through a silent tool call, no volume needed", () => {
-    const quiet = { busy: false, busyAt: 1010 };
+    const quiet = { busy: false, busyAt: 1010, interruptAt: 0 };
     expect(deriveStatus(1000, false, 0, 1100, quiet, { phase: "running", since: 1001 }).running).toBe(true);
   });
   it("awaiting goes unread instantly, and viewing clears it", () => {
-    expect(deriveStatus(1000, false, 1000, 1004, { busy: false, busyAt: 1002 }, { phase: "awaiting", since: 1003 }).unread).toBe(true);
-    expect(deriveStatus(1000, false, 1005, 1010, { busy: false, busyAt: 1002 }, { phase: "awaiting", since: 1003 }).unread).toBe(false);
+    expect(deriveStatus(1000, false, 1000, 1004, { busy: false, busyAt: 1002, interruptAt: 0 }, { phase: "awaiting", since: 1003 }).unread).toBe(true);
+    expect(deriveStatus(1000, false, 1005, 1010, { busy: false, busyAt: 1002, interruptAt: 0 }, { phase: "awaiting", since: 1003 }).unread).toBe(false);
   });
   it("a hook that has not seen the file's newest event defers to inference", () => {
     // An interrupt wrote a user line at 1080; the hook still thinks a question
@@ -120,14 +120,14 @@ describe("hook running through a turn", () => {
   it("is not handed back to the quiet-terminal guess by tool lines", () => {
     // Prompt at 1000 (hook running), tool lines up to 1200, terminal silent
     // since 1160 (a long API wait). Inference would read that as parked.
-    const quiet = { busy: false, busyAt: 1160 };
+    const quiet = { busy: false, busyAt: 1160, interruptAt: 0 };
     expect(deriveStatus(1200, false, 900, 1205, quiet, { phase: "running", since: 1000 })).toEqual({
       running: true,
       unread: false,
     });
   });
   it("is refuted by a finished turn or an interrupt in the file", () => {
-    const quiet = { busy: false, busyAt: 1160 };
+    const quiet = { busy: false, busyAt: 1160, interruptAt: 0 };
     // awaitingInput covers end_turn, [Request interrupted], and API errors.
     expect(deriveStatus(1200, true, 900, 1205, quiet, { phase: "running", since: 1000 })).toEqual({
       running: false,
@@ -138,5 +138,23 @@ describe("hook running through a turn", () => {
     const h = { phase: "running" as const, since: 1000 };
     expect(deriveStatus(1500, false, 0, 1600, null, h).running).toBe(true);   // file still moving
     expect(deriveStatus(1500, false, 0, 1700, null, h).running).toBe(false);  // 200s of nothing
+  });
+});
+
+describe("an Esc in ccm's own terminal", () => {
+  it("ends a turn the file and hooks both missed", () => {
+    // Prompt at 1000, Esc at 1001 before any token: no reply line, no
+    // interrupt marker, hook still says running, PTY alive and quiet.
+    const t = { busy: false, busyAt: 1001, interruptAt: 1001 };
+    const h = { phase: "running" as const, since: 1000 };
+    expect(deriveStatus(1000, false, 900, 1100, t, h)).toEqual({ running: false, unread: true });
+    // You pressed it, so you've seen it: viewing at the Esc clears it.
+    expect(deriveStatus(1000, false, 1001, 1100, t, h).unread).toBe(false);
+  });
+  it("changes nothing at an idle prompt, or when the file is newer", () => {
+    const h = { phase: "awaiting" as const, since: 1000 };
+    expect(deriveStatus(1000, true, 1000, 1100, { busy: false, busyAt: 999, interruptAt: 1050 }, h).unread).toBe(false);
+    // Claude answered after the Esc after all: the file's newer line wins.
+    expect(deriveStatus(1080, false, 900, 1085, { busy: true, busyAt: 1084, interruptAt: 1050 }, null).running).toBe(true);
   });
 });

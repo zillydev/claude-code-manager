@@ -53,12 +53,29 @@ pub struct UserEvent {
     /// from (also written by claude-code-manager's own copy-on-edit; see `edit::commit`).
     #[serde(default, rename = "forkedFrom")]
     pub forked_from: Option<ForkedFrom>,
-    /// Set when this user line records an INTERRUPT (Esc / "for tool use"):
-    /// the id of the assistant message it cut short. Its presence is the
-    /// structural signal that claude stopped and the turn is the user's again —
-    /// the `[Request interrupted by user]` text is just its rendering.
+    /// The assistant message an INTERRUPT (Esc / "for tool use") cut short.
+    /// Absent when nothing was in flight to cut — a third of interrupts in a
+    /// real corpus — so the marker text is the signal; see `is_interrupt`.
     #[serde(default, rename = "interruptedMessageId")]
     pub interrupted_message_id: Option<String>,
+}
+
+impl UserEvent {
+    /// Whether this line records the user interrupting claude. Claude Code
+    /// writes the marker text either way; the message id only when one existed.
+    pub fn is_interrupt(&self) -> bool {
+        if self.interrupted_message_id.is_some() {
+            return true;
+        }
+        let text = match &self.message.content {
+            MessageContent::Text(t) => Some(t.as_str()),
+            MessageContent::Blocks(blocks) => blocks.iter().find_map(|b| match b {
+                UserBlock::Text { text } => Some(text.as_str()),
+                _ => None,
+            }),
+        };
+        text.is_some_and(|t| t.starts_with("[Request interrupted by user"))
+    }
 }
 
 #[derive(Debug, Clone, serde::Serialize, Deserialize)]
@@ -387,7 +404,7 @@ impl Event {
             // reads as an ordinary user turn — i.e. "claude is working" — and
             // a cancelled session showed as running indefinitely (the more so
             // once hosted sessions stopped relying on the staleness backstop).
-            Event::User(u) if !u.is_sidechain && u.interrupted_message_id.is_some() => true,
+            Event::User(u) if !u.is_sidechain && u.is_interrupt() => true,
             // An API failure stops the session as surely as `end_turn`.
             Event::Assistant(a) if !a.is_sidechain && a.is_api_error => true,
             Event::Assistant(a) if !a.is_sidechain => match a.message.stop_reason.as_deref() {
@@ -551,6 +568,25 @@ mod tests {
 
         // An ordinary prompt does NOT await the user — claude is now working.
         let line = r#"{"type":"user","uuid":"00000000-0000-0000-0000-0000000000e2","timestamp":"2026-08-20T23:28:35.090Z","isSidechain":false,"message":{"role":"user","content":"do the thing"}}"#;
+        let ev: Event = serde_json::from_str(line).unwrap();
+        assert!(!ev.awaits_user());
+    }
+
+    #[test]
+    fn an_interrupt_with_nothing_in_flight_still_awaits_the_user() {
+        // Esc while nothing is streaming (a queued prompt, a task notification
+        // being absorbed) writes the marker with NO interruptedMessageId — a
+        // third of the interrupts in a 700-session corpus. Read as an ordinary
+        // prompt, a hosted session stayed "running" until the next Stop.
+        for text in ["[Request interrupted by user]", "[Request interrupted by user for tool use]"] {
+            let line = format!(
+                r#"{{"type":"user","uuid":"00000000-0000-0000-0000-0000000000e3","parentUuid":"00000000-0000-0000-0000-0000000000e2","timestamp":"2026-09-08T22:15:45.000Z","isSidechain":false,"entrypoint":"cli","promptId":"p1","session_id":"s","message":{{"role":"user","content":[{{"type":"text","text":"{text}"}}]}}}}"#
+            );
+            let ev: Event = serde_json::from_str(&line).unwrap();
+            assert!(ev.awaits_user(), "{text:?} without an id must still end the turn");
+        }
+        // A prompt that merely mentions the phrase is not an interrupt.
+        let line = r#"{"type":"user","uuid":"00000000-0000-0000-0000-0000000000e4","timestamp":"2026-09-08T22:15:46.000Z","isSidechain":false,"message":{"role":"user","content":"why did [Request interrupted by user] appear?"}}"#;
         let ev: Event = serde_json::from_str(line).unwrap();
         assert!(!ev.awaits_user());
     }

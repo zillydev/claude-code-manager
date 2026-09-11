@@ -203,6 +203,10 @@ pub struct PtyHandle {
     /// Epoch seconds of the user's last keystroke or resize on this PTY, so the
     /// reader can tell an echo repaint from claude actually saying something.
     last_input: Arc<AtomicI64>,
+    /// Epoch seconds of the user's last Esc / Ctrl-C — the keystroke Claude
+    /// Code defines as "stop". Esc before the first token leaves no trace in
+    /// the session file and fires no hook; this is the only witness.
+    last_interrupt: Arc<AtomicI64>,
 }
 
 /// One session ccm is running, for the poller.
@@ -211,6 +215,8 @@ pub struct Hosted {
     pub owner: String,
     /// Epoch seconds of the last substantial burst of claude-authored output.
     pub last_busy_at: i64,
+    /// Epoch seconds of the user's last interrupt keystroke (0 if none).
+    pub last_interrupt_at: i64,
 }
 
 /// How long after claude's last burst of output we still call the session busy.
@@ -259,6 +265,12 @@ impl BusyWindow {
         self.bytes += n;
         self.bytes >= BUSY_MIN_BYTES
     }
+}
+
+/// A bare Esc or Ctrl-C. xterm.js delivers each key event as one write, so
+/// an arrow key (`ESC [ A`) or Alt-chord (`ESC x`) never matches.
+pub fn is_interrupt_keystroke(data: &[u8]) -> bool {
+    data == b"\x1b" || data == b"\x03"
 }
 
 pub fn now_secs() -> i64 {
@@ -312,6 +324,7 @@ impl TerminalState {
                 session_id: id.clone(),
                 owner: h.owner.clone(),
                 last_busy_at: h.last_busy.load(Ordering::Relaxed),
+                last_interrupt_at: h.last_interrupt.load(Ordering::Relaxed),
             })
             .collect()
     }
@@ -321,6 +334,9 @@ impl TerminalState {
     pub fn write(&mut self, session_id: &str, data: &[u8]) -> std::io::Result<()> {
         if let Some(h) = self.ptys.get_mut(session_id) {
             h.last_input.store(now_secs(), Ordering::Relaxed);
+            if is_interrupt_keystroke(data) {
+                h.last_interrupt.store(now_secs(), Ordering::Relaxed);
+            }
             h.writer.write_all(data)?;
             h.writer.flush()?;
         }
@@ -412,6 +428,7 @@ pub fn spawn_terminal(
     let last_busy = Arc::new(AtomicI64::new(0));
     // Spawn counts as input: the boot paint answers the user opening the tab.
     let last_input = Arc::new(AtomicI64::new(now_secs()));
+    let last_interrupt = Arc::new(AtomicI64::new(0));
     let stamp = Arc::clone(&last_busy);
     let input_at = Arc::clone(&last_input);
     std::thread::spawn(move || {
@@ -453,7 +470,7 @@ pub fn spawn_terminal(
         let _ = app.emit("terminal-released", json!({ "sessionId": session_id }));
     });
 
-    Ok(PtyHandle { master: pair.master, writer, child, owner, last_busy, last_input })
+    Ok(PtyHandle { master: pair.master, writer, child, owner, last_busy, last_input, last_interrupt })
 }
 
 #[cfg(test)]
@@ -630,6 +647,17 @@ mod tests {
         assert_eq!(busy.first().copied(), Some(INPUT_ECHO_SECS), "work never attributed to claude");
         // The gap until then stays within the hold, so the dot never drops.
         const { assert!(INPUT_ECHO_SECS < BUSY_QUIET_SECS) }
+    }
+
+    #[test]
+    fn only_a_bare_esc_or_ctrl_c_counts_as_an_interrupt() {
+        assert!(is_interrupt_keystroke(b"\x1b"));
+        assert!(is_interrupt_keystroke(b"\x03"));
+        // xterm.js delivers one key event per write, so these are never "Esc".
+        assert!(!is_interrupt_keystroke(b"\x1b[A"), "arrow key");
+        assert!(!is_interrupt_keystroke(b"\x1b\r"), "alt-enter");
+        assert!(!is_interrupt_keystroke(b"\x1b[200~x\x1b[201~"), "bracketed paste");
+        assert!(!is_interrupt_keystroke(b"y"));
     }
 
     #[test]

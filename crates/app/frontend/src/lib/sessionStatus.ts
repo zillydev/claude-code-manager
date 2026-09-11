@@ -20,6 +20,8 @@ export type TerminalState = {
   busy: boolean;
   /** Epoch s it was last busy; once quiet, when claude started waiting on you. */
   busyAt: number;
+  /** Epoch s of the user's last Esc / Ctrl-C in this terminal (0 if none). */
+  interruptAt: number;
 } | null;
 
 /**
@@ -73,6 +75,13 @@ export function deriveStatus(
   hook: HookPhase = null,
 ): SessionStatus {
   if (lastEventAt == null) return { running: false, unread: false };
+  // An Esc / Ctrl-C in ccm's own terminal ends the turn as surely as the file's
+  // interrupt marker — and Esc before the first token writes no marker and
+  // fires no hook, so the keystroke is the only witness.
+  if (terminal && terminal.interruptAt > lastEventAt && !awaitingInput) {
+    lastEventAt = terminal.interruptAt;
+    awaitingInput = true;
+  }
   // Claude's own account outranks inference unless the file refutes it: a
   // running phase is contradicted only by a finished turn or an interrupt
   // (both `awaitingInput`), never by the tool lines a turn writes.

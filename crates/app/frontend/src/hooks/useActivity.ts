@@ -12,6 +12,8 @@ type Activity = {
   /** Epoch s the terminal was last working; once quiet, when claude began waiting. */
   busy_at: number;
   hook: { phase: "running" | "attention" | "awaiting"; since: number } | null;
+  /** Epoch s of the user's last Esc / Ctrl-C in this session's terminal. */
+  interrupt_at: number;
 };
 export type LiveActivity = {
   at: number;
@@ -21,6 +23,7 @@ export type LiveActivity = {
   busyAt: number;
   /** Claude's own phase from the opt-in hook relay, when installed. */
   hook: { phase: "running" | "attention" | "awaiting"; since: number } | null;
+  interruptAt: number;
 };
 
 const toMap = (rows: Activity[]): Map<string, LiveActivity> =>
@@ -34,6 +37,7 @@ const toMap = (rows: Activity[]): Map<string, LiveActivity> =>
         busy: r.busy,
         busyAt: r.busy_at,
         hook: r.hook ?? null,
+        interruptAt: r.interrupt_at ?? 0,
       },
     ]),
   );

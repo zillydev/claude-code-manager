@@ -500,6 +500,9 @@ pub struct SessionActivity {
     /// Claude's own account of its state, from the opt-in hook relay: the one
     /// source that can see a question the session file hasn't recorded yet.
     pub hook: Option<crate::hooks::HookPhase>,
+    /// Epoch seconds of the user's last Esc / Ctrl-C in this session's terminal
+    /// (0 if none, or not hosted). Ends a turn the file and hooks may both miss.
+    pub interrupt_at: i64,
     /// Epoch seconds this session's terminal was last visibly working. Only
     /// meaningful while `hosted` (0 otherwise).
     ///
