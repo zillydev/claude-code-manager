@@ -9,7 +9,7 @@ A tool to browse, search, edit, compact, harvest, and resume Claude Code session
 - **Cargo workspace:** `crates/core` (lib — parsing/render/store/surgery; deliberately front-end agnostic so another UI can be added later), `crates/app` (Tauri 2 + React/TS/Vite/Tailwind — the interface), `crates/cli` (the `claude-code-manager` binary: `surgery` subcommands, driven by the skills).
 - Operates on `~/.claude/projects/<encoded-cwd>/<uuid>.jsonl` — one JSON object per line, linked into a tree by `parentUuid`.
 - **Copy-on-edit safety:** every fork/edit/delete/surgery writes a NEW session file; originals are never mutated (sole exception: rename, which appends a `custom-title` line in place).
-- Run: `make dev` (`cargo tauri dev --no-watch`) · `make build` · `make test` · `make print` (CLI smoke test).
+- Run: `make dev` (`scripts/dev.sh`: Vite + debug app, relaunchable) · `make build` · `make test` · `make print` (CLI smoke test).
 
 ## Browsing & viewing
 
@@ -100,7 +100,8 @@ A tool to browse, search, edit, compact, harvest, and resume Claude Code session
 ## Conventions & dev notes
 
 - Workflow per feature: **brainstorm → spec → plan → execute → finish → user-directed merge** (squash into `main` — one commit per feature — then `git branch -D`; tests green first). Pushing to the remote is a separate, explicit ask.
-- **Never launch the app from automation** — the user keeps it open across Spaces; `make dev` uses `--no-watch` (Rust changes need a manual restart; frontend hot-reloads via Vite).
+- **Never launch the app from automation** — the user keeps it open across Spaces; nothing in `make dev` watches Rust files (frontend hot-reloads via Vite).
+- **Dev Rebuild & Relaunch** (⌘⇧R, Develop menu — `make dev` only) — rebuilds while the windows stay up; on success relaunches via the `scripts/dev.sh` loop (exit code 75) restoring every window's frame, open session and sidebar tab; on failure a banner shows the compiler errors with Retry and the old build keeps running. → `2026-09-14-dev-rebuild-relaunch-design`
 - `~/.claude/settings.json` has `cleanupPeriodDays: 36500` so sessions aren't auto-pruned.
 - Skills live in `skills/` (`session-surgery`, `session-harvest`).
 - **App icon:** `crates/app/icons/icon.svg` is the source (dark squircle, mono "ccm" wordmark, Apple icon-grid margin baked in). Regenerate the PNG/`.icns`/`.ico` set with `cargo tauri icon <1024px raster>` from `crates/app/` — it overwrites `icons/`, then drop the mobile/Windows-Store variants it also emits.

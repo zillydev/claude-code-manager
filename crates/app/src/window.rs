@@ -22,12 +22,16 @@ pub fn spawn_window(app: &AppHandle) {
     let existing: HashSet<String> = app.webview_windows().keys().cloned().collect();
     let label = next_window_label(&existing);
     let offset = existing.len() as f64 * 28.0;
+    build_window(app, &label, (120.0 + offset, 120.0 + offset), (1200.0, 800.0));
+}
 
-    if let Err(e) = WebviewWindowBuilder::new(app, &label, WebviewUrl::App("index.html".into()))
+/// Open a window with an explicit label, position and inner size (logical px).
+pub fn build_window(app: &AppHandle, label: &str, position: (f64, f64), size: (f64, f64)) {
+    if let Err(e) = WebviewWindowBuilder::new(app, label, WebviewUrl::App("index.html".into()))
         .title("Claude Code Manager")
-        .inner_size(1200.0, 800.0)
+        .inner_size(size.0, size.1)
         .min_inner_size(800.0, 600.0)
-        .position(120.0 + offset, 120.0 + offset)
+        .position(position.0, position.1)
         .resizable(true)
         .build()
     {

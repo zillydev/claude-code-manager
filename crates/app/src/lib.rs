@@ -1,5 +1,6 @@
 mod commands;
 mod config;
+mod dev_reload;
 mod dock_name;
 mod hooks;
 mod session_meta;
@@ -70,7 +71,14 @@ fn build_menu(handle: &tauri::AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
         ],
     )?;
 
-    Menu::with_items(handle, &[&app_menu, &file_menu, &edit_menu, &window_menu])
+    let develop_menu;
+    let mut menus: Vec<&dyn tauri::menu::IsMenuItem<tauri::Wry>> =
+        vec![&app_menu, &file_menu, &edit_menu, &window_menu];
+    if dev_reload::available() {
+        develop_menu = dev_reload::menu(handle)?;
+        menus.push(&develop_menu);
+    }
+    Menu::with_items(handle, &menus)
 }
 
 pub fn run() {
@@ -79,12 +87,14 @@ pub fn run() {
         .manage(Mutex::new(commands::WatcherState::default()))
         .manage(Mutex::new(terminal::TerminalState::default()))
         .manage(shared::Shared::new())
+        .manage(dev_reload::DevReloadState::default())
         .setup(|app| {
             // Unbundled dev runs would otherwise show the binary name in the
             // Dock; no-op in release bundles and off macOS.
             if let Some(name) = app.config().product_name.as_deref() {
                 dock_name::set_dev_dock_name(name);
             }
+            dev_reload::restore_windows(app.handle());
             // One app-wide poller: every 3s it refreshes the shared activity scan
             // and (only when the project dir's signature changes) re-discovers,
             // then broadcasts to ALL windows. Replaces each window polling on its
@@ -244,6 +254,8 @@ pub fn run() {
         .on_menu_event(|app, event| {
             if event.id().as_ref() == "new_window" {
                 window::spawn_window(app);
+            } else if event.id().as_ref() == dev_reload::MENU_ID {
+                dev_reload::start_rebuild(app);
             }
         })
         .on_window_event(|win, event| {
@@ -289,6 +301,9 @@ pub fn run() {
             commands::terminal_input,
             commands::terminal_resize,
             commands::terminal_close,
+            dev_reload::dev_rebuild,
+            dev_reload::dev_take_view,
+            dev_reload::dev_set_view,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
@@ -306,6 +321,12 @@ pub fn run() {
                 // A status file outliving the app is worse than none: consumers
                 // would keep believing a snapshot that can no longer change.
                 status_file::unpublish(&status_file::status_path());
+                // Tauri would exit 0 after this callback; scripts/dev.sh needs
+                // the relaunch code, so run Tauri's cleanup and exit with it here.
+                if app_handle.state::<dev_reload::DevReloadState>().relaunch_requested() {
+                    app_handle.cleanup_before_exit();
+                    std::process::exit(dev_reload::RELAUNCH_EXIT_CODE);
+                }
             }
         });
 }

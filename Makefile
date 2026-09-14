@@ -4,14 +4,13 @@
 # Override e.g. `make dev PORT=3000`.
 PORT ?= 5173
 
-# Launch the desktop app (Tauri dev mode).
-# --no-watch disables Tauri's Rust file watcher so editing source never
-# rebuilds + relaunches the app (the relaunch stole focus and yanked the
-# window onto whatever macOS Space was active). Frontend edits still
-# hot-reload via Vite HMR. To pick up Rust changes, stop and re-run this.
-# PORT overrides the Vite port; --config overrides Tauri's devUrl to match it.
+# Launch the desktop app in dev mode (scripts/dev.sh). Frontend edits hot-reload
+# via Vite HMR. Rust edits never restart the app on their own (a restart steals
+# focus and yanks the window onto the active macOS Space): pick them up with
+# Develop → Rebuild & Relaunch (⌘⇧R), which builds while the window stays up and
+# relaunches only on success, restoring windows and open sessions.
 dev:
-	cd crates/app && CM_PORT=$(PORT) cargo tauri dev --no-watch --config '{"build":{"devUrl":"http://localhost:$(PORT)"}}'
+	PORT=$(PORT) scripts/dev.sh
 
 # Build everything (Rust workspace + frontend) — a compile/CI check, no bundle.
 build:

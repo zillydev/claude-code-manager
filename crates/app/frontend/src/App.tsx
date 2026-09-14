@@ -9,6 +9,7 @@ import LineageBanner from "./components/LineageBanner";
 import LineageTree from "./components/LineageTree";
 import Settings from "./components/Settings";
 import Spinner from "./components/Spinner";
+import DevRebuildBanner from "./components/DevRebuildBanner";
 import { ChevronsRight } from "lucide-react";
 import { usePersistentState } from "./hooks/usePersistentState";
 import { useActivity } from "./hooks/useActivity";
@@ -281,12 +282,50 @@ export default function App() {
 
   // Apply the launch-only default tab once the real config has loaded.
   const didInitTab = useRef(false);
+
+  // `make dev`'s Rebuild & Relaunch: reopen what this window showed before the
+  // relaunch. Restored windows stay on Manager — landing on Terminal would
+  // spawn `claude --resume` unasked — so the launch default tab is skipped.
+  const [devRestore, setDevRestore] = useState<{ checked: boolean; available: boolean }>({
+    checked: false,
+    available: false,
+  });
   useEffect(() => {
-    if (configLoaded && !didInitTab.current) {
+    invoke<{
+      available: boolean;
+      view: { target: typeof target; sidebarTab: typeof sidebarTab } | null;
+    }>("dev_take_view")
+      .then(({ available, view }) => {
+        if (view) {
+          didInitTab.current = true;
+          setTarget(view.target);
+          setSidebarTab(view.sidebarTab);
+        }
+        setDevRestore({ checked: true, available });
+      })
+      .catch(() => setDevRestore({ checked: true, available: false }));
+  }, []);
+  useEffect(() => {
+    if (!devRestore.available) return;
+    const view = {
+      target: target && {
+        sessionId: target.sessionId,
+        filePath: target.filePath,
+        projectLabel: target.projectLabel,
+        cwd: target.cwd,
+      },
+      sidebarTab,
+    };
+    invoke("dev_set_view", { view }).catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- a scroll jump isn't view state
+  }, [devRestore.available, target?.sessionId, target?.filePath, target?.projectLabel, target?.cwd, sidebarTab]);
+
+  useEffect(() => {
+    if (configLoaded && devRestore.checked && !didInitTab.current) {
       didInitTab.current = true;
       setActiveTab(config.ui.defaultTab);
     }
-  }, [configLoaded, config.ui.defaultTab]);
+  }, [configLoaded, devRestore.checked, config.ui.defaultTab]);
 
   // Cmd+E toggles Manager ↔ Terminal; Cmd+B toggles the sidebar; Cmd+, opens
   // Settings (the macOS Preferences shortcut); Cmd+1/2/3 pick the sidebar tab
@@ -509,6 +548,7 @@ export default function App() {
         />
       )}
       {settingsOpen && <Settings onClose={() => setSettingsOpen(false)} />}
+      <DevRebuildBanner />
     </div>
   );
 }
