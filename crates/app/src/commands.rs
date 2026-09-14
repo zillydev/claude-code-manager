@@ -31,7 +31,7 @@ pub struct WatcherState {
 
 /// The sessions list, served from the app-global `Shared` cache (computed once,
 /// single-flight, refreshed by the background poller). discover() fully parses
-/// every session file (~6s debug), so it runs at most once across all windows;
+/// every session file, so it runs at most once across all windows;
 /// the blocking pool keeps it off the Tauri main thread on a cold cache.
 #[tauri::command]
 pub async fn list_sessions(app: AppHandle) -> Result<Vec<SessionSummary>, String> {

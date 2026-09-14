@@ -6,6 +6,14 @@ members = [
     "crates/app",
 ]
 
+# `make dev` parses every session file at startup, and unoptimized serde_json plus
+# core's derived Deserialize impls parse ~8x slower than optimized.
+[profile.dev.package."*"]
+opt-level = 3
+
+[profile.dev.package.claude-code-manager-core]
+opt-level = 3
+
 [profile.release]
 lto = "thin"
 codegen-units = 1
