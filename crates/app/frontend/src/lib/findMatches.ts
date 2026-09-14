@@ -66,7 +66,11 @@ export function compareMatches(a: FindMatch, b: FindMatch): number {
  *  consumers (renderer + find), so painted offsets always line up. File-editing
  *  tools render as a diff, Bash as a shell snippet, AskUserQuestion as its
  *  question card; everything else as pretty JSON. */
-export function toolInputText(name: string, input: Record<string, unknown>): string {
+export function toolInputText(
+  name: string,
+  input: Record<string, unknown>,
+  result: string | null = null,
+): string {
   const d = toolDiff(name, input);
   if (d) return diffText(d);
   if (name === "Bash") {
@@ -74,7 +78,8 @@ export function toolInputText(name: string, input: Record<string, unknown>): str
     if (lines) return bashText(lines);
   }
   if (name === "AskUserQuestion") {
-    const lines = askLines(input);
+    // The answers are part of the card, so the matcher sees the same text.
+    const lines = askLines(input, result);
     if (lines) return askText(lines);
   }
   return JSON.stringify(input, null, 2);
@@ -101,7 +106,7 @@ export function modelMatches(turns: RenderedTurn[], find: (t: string) => Span[])
     } else if (turn.type === "assistant") {
       turn.blocks.forEach((b, bi) => {
         if (b.type !== "tool_call") return;
-        push(ti, bi, "tool-input", toolInputText(b.name, b.input_full));
+        push(ti, bi, "tool-input", toolInputText(b.name, b.input_full, b.result?.text ?? null));
         if (b.result) push(ti, bi, "tool-result", toolResultText(b.result));
       });
     }

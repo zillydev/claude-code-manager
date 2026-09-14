@@ -5,7 +5,7 @@ import { prettyToolName } from "../lib/toolDisplay";
 import { toolInputText, toolResultText } from "../lib/findMatches";
 import { diffLineText, diffSources, toolDiff, type DiffLine } from "../lib/toolDiff";
 import { highlightToLines, languageForPath, type Token } from "../lib/syntax";
-import { askLines, chosenLabels, type AskLine } from "../lib/askQuestion";
+import { askLines, type AskLine } from "../lib/askQuestion";
 import { bashLines, type BashLine } from "../lib/bashBody";
 import { ImageStrip } from "./InlineImage";
 
@@ -78,7 +78,7 @@ function ToolInput({
   // JSON view.
   const diff = toolDiff(name, input);
   const bash = diff ? null : name === "Bash" ? bashLines(input) : null;
-  const ask = diff || bash ? null : name === "AskUserQuestion" ? askLines(input) : null;
+  const ask = diff || bash ? null : name === "AskUserQuestion" ? askLines(input, resultText) : null;
   return (
     <pre
       data-seg-id={segId}
@@ -90,9 +90,9 @@ function ToolInput({
       ) : bash ? (
         <BashBody lines={bash} />
       ) : ask ? (
-        <AskBody lines={ask} resultText={resultText} />
+        <AskBody lines={ask} />
       ) : (
-        toolInputText(name, input)
+        toolInputText(name, input, resultText)
       )}
     </pre>
   );
@@ -196,12 +196,11 @@ function ToolResult({ result, segId }: { result: ToolCallResult; segId: string }
  *  element's textContent equals `askText(lines)` exactly, and the chosen option
  *  is marked with COLOUR only. A "✓" in the text would shift every find offset
  *  after it, since the matcher never sees the result. */
-function AskBody({ lines, resultText }: { lines: AskLine[]; resultText: string | null }) {
-  const chosen = useMemo(() => chosenLabels(resultText), [resultText]);
+function AskBody({ lines }: { lines: AskLine[] }) {
   return (
     <>
       {lines.map((l, i) => {
-        const picked = l.kind === "option" && !!l.label && chosen.has(l.label);
+        const picked = !!l.chosen;
         const tail = i === lines.length - 1 ? "" : "\n";
         return (
           <span
@@ -209,9 +208,11 @@ function AskBody({ lines, resultText }: { lines: AskLine[]; resultText: string |
             className={`block ${
               l.kind === "question"
                 ? "font-medium text-[var(--color-text)]"
-                : picked
-                  ? "text-[var(--color-accent)] bg-[color-mix(in_srgb,var(--color-accent)_12%,transparent)]"
-                  : "text-[var(--color-text-dim)]"
+                : l.kind === "preview"
+                  ? "text-[var(--color-text-dim)] border-l-2 border-[var(--color-border)] ml-4"
+                  : picked
+                    ? "text-[var(--color-accent)] bg-[color-mix(in_srgb,var(--color-accent)_12%,transparent)]"
+                    : "text-[var(--color-text-dim)]"
             }`}
           >
             {l.text}

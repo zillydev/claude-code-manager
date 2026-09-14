@@ -23,3 +23,6 @@
 - [ ] confirmation dialog when closing a window with cmd+w or closing the whole app with cmd+q, if there are open sessions running
 - [ ] a cross button in the global find search bar, similar to filter sessions search bar
 - [ ] copy link to a session, which when opened will open the app and will navigate to that session
+- [x] session id: c0d18796-0c1a-4dd7-9968-0a3db334f508 ; message id: 4c799957-1679-43c5-992c-8b0a2542091f ; the selected option is not highlighted as green
+- [ ] in global find, when typing one of the helpers like "tool" or "has", the helpers selection just disappears, it should instead filter and show the helpers that match what is being typed. it should also list of possible tools after "tools:" is typed
+- [ ] for "tool" results, it just shows "tool: <tool>". it should show some preview. ref: screenshots/8a2bd3674423c2d2886a6622ddcdb94214488c71ebb23a4ec571d6e28e97dc79.png ; screenshots/1209c3345f6211c1addd29fdc63c9b92e2d1137071376e266b8d5a5fa8fbefdd.png

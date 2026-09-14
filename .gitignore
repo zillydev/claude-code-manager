@@ -3,3 +3,4 @@ node_modules/
 crates/app/frontend/dist
 crates/app/gen
 .DS_Store
+screenshots/

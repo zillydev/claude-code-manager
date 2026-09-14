@@ -14,6 +14,7 @@ What changed in each release, written for people using the app. Build-time detai
 
 **Fixed**
 
+- **Question cards show every answer.** A chosen option whose label contains a comma is highlighted again (Claude Code quotes such labels inside the answer sentence, and the card's parser stopped at the first quote), and an answer you typed instead of picking — including a notes-only answer — now appears as its own accented row under the question, rather than the card looking unanswered.
 - **Pressing Esc before Claude's first token no longer leaves the session "running".** Claude Code writes no interrupt marker when there was nothing to interrupt, and no hook fires on Esc — so ccm now treats the Esc / Ctrl-C you press in its own terminal as the end of the turn.
 - **Interrupting Claude while nothing was streaming no longer leaves the session "running".** Esc during a queued prompt or a task notification writes the interrupt marker without the message id the previous detection relied on — a third of all interrupts. The marker text itself now ends the turn.
 
