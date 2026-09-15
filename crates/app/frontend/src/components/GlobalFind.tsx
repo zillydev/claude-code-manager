@@ -10,6 +10,7 @@ import { useSessionMeta } from "../hooks/useSessionMeta";
 import { activeTags, archivedTags, entryTags, sessionTitle, tagColor } from "../lib/sessionMeta";
 import { parseSearchQuery, isRunnable, type SearchQuery } from "../lib/searchQuery";
 import { splitHighlight } from "../lib/highlight";
+import { matchOperators, replaceTrailingToken, suggestTools, trailingToken } from "../lib/searchOptions";
 
 interface Hit {
   session_id: string;
@@ -59,6 +60,11 @@ export default function GlobalFind({
   // for the current query only (reset when the token stops being a tag: token).
   const [tagShowArchived, setTagShowArchived] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+  // Every tool called in the discovered sessions, most used first; refetched when the session list changes.
+  const [tools, setTools] = useState<{ name: string; count: number }[] | null>(null);
+  useEffect(() => {
+    invoke<{ name: string; count: number }[]>("tool_names").then(setTools, () => setTools([]));
+  }, [sessions]);
   useEffect(() => {
     if (activate.n === 0) return;
     if (activate.q !== null) setInput(activate.q);
@@ -68,7 +74,7 @@ export default function GlobalFind({
   const q = parseSearchQuery(input);
 
   // Value autocomplete from memory for the current trailing token.
-  const lastToken = input.split(/\s+/).pop() ?? "";
+  const lastToken = trailingToken(input);
   let suggestions: string[] = [];
   const sug = (key: string, values: string[]) => {
     const pfx = lastToken.slice(key.length).toLowerCase();
@@ -88,7 +94,11 @@ export default function GlobalFind({
     suggestions = sug("from:", ["user", "assistant"]);
   } else if (lastToken.startsWith("is:")) {
     suggestions = sug("is:", ["bookmarked"]);
+  } else if (lastToken.startsWith("tool:")) {
+    suggestions = suggestTools(tools ?? [], lastToken.slice("tool:".length)).map((n) => `tool:${n}`);
   }
+  const toolsLoading = lastToken.startsWith("tool:") && tools === null;
+  const legendOps = matchOperators(lastToken);
   const isTagToken = lastToken.startsWith("tag:");
   // Archived tags that WOULD match the typed prefix but are hidden — surfaced
   // as a "…N archived" chip so they're one click away without cluttering.
@@ -283,32 +293,19 @@ export default function GlobalFind({
             </button>
           )}
           </div>
-          {/* Between tokens (empty input, or a completed token + space) the
-              legend returns so operators chain — until Enter, when results
-              take the space; editing the query brings it back. */}
-          {focused && !ranQuery && (input === "" || /\s$/.test(input)) && (
+          {/* Between tokens it lists every operator, so operators chain; mid-word it narrows to the
+              ones that word could become, and hides for an ordinary word. Enter gives results the space. */}
+          {focused && !ranQuery && legendOps.length > 0 && (
             <div className="mt-2 rounded border border-[var(--color-border)] bg-[var(--color-bg)] p-2 text-xs space-y-1">
               <div className="font-medium text-[var(--color-text)]">Search options</div>
-              {(
-                [
-                  ["in:", "match project name"],
-                  ["from:", "user or assistant messages"],
-                  ["before:", "messages before a date/time"],
-                  ["after:", "messages after a date/time"],
-                  ["tag:", "sessions carrying a tag"],
-                  ["is:bookmarked", "bookmarked messages only"],
-                  ["tool:", "turns that called a tool (Bash, Write…)"],
-                  ["has:link", "messages containing a URL"],
-                  ["session:", "one session, by name or id"],
-                ] as const
-              ).map(([op, desc]) => (
+              {legendOps.map(([op, desc]) => (
                 <button
                   key={op}
                   // mousedown (not click) so the insert lands before the input's
                   // blur would hide this panel.
                   onMouseDown={(e) => {
                     e.preventDefault();
-                    setInput((v) => v + op + (op.endsWith(":") ? "" : " "));
+                    setInput((v) => replaceTrailingToken(v, op + (op.endsWith(":") ? "" : " ")));
                     setRanQuery(false);
                     inputRef.current?.focus();
                   }}
@@ -321,6 +318,9 @@ export default function GlobalFind({
             </div>
           )}
           {dateKey && <MiniCalendar onPick={acceptDate} />}
+          {toolsLoading && (
+            <div className="mt-2 text-xs text-[var(--color-text-dim)]">loading tools…</div>
+          )}
           {(suggestions.length > 0 || hiddenArchivedCount > 0) && (
             <div className="flex gap-1 mt-2 flex-wrap">
               {(() => {

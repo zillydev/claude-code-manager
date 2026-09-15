@@ -221,6 +221,22 @@ fn truncate_title(s: String) -> String {
 }
 
 /// "2m", "3h", "5d" relative time string.
+/// How many times each tool was called in these events, by raw name. Every line counts, rewound
+/// branches included, because global find's `tool:` filter matches them too.
+pub fn tool_call_counts(events: &[Event]) -> std::collections::HashMap<String, usize> {
+    let mut counts = std::collections::HashMap::new();
+    for ev in events {
+        if let Event::Assistant(a) = ev {
+            for b in &a.message.content {
+                if let super::event::Block::ToolUse { name, .. } = b {
+                    *counts.entry(name.clone()).or_insert(0) += 1;
+                }
+            }
+        }
+    }
+    counts
+}
+
 pub fn relative_time(t: SystemTime) -> String {
     let now = SystemTime::now();
     let dur = now.duration_since(t).unwrap_or_default();
@@ -719,5 +735,25 @@ mod tests {
         assert_eq!(compact_tokens(500), "500");
         assert_eq!(compact_tokens(48_000), "48k");
         assert_eq!(compact_tokens(1_234_000), "1.2M");
+    }
+
+    #[test]
+    fn tool_call_counts_tally_every_call_by_name() {
+        let line = |content: &str| -> Event {
+            serde_json::from_str(&format!(
+                r#"{{"type":"assistant","uuid":"00000000-0000-0000-0000-00000000000{}","message":{{"role":"assistant","content":{content}}}}}"#,
+                content.len() % 10
+            ))
+            .unwrap()
+        };
+        let events = vec![
+            line(r#"[{"type":"tool_use","id":"a","name":"Bash","input":{}}]"#),
+            line(r#"[{"type":"text","text":"hi"},{"type":"tool_use","id":"b","name":"Bash","input":{}},{"type":"tool_use","id":"c","name":"mcp__srv__run","input":{}}]"#),
+            line(r#"[{"type":"text","text":"no tools here"}]"#),
+        ];
+        let counts = tool_call_counts(&events);
+        assert_eq!(counts.get("Bash"), Some(&2));
+        assert_eq!(counts.get("mcp__srv__run"), Some(&1));
+        assert_eq!(counts.len(), 2, "text blocks count for nothing");
     }
 }

@@ -43,6 +43,17 @@ pub async fn list_sessions(app: AppHandle) -> Result<Vec<SessionSummary>, String
     .map_err(|e| e.to_string())?
 }
 
+/// Every tool called in the discovered sessions, most used first — `tool:` autocomplete.
+#[tauri::command]
+pub async fn tool_names(app: AppHandle) -> Result<Vec<store::ToolCount>, String> {
+    tauri::async_runtime::spawn_blocking(move || -> Result<Vec<store::ToolCount>, String> {
+        let root = paths::default_claude_root().ok_or("could not locate ~/.claude")?;
+        app.state::<Shared>().tool_counts(&root)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 /// Force a re-discovery (manual ↻) and broadcast so every window re-pulls.
 #[tauri::command]
 pub async fn refresh_sessions(app: AppHandle) -> Result<Vec<SessionSummary>, String> {

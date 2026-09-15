@@ -277,6 +277,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             commands::list_sessions,
+            commands::tool_names,
             commands::refresh_sessions,
             commands::resolve_branch_messages,
             commands::open_session,

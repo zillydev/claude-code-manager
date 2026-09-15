@@ -17,6 +17,8 @@ pub struct Shared {
 #[derive(Default)]
 struct SharedData {
     sessions: Option<Vec<SessionSummary>>,
+    /// Tool call counts from the same discovery as `sessions`, most used first.
+    tool_counts: Vec<store::ToolCount>,
     activity: Vec<SessionActivity>,
     file_sig: u64,
     /// Per-session last-viewed times (epoch s), merged from every window's
@@ -44,6 +46,12 @@ impl Shared {
             return Ok(s); // another caller filled it while we waited
         }
         self.discover_into(root)
+    }
+
+    /// Every tool called in the discovered sessions; discovers first on a cold cache.
+    pub fn tool_counts(&self, root: &Path) -> Result<Vec<store::ToolCount>, String> {
+        self.sessions(root)?;
+        Ok(self.data.lock().unwrap().tool_counts.clone())
     }
 
     /// Force a re-discover (manual refresh), bypassing the cache.
@@ -118,6 +126,7 @@ impl Shared {
         let sig = store::dir_signature(root);
         let mut d = self.data.lock().unwrap();
         d.sessions = Some(disc.sessions.clone());
+        d.tool_counts = disc.tool_counts;
         d.file_sig = sig;
         Ok(disc.sessions)
     }
@@ -127,6 +136,24 @@ impl Shared {
 mod tests {
     use super::*;
     use std::collections::BTreeMap;
+
+    #[test]
+    fn tool_counts_come_from_discovery_on_a_cold_cache() {
+        let root = std::env::temp_dir().join(format!("cm-shared-tools-{}", std::process::id()));
+        let proj = root.join("projects").join("-tmp-proj");
+        std::fs::create_dir_all(&proj).unwrap();
+        std::fs::write(
+            proj.join("00000000-0000-0000-0000-00000000bb01.jsonl"),
+            concat!(
+                r#"{"type":"user","uuid":"00000000-0000-0000-0000-0000000001b1","timestamp":"2026-09-10T05:00:00Z","message":{"role":"user","content":"go"}}"#, "\n",
+                r#"{"type":"assistant","uuid":"00000000-0000-0000-0000-0000000002b1","parentUuid":"00000000-0000-0000-0000-0000000001b1","timestamp":"2026-09-10T05:00:01Z","message":{"role":"assistant","content":[{"type":"tool_use","id":"t","name":"Grep","input":{}}]}}"#, "\n",
+            ),
+        )
+        .unwrap();
+        let counts = Shared::new().tool_counts(&root).unwrap();
+        assert_eq!(counts, vec![store::ToolCount { name: "Grep".into(), count: 1 }]);
+        std::fs::remove_dir_all(&root).ok();
+    }
 
     #[test]
     fn last_viewed_merges_by_maximum() {

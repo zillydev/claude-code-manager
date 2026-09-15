@@ -22,6 +22,15 @@ use crate::session::{tree, Session};
 pub struct Discovery {
     pub sessions: Vec<SessionSummary>,
     pub warnings: Vec<String>,
+    /// Every tool called in the discovered sessions, most used first.
+    pub tool_counts: Vec<ToolCount>,
+}
+
+/// A tool and how many times it was called across the discovered sessions.
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+pub struct ToolCount {
+    pub name: String,
+    pub count: usize,
 }
 
 /// Cached per-file parse result, invalidated by mtime. `discover` re-runs every
@@ -34,6 +43,7 @@ struct CachedFile {
     mtime: SystemTime,
     summary: SessionSummary,
     uuids: lineage::SessionUuids,
+    tools: HashMap<String, usize>,
 }
 
 fn discover_cache() -> &'static Mutex<HashMap<PathBuf, CachedFile>> {
@@ -45,6 +55,7 @@ pub fn discover(root: &Path) -> Result<Discovery> {
     let projects = paths::projects_dir(root);
     let mut sessions = Vec::new();
     let mut warnings = Vec::new();
+    let mut tool_totals: HashMap<String, usize> = HashMap::new();
 
     let read_dir = match fs::read_dir(&projects) {
         Ok(rd) => rd,
@@ -118,8 +129,8 @@ pub fn discover(root: &Path) -> Result<Discovery> {
                 .get(&child_path)
                 .filter(|c| c.mtime == mtime)
                 .cloned();
-            let (summary, su) = match cached {
-                Some(c) => (c.summary, c.uuids),
+            let (summary, su, tools) = match cached {
+                Some(c) => (c.summary, c.uuids, c.tools),
                 None => match parse_file(&child_path) {
                     Ok(ParseOutcome { events, .. }) => {
                         let project_label = events
@@ -134,11 +145,13 @@ pub fn discover(root: &Path) -> Result<Discovery> {
                             uuids: events.iter().filter_map(|e| e.uuid()).collect(),
                             forked: summary.forked_from.is_some(),
                         };
+                        // Counted here, from the parse discovery already does, so tool: autocomplete costs no extra reading.
+                        let tools = crate::session::summary::tool_call_counts(&events);
                         discover_cache().lock().unwrap().insert(
                             child_path.clone(),
-                            CachedFile { mtime, summary: summary.clone(), uuids: su.clone() },
+                            CachedFile { mtime, summary: summary.clone(), uuids: su.clone(), tools: tools.clone() },
                         );
-                        (summary, su)
+                        (summary, su, tools)
                     }
                     Err(e) => {
                         warnings.push(format!("parse {}: {}", child_path.display(), e));
@@ -146,6 +159,9 @@ pub fn discover(root: &Path) -> Result<Discovery> {
                     }
                 },
             };
+            for (name, n) in tools {
+                *tool_totals.entry(name).or_insert(0) += n;
+            }
             dir_summaries.push(summary);
             dir_uuids.push(su);
         }
@@ -168,7 +184,11 @@ pub fn discover(root: &Path) -> Result<Discovery> {
     // most-recent first
     sessions.sort_by_key(|s| std::cmp::Reverse(s.mtime));
 
-    Ok(Discovery { sessions, warnings })
+    let mut tool_counts: Vec<ToolCount> =
+        tool_totals.into_iter().map(|(name, count)| ToolCount { name, count }).collect();
+    tool_counts.sort_by(|a, b| b.count.cmp(&a.count).then_with(|| a.name.cmp(&b.name)));
+
+    Ok(Discovery { sessions, warnings, tool_counts })
 }
 
 /// Fully read a single session file into memory.
@@ -1165,6 +1185,39 @@ mod tests {
         let p = got.get(&Uuid::parse_str(head).unwrap()).expect("resolves");
         assert_eq!(p.snippet, "the actual reply text");
         std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn discovery_counts_tool_calls_across_sessions_but_not_subagents() {
+        let root = std::env::temp_dir().join(format!("cm-toolcounts-{}", std::process::id()));
+        let proj = root.join("projects").join("-tmp-proj");
+        fs::create_dir_all(&proj).unwrap();
+        let session = |uuid_tail: &str, tools: &[&str]| {
+            let calls: Vec<String> = tools
+                .iter()
+                .enumerate()
+                .map(|(i, t)| format!(r#"{{"type":"tool_use","id":"t{i}","name":"{t}","input":{{}}}}"#))
+                .collect();
+            [
+                format!(r#"{{"type":"user","uuid":"00000000-0000-0000-0000-0000000001{uuid_tail}","timestamp":"2026-09-10T05:00:00Z","cwd":"/tmp/proj","message":{{"role":"user","content":"go"}}}}"#),
+                format!(r#"{{"type":"assistant","uuid":"00000000-0000-0000-0000-0000000002{uuid_tail}","parentUuid":"00000000-0000-0000-0000-0000000001{uuid_tail}","timestamp":"2026-09-10T05:00:01Z","message":{{"role":"assistant","content":[{}]}}}}"#, calls.join(",")),
+            ]
+            .join("\n")
+                + "\n"
+        };
+        fs::write(proj.join("00000000-0000-0000-0000-00000000aa01.jsonl"), session("01", &["Bash", "Bash", "Read"])).unwrap();
+        fs::write(proj.join("00000000-0000-0000-0000-00000000aa02.jsonl"), session("02", &["Bash", "mcp__x__y", "mcp__x__y", "mcp__x__y"])).unwrap();
+        // A subagent transcript is not a session global find searches, so its calls don't count.
+        fs::write(proj.join("agent-abc123.jsonl"), session("03", &["Bash", "Bash", "Bash", "Bash", "Bash"])).unwrap();
+
+        let expected = vec![
+            ToolCount { name: "Bash".into(), count: 3 },
+            ToolCount { name: "mcp__x__y".into(), count: 3 },
+            ToolCount { name: "Read".into(), count: 1 },
+        ];
+        assert_eq!(discover(&root).unwrap().tool_counts, expected, "most used first, ties by name");
+        assert_eq!(discover(&root).unwrap().tool_counts, expected, "the same when served from the parse cache");
+        fs::remove_dir_all(&root).ok();
     }
 
     /// A session whose only assistant line is two tool calls and no text.
