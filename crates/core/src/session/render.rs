@@ -701,47 +701,7 @@ pub fn compute_stats(path: &[&Event]) -> SessionStats {
 }
 
 fn session_title(session: &Session) -> String {
-    let mut custom = None;
-    let mut last_prompt = None;
-    let mut last_user = None;
-
-    for ev in &session.events {
-        match ev {
-            // Last wins: the most recent /rename is the current title.
-            Event::CustomTitle(t) => custom = Some(t.custom_title.clone()),
-            Event::LastPrompt(lp) => {
-                if let Some(p) = &lp.last_prompt {
-                    let trimmed = p.trim();
-                    if !trimmed.is_empty()
-                        && !trimmed.starts_with("<command-")
-                        && !trimmed.starts_with("<local-command-")
-                    {
-                        last_prompt = Some(trimmed.to_string());
-                    }
-                }
-            }
-            Event::User(u) => {
-                if u.is_meta.unwrap_or(false) || u.is_sidechain {
-                    continue;
-                }
-                if let MessageContent::Text(t) = &u.message.content {
-                    let trimmed = t.trim();
-                    if !trimmed.is_empty()
-                        && !trimmed.starts_with("<command-")
-                        && !trimmed.starts_with("<local-command-")
-                    {
-                        last_user = Some(trimmed.to_string());
-                    }
-                }
-            }
-            _ => {}
-        }
-    }
-
-    custom
-        .or(last_prompt)
-        .or(last_user)
-        .unwrap_or_else(|| "(untitled)".to_string())
+    super::summary::session_title(&session.events).unwrap_or_else(|| "(untitled)".to_string())
 }
 
 struct ToolResultEntry {
@@ -852,6 +812,7 @@ mod render_tests {
             timestamp: Some(Utc::now()),
             is_sidechain: false,
             is_meta: None,
+            is_compact_summary: None,
             message: Message {
                 role: Some("user".into()),
                 content: MessageContent::Text(text.into()),
@@ -916,6 +877,7 @@ mod render_tests {
             timestamp: Some(Utc::now()),
             is_sidechain: false,
             is_meta: None,
+            is_compact_summary: None,
             message: Message {
                 role: Some("user".into()),
                 content: MessageContent::Blocks(vec![UserBlock::ToolResult {
@@ -1198,6 +1160,7 @@ mod render_tests {
             timestamp: Some(Utc::now()),
             is_sidechain: false,
             is_meta: Some(true),
+            is_compact_summary: None,
             message: Message {
                 role: Some("user".into()),
                 content: MessageContent::Text(

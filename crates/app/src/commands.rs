@@ -9,7 +9,7 @@ use claude_code_manager_core::session::edit::CommitResult;
 use claude_code_manager_core::session::parse::parse_tail;
 use claude_code_manager_core::session::raw::{first_cwd, read_raw};
 use claude_code_manager_core::session::render::{render_session, RenderedSession, RenderedTurn};
-use claude_code_manager_core::session::summary::SessionSummary;
+use claude_code_manager_core::session::summary::{self, SessionSummary};
 use claude_code_manager_core::session::tree;
 use claude_code_manager_core::store;
 use claude_code_manager_core::store::paths;
@@ -169,8 +169,8 @@ pub async fn open_session(
     // setup below stays on the command thread (it touches Tauri state).
     let fp_parse = file_path.clone();
     let branch = branch_uuid.clone();
-    let (rendered, bytes_read) =
-        tauri::async_runtime::spawn_blocking(move || -> Result<(RenderedSession, u64), String> {
+    let (rendered, bytes_read, has_custom) =
+        tauri::async_runtime::spawn_blocking(move || -> Result<(RenderedSession, u64, bool), String> {
             let mut session = store::open_session(fp_parse.into(), project_label)
                 .map_err(|e| e.to_string())?;
             // An unparseable or absent uuid falls back to the live branch:
@@ -181,7 +181,8 @@ pub async fn open_session(
                 }
             }
             let rendered = render_session(&session);
-            Ok((rendered, session.bytes_read))
+            let has_custom = summary::latest_custom_title(&session.events).is_some();
+            Ok((rendered, session.bytes_read, has_custom))
         })
         .await
         .map_err(|e| e.to_string())??;
@@ -213,7 +214,7 @@ pub async fn open_session(
             // renders new events, and emits them to the originating window.
             let app_clone = app.clone();
             std::thread::spawn(move || {
-                tail_loop(rx, &fp, bytes_read, app_clone, label);
+                tail_loop(rx, &fp, bytes_read, has_custom, app_clone, label);
             });
         }
         Err(_) => {
@@ -236,6 +237,7 @@ fn tail_loop(
     rx: std::sync::mpsc::Receiver<()>,
     file_path: &str,
     initial_offset: u64,
+    mut has_custom: bool,
     app: AppHandle,
     label: String,
 ) {
@@ -260,6 +262,12 @@ fn tail_loop(
         if outcome.events.is_empty() {
             offset = outcome.bytes_read;
             continue;
+        }
+
+        // The open transcript's title follows new prompts and renames, as the sidebar's does.
+        if let Some(title) = summary::title_after_append(has_custom, &outcome.events) {
+            has_custom |= summary::latest_custom_title(&outcome.events).is_some();
+            let _ = app.emit_to(label.as_str(), "session-title", &title);
         }
 
         // Render the new events into turns. We build a mini Session from

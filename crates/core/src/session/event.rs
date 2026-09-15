@@ -42,6 +42,9 @@ pub struct UserEvent {
     pub is_sidechain: bool,
     #[serde(default, rename = "isMeta")]
     pub is_meta: Option<bool>,
+    /// The "continued from a previous conversation" summary a compaction writes as a user line.
+    #[serde(default, rename = "isCompactSummary")]
+    pub is_compact_summary: Option<bool>,
     pub message: Message,
     #[serde(default, rename = "toolUseResult")]
     pub tool_use_result: Option<serde_json::Value>,

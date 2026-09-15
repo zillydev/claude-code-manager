@@ -225,6 +225,7 @@ mod tests {
             timestamp: Some(Utc::now()),
             is_sidechain: false,
             is_meta: None,
+            is_compact_summary: None,
             message: Message {
                 role: Some("user".into()),
                 content: MessageContent::Text("x".into()),

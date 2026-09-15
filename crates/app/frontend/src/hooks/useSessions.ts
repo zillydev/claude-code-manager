@@ -106,9 +106,14 @@ export function useTranscript() {
           });
         }
       );
+      // A new prompt or /rename retitles the session while it is open.
+      const unlistenTitle = await win.listen<string>("session-title", (event) => {
+        setTranscript((prev) => (prev && prev.title !== event.payload ? { ...prev, title: event.payload } : prev));
+      });
       unlistenRef.current = () => {
         unlistenTurns();
         unlistenResults();
+        unlistenTitle();
       };
     } catch (e) {
       setError(String(e));

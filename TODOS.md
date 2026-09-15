@@ -19,7 +19,7 @@
 - [ ] after forking from a message, if the message was old and the sidebar is ordered by updated descending, and is currently scrolled to recent sessions, the forked session disappears somewhere below in the sidebar. how can we improve experience here
 - [x] selecting a user message in global find doesn't scroll to the message
 - [ ] fetch latest version and show upgrade notice or button to upgrade to latest version
-- [ ] the last user prompt in the sidebar and title bar becomes stale sometimes
+- [x] the last user prompt in the sidebar and title bar becomes stale sometimes
 - [ ] confirmation dialog when closing a window with cmd+w or closing the whole app with cmd+q, if there are open sessions running
 - [x] a cross button in the global find search bar, similar to filter sessions search bar
 - [ ] copy link to a session, which when opened will open the app and will navigate to that session

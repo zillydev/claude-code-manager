@@ -4,7 +4,7 @@ use std::time::SystemTime;
 use uuid::Uuid;
 
 use super::display::extract_tag;
-use super::event::{Event, MessageContent};
+use super::event::Event;
 
 /// One row of the sessions list.
 #[derive(Debug, Clone, serde::Serialize)]
@@ -58,9 +58,6 @@ pub fn summarize(
     project_label: String,
     mtime: SystemTime,
 ) -> SessionSummary {
-    let mut custom_title = None;
-    let mut last_user_text = None;
-    let mut last_prompt = None;
     let mut total_tokens: u64 = 0;
     let mut cwd: Option<String> = None;
     let mut git_branch: Option<String> = None;
@@ -108,43 +105,6 @@ pub fn summarize(
             }
         }
         match ev {
-            // Last wins: Claude Code appends a new custom-title event on each
-            // /rename, so the most recent one is the current title.
-            Event::CustomTitle(t) => {
-                custom_title = Some(t.custom_title.clone());
-            }
-            Event::AiTitle(_) => {}
-            Event::LastPrompt(lp) => {
-                if let Some(p) = &lp.last_prompt {
-                    let trimmed = p.trim();
-                    if !trimmed.is_empty()
-                        && !trimmed.starts_with("<command-")
-                        && !trimmed.starts_with("<local-command-")
-                    {
-                        last_prompt = Some(trimmed.to_string());
-                    }
-                }
-            }
-            Event::User(u) => {
-                if u.is_meta.unwrap_or(false) {
-                    continue;
-                }
-                if u.is_sidechain {
-                    continue;
-                }
-                if let MessageContent::Text(t) = &u.message.content {
-                    let trimmed = t.trim();
-                    if trimmed.is_empty() {
-                        continue;
-                    }
-                    if trimmed.starts_with("<command-")
-                        || trimmed.starts_with("<local-command-")
-                    {
-                        continue;
-                    }
-                    last_user_text = Some(trimmed.to_string());
-                }
-            }
             Event::Assistant(a)
                 // Report the current context-window size, not a cumulative sum:
                 // the LAST real assistant turn's full request input
@@ -163,12 +123,7 @@ pub fn summarize(
         }
     }
 
-    let title = custom_title
-        .or(last_prompt)
-        .or(last_user_text)
-        .map(strip_command_markup)
-        .map(truncate_title)
-        .unwrap_or_else(|| "(untitled)".to_string());
+    let title = session_title(events).map(truncate_title).unwrap_or_else(|| "(untitled)".to_string());
 
     SessionSummary {
         id,
@@ -187,6 +142,88 @@ pub fn summarize(
         forked_from_message,
         copied_from_message: None,
     }
+}
+
+/// A session's title, untruncated: its latest `/rename`, else the latest prompt in the conversation,
+/// else Claude Code's `last-prompt` record — which it flushes lazily, so it can lag the real one.
+pub fn session_title(events: &[Event]) -> Option<String> {
+    let recorded = || {
+        events.iter().rev().find_map(|ev| match ev {
+            Event::LastPrompt(lp) => lp.last_prompt.as_deref().and_then(prompt_text),
+            _ => None,
+        })
+    };
+    latest_custom_title(events).or_else(|| latest_prompt(events)).or_else(recorded).map(strip_command_markup)
+}
+
+/// The most recent `/rename` in these events.
+pub fn latest_custom_title(events: &[Event]) -> Option<String> {
+    events.iter().rev().find_map(|ev| match ev {
+        Event::CustomTitle(t) => Some(t.custom_title.clone()),
+        _ => None,
+    })
+}
+
+/// The most recent prompt in these events — see [`prompt_of`].
+pub fn latest_prompt(events: &[Event]) -> Option<String> {
+    events.iter().rev().find_map(prompt_of)
+}
+
+/// The title after `batch` is appended to a session that has (`has_custom`) or lacks a `/rename`; `None`
+/// when unchanged. A lagging `last-prompt` record never counts — the tail already saw the prompt itself.
+pub fn title_after_append(has_custom: bool, batch: &[Event]) -> Option<String> {
+    if let Some(t) = latest_custom_title(batch) {
+        return Some(t);
+    }
+    if has_custom {
+        return None;
+    }
+    latest_prompt(batch).map(strip_command_markup)
+}
+
+/// The prompt a line carries, in the form Claude Code's `lastPrompt` uses; `None` for a line that
+/// isn't one (machinery, a subagent's or compaction's line, a tool result).
+fn prompt_of(ev: &Event) -> Option<String> {
+    match ev {
+        Event::User(u) => {
+            if u.is_meta.unwrap_or(false) || u.is_compact_summary.unwrap_or(false) || u.is_sidechain {
+                return None;
+            }
+            prompt_text(&u.message.content.text())
+        }
+        // A prompt typed while Claude works is recorded only as this attachment.
+        Event::Attachment(a) if a.attachment.get("type").and_then(|t| t.as_str()) == Some("queued_command") => {
+            let text = match a.attachment.get("prompt")? {
+                serde_json::Value::String(s) => s.clone(),
+                serde_json::Value::Array(blocks) => blocks
+                    .iter()
+                    .filter(|b| b.get("type").and_then(|t| t.as_str()) == Some("text"))
+                    .filter_map(|b| b.get("text").and_then(|t| t.as_str()))
+                    .collect::<Vec<_>>()
+                    .join("\n"),
+                _ => return None,
+            };
+            prompt_text(&text)
+        }
+        _ => None,
+    }
+}
+
+fn prompt_text(raw: &str) -> Option<String> {
+    let t = raw.trim();
+    if t.is_empty() || t.starts_with("[Request interrupted") {
+        return None;
+    }
+    if t.starts_with("<command-") {
+        return super::display::command_label(t);
+    }
+    if let Some(super::display::BashBlock::Input(cmd)) = super::display::bash_block(t) {
+        return Some(format!("! {cmd}"));
+    }
+    if t.starts_with('<') {
+        return None; // task notifications, command and bash output
+    }
+    Some(t.to_string())
 }
 
 /// Slash-command echoes are wrapped in tags like
@@ -306,6 +343,7 @@ mod tests {
             timestamp: Some(Utc::now()),
             is_sidechain: false,
             is_meta: Some(meta),
+            is_compact_summary: None,
             message: Message {
                 role: Some("user".into()),
                 content: MessageContent::Text(text.into()),
@@ -755,5 +793,90 @@ mod tests {
         assert_eq!(counts.get("Bash"), Some(&2));
         assert_eq!(counts.get("mcp__srv__run"), Some(&1));
         assert_eq!(counts.len(), 2, "text blocks count for nothing");
+    }
+
+    /// Events from raw jsonl lines, in the shapes Claude Code actually writes.
+    fn lines(raw: &[&str]) -> Vec<Event> {
+        raw.iter().map(|l| serde_json::from_str(l).expect("valid line")).collect()
+    }
+
+    fn title_of(events: &[Event]) -> String {
+        summarize(events, uuid::Uuid::new_v4(), PathBuf::from("/x.jsonl"), "proj".into(), UNIX_EPOCH).title
+    }
+
+    const PROMPT_A: &str = r#"{"type":"user","message":{"role":"user","content":"first question"}}"#;
+
+    #[test]
+    fn a_prompt_newer_than_the_last_prompt_line_wins() {
+        // Claude Code flushes `last-prompt` periodically; a session can stop before it records the final prompt.
+        let events = lines(&[
+            PROMPT_A,
+            r#"{"type":"last-prompt","leafUuid":"00000000-0000-0000-0000-000000000001","lastPrompt":"first question"}"#,
+            r#"{"type":"user","message":{"role":"user","content":"what is the translation of their latest message"}}"#,
+        ]);
+        assert_eq!(title_of(&events), "what is the translation of their latest message");
+    }
+
+    #[test]
+    fn every_kind_of_prompt_counts() {
+        let cases = [
+            (r#"{"type":"user","message":{"role":"user","content":[{"type":"image","source":{"type":"base64","media_type":"image/png","data":"AA=="}},{"type":"text","text":"[Image #1] it shows like this"}]}}"#, "[Image #1] it shows like this"),
+            (r#"{"type":"user","message":{"role":"user","content":"<command-message>deploy</command-message>\n<command-name>/deploy</command-name>\n<command-args>gateway</command-args>"}}"#, "/deploy gateway"),
+            (r#"{"type":"user","message":{"role":"user","content":"<bash-input>git status</bash-input>"}}"#, "! git status"),
+            (r#"{"type":"attachment","attachment":{"type":"queued_command","prompt":"typed while it worked"}}"#, "typed while it worked"),
+            (r#"{"type":"attachment","attachment":{"type":"queued_command","prompt":[{"type":"text","text":"queued with blocks"}]}}"#, "queued with blocks"),
+        ];
+        for (line, want) in cases {
+            assert_eq!(title_of(&lines(&[PROMPT_A, line])), want, "for {line}");
+        }
+    }
+
+    #[test]
+    fn lines_that_are_not_prompts_do_not_replace_the_last_one() {
+        let not_prompts = [
+            r#"{"type":"user","message":{"role":"user","content":"<task-notification>\n<task-id>x</task-id>\n</task-notification>"}}"#,
+            r#"{"type":"user","message":{"role":"user","content":[{"type":"text","text":"[Request interrupted by user for tool use]"}]}}"#,
+            r#"{"type":"user","message":{"role":"user","content":"<local-command-stdout>Set model to Opus</local-command-stdout>"}}"#,
+            r#"{"type":"user","message":{"role":"user","content":"<bash-stdout>ok</bash-stdout><bash-stderr></bash-stderr>"}}"#,
+            r#"{"type":"user","isMeta":true,"message":{"role":"user","content":"Base directory for this skill"}}"#,
+            r#"{"type":"user","isCompactSummary":true,"message":{"role":"user","content":"This session is being continued from a previous conversation"}}"#,
+            r#"{"type":"user","isSidechain":true,"message":{"role":"user","content":"subagent prompt"}}"#,
+            r#"{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t","content":"out"}]}}"#,
+            r#"{"type":"attachment","attachment":{"type":"queued_command","prompt":"<task-notification>\n<task-id>y</task-id>\n</task-notification>"}}"#,
+        ];
+        for line in not_prompts {
+            assert_eq!(title_of(&lines(&[PROMPT_A, line])), "first question", "for {line}");
+        }
+    }
+
+    #[test]
+    fn the_last_prompt_line_is_only_a_fallback() {
+        let events = lines(&[
+            r#"{"type":"user","message":{"role":"user","content":"<local-command-stdout>noise</local-command-stdout>"}}"#,
+            r#"{"type":"last-prompt","leafUuid":"00000000-0000-0000-0000-000000000001","lastPrompt":"recorded only here"}"#,
+        ]);
+        assert_eq!(title_of(&events), "recorded only here", "used when the conversation has no readable prompt");
+    }
+
+    #[test]
+    fn appended_lines_change_the_title_only_as_the_full_rule_would() {
+        let prompt = r#"{"type":"user","message":{"role":"user","content":"a newer prompt"}}"#;
+        let rename = r#"{"type":"custom-title","customTitle":"renamed"}"#;
+        let record = r#"{"type":"last-prompt","leafUuid":"00000000-0000-0000-0000-000000000001","lastPrompt":"an older prompt"}"#;
+
+        assert_eq!(title_after_append(false, &lines(&[prompt])), Some("a newer prompt".into()));
+        assert_eq!(title_after_append(true, &lines(&[prompt])), None, "a custom title outranks it");
+        assert_eq!(title_after_append(true, &lines(&[rename])), Some("renamed".into()), "a new /rename wins");
+        assert_eq!(title_after_append(false, &lines(&[prompt, rename])), Some("renamed".into()));
+        assert_eq!(title_after_append(false, &lines(&[record])), None, "a lagging record never replaces a real prompt");
+    }
+
+    #[test]
+    fn a_custom_title_still_outranks_the_latest_prompt() {
+        let events = lines(&[
+            r#"{"type":"custom-title","customTitle":"renamed"}"#,
+            r#"{"type":"user","message":{"role":"user","content":"a newer prompt"}}"#,
+        ]);
+        assert_eq!(title_of(&events), "renamed");
     }
 }
