@@ -97,7 +97,7 @@ export type RenderedTurn =
       editable: boolean;
     }
   | { type: "system"; timestamp: string | null; content: string }
-  | { type: "command"; timestamp: string | null; command: string }
+  | { type: "command"; timestamp: string | null; command: string; uuids: string[] }
   | {
       type: "bash";
       timestamp: string | null;
@@ -105,6 +105,7 @@ export type RenderedTurn =
       command: string | null;
       stdout: string;
       stderr: string;
+      uuids: string[];
     }
   | { type: "summary"; timestamp: string | null; content: string }
   | {

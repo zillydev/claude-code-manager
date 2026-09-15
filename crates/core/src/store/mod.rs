@@ -608,6 +608,9 @@ pub fn search_messages(files: &[SearchFile], f: &MessageFilters) -> (Vec<Message
             let Ok(outcome) = parse_file(&sf.path) else { continue };
             for (i, ev) in outcome.events.iter().enumerate() {
                 let Some(id) = ev.uuid() else { continue };
+                if ev.hidden_from_transcript() {
+                    continue; // nothing to open — the transcript never shows it
+                }
                 if !us.contains(&id) {
                     continue;
                 }
@@ -708,6 +711,11 @@ fn message_hit(
     let v: serde_json::Value = serde_json::from_str(line).ok()?;
     let t = v.get("type")?.as_str()?;
     if t != "user" && t != "assistant" {
+        return None;
+    }
+    // Injected machinery reads as a user message but is never rendered, so a
+    // hit on one cannot be opened: clicking it did nothing at all.
+    if crate::session::event::raw_line_hidden_from_transcript(&v) {
         return None;
     }
     if let Some(role) = &f.role {
@@ -905,6 +913,91 @@ mod tests {
         let (snip, n) = snippet_excerpts(&"w".repeat(400), "");
         assert_eq!(n, 0);
         assert!(snip.ends_with('…') && snip.chars().count() <= 181);
+    }
+
+    #[test]
+    fn search_never_returns_a_message_the_transcript_hides() {
+        // Claude Code writes injected context — skill bodies, command echoes,
+        // caveats — as user lines flagged isMeta, and the renderer drops them.
+        // They used to come back as results that scrolled nowhere when clicked.
+        let root = std::env::temp_dir().join(format!("cm-meta-{}", std::process::id()));
+        fs::create_dir_all(&root).unwrap();
+        let sid = Uuid::parse_str("00000000-0000-0000-0000-00000000cccc").unwrap();
+        let path = root.join(format!("{sid}.jsonl"));
+        let meta_uuid = "00000000-0000-0000-0000-0000000000e1";
+        fs::write(
+            &path,
+            format!(
+                "{}\n{}\n",
+                format_args!(
+                    r#"{{"type":"user","uuid":"{meta_uuid}","isMeta":true,"timestamp":"2026-08-01T10:00:00Z","message":{{"role":"user","content":"needle inside a skill body"}}}}"#
+                ),
+                r#"{"type":"user","uuid":"00000000-0000-0000-0000-0000000000e2","timestamp":"2026-08-01T10:01:00Z","message":{"role":"user","content":"needle you actually typed"}}"#,
+            ),
+        )
+        .unwrap();
+        let files = [SearchFile { path: path.clone(), session_id: sid, only_uuids: None }];
+
+        let (hits, _) = search_messages(
+            &files,
+            &MessageFilters { text: "needle".into(), limit: 10, ..Default::default() },
+        );
+        assert_eq!(hits.len(), 1, "the isMeta line must not be offered");
+        assert!(hits[0].snippet.contains("actually typed"));
+
+        // Same rule on the uuid-restricted path (is:bookmarked), which parses
+        // events instead of walking lines.
+        let files = [SearchFile {
+            path,
+            session_id: sid,
+            only_uuids: Some(vec![Uuid::parse_str(meta_uuid).unwrap()]),
+        }];
+        let (hits, _) = search_messages(&files, &MessageFilters { limit: 10, ..Default::default() });
+        assert!(hits.is_empty(), "a bookmarked isMeta line is just as unopenable");
+
+        fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn search_never_returns_slash_command_machinery() {
+        // A slash command's own stdout is a user line WITHOUT isMeta, so the
+        // isMeta rule above never caught it — yet the renderer drops it, and on
+        // a real corpus it was 104 of 355 unreachable user results.
+        let root = std::env::temp_dir().join(format!("cm-localcmd-{}", std::process::id()));
+        fs::create_dir_all(&root).unwrap();
+        let sid = Uuid::parse_str("00000000-0000-0000-0000-00000000dddd").unwrap();
+        let path = root.join(format!("{sid}.jsonl"));
+        let stdout_uuid = "00000000-0000-0000-0000-0000000000f1";
+        fs::write(
+            &path,
+            format!(
+                "{}\n{}\n",
+                format_args!(
+                    r#"{{"type":"user","uuid":"{stdout_uuid}","timestamp":"2026-08-01T10:00:00Z","message":{{"role":"user","content":"<local-command-stdout>Set model to needle</local-command-stdout>"}}}}"#
+                ),
+                r#"{"type":"user","uuid":"00000000-0000-0000-0000-0000000000f2","timestamp":"2026-08-01T10:01:00Z","message":{"role":"user","content":"needle you actually typed"}}"#,
+            ),
+        )
+        .unwrap();
+        let files = [SearchFile { path: path.clone(), session_id: sid, only_uuids: None }];
+
+        let (hits, _) = search_messages(
+            &files,
+            &MessageFilters { text: "needle".into(), limit: 10, ..Default::default() },
+        );
+        assert_eq!(hits.len(), 1, "the <local-command-stdout> line must not be offered");
+        assert!(hits[0].snippet.contains("actually typed"));
+
+        // And on the uuid-restricted path, which walks events instead of lines.
+        let files = [SearchFile {
+            path,
+            session_id: sid,
+            only_uuids: Some(vec![Uuid::parse_str(stdout_uuid).unwrap()]),
+        }];
+        let (hits, _) = search_messages(&files, &MessageFilters { limit: 10, ..Default::default() });
+        assert!(hits.is_empty(), "nor on the bookmarked path");
+
+        fs::remove_dir_all(&root).ok();
     }
 
     #[test]

@@ -31,6 +31,7 @@ import { entryTags } from "../lib/sessionMeta";
 import { makeSegId } from "../lib/segments";
 import { isNearBottom } from "../lib/scroll";
 import { filterCompact } from "../lib/compactView";
+import { locateJump, turnUuids, type JumpTarget } from "../lib/jumpTarget";
 
 interface Props {
   session: RenderedSession;
@@ -47,6 +48,12 @@ interface Props {
   tabs?: ReactNode;
   /** ↗ in the find bar: open the global find pinned to this session with `query`. */
   onOpenFind?: (sessionId: string, query: string) => void;
+  /** True while showing a branch the session rewound away (a frozen view). */
+  viewingBranch?: boolean;
+  /** Re-render the session along the branch this message sits on. */
+  onShowBranch?: (uuid: string) => void;
+  /** Back to the branch the file ends with. */
+  onExitBranch?: () => void;
 }
 
 export default function Transcript({
@@ -58,6 +65,9 @@ export default function Transcript({
   visible = true,
   tabs,
   onOpenFind,
+  viewingBranch = false,
+  onShowBranch,
+  onExitBranch,
 }: Props) {
   // compact / details are now config-backed (global + persisted), set-and-stick.
   const { config, setConfig } = useConfig();
@@ -111,6 +121,13 @@ export default function Transcript({
     () => (compact ? filterCompact(session.turns) : session.turns),
     [compact, session.turns],
   );
+  // Why a jump landed nowhere, when it does. Cleared by the next one.
+  const [jumpMiss, setJumpMiss] = useState<JumpTarget | null>(null);
+  // Bumped to re-run the jump after un-compacting, without re-firing it on
+  // every live-tail turn (which depending on the turn lists directly would).
+  const [rejump, setRejump] = useState(0);
+  const turnLists = useRef({ all: session.turns, visible: visibleTurns });
+  turnLists.current = { all: session.turns, visible: visibleTurns };
   // In-session find (⌘F). Matches what is rendered — compact mode included.
   const find = useFind(turnsRef, visibleTurns);
   const { open: findOpen, openBar: findOpenBar, close: findClose } = find;
@@ -190,6 +207,19 @@ export default function Transcript({
   // (merged) turn; a couple of rAFs let heavy turns finish laying out first.
   useEffect(() => {
     if (!scrollToMessage) return;
+    // Ask the turn data first: a querySelector miss can't tell "this session
+    // never shows that message" from "it hasn't laid out yet", and silently
+    // doing nothing is exactly what a dead search result looked like.
+    const where = locateJump(
+      scrollToMessage.uuid,
+      turnLists.current.all,
+      turnLists.current.visible,
+    );
+    if (where !== "visible") {
+      setJumpMiss(where);
+      return;
+    }
+    setJumpMiss(null);
     let raf2 = 0;
     const raf1 = requestAnimationFrame(() => {
       raf2 = requestAnimationFrame(() => {
@@ -223,7 +253,22 @@ export default function Transcript({
       cancelAnimationFrame(raf1);
       cancelAnimationFrame(raf2);
     };
-  }, [session.id, scrollToMessage?.uuid, scrollToMessage?.n, setPinned]);
+  }, [session.id, scrollToMessage?.uuid, scrollToMessage?.n, rejump, setPinned]);
+
+  // A jump that landed nowhere can become possible later: showing a rewound
+  // branch re-renders the session under the SAME id, so neither the request nor
+  // `session.id` changes and the effect above would never re-run. Gated on a
+  // miss being on screen, so the live tail's constant new turn arrays cost
+  // nothing — and the effect above clears `jumpMiss`, so this settles at once.
+  useEffect(() => {
+    if (!scrollToMessage || !jumpMiss) return;
+    if (locateJump(scrollToMessage.uuid, session.turns, visibleTurns) === "visible") {
+      setRejump((r) => r + 1);
+    }
+  }, [session.turns, visibleTurns, scrollToMessage, jumpMiss]);
+
+  // A notice about the previous session's jump has nothing to say about this one.
+  useEffect(() => setJumpMiss(null), [session.id]);
 
   // When this tab becomes visible again, restore the bottom if we were pinned
   // there: display:none can drift the scroll position, and live turns may have
@@ -341,6 +386,57 @@ export default function Transcript({
           onClose={find.close}
           onSearchAll={() => onOpenFind?.(session.id, find.query)}
         />
+      )}
+
+      {viewingBranch && (
+        <div className="mx-4 mb-2 px-3 py-2 rounded border border-[var(--color-accent)] bg-[var(--color-surface)] text-xs flex items-center justify-between gap-3">
+          <span className="text-[var(--color-text-dim)]">
+            Showing a branch this session rewound away from. It ends here, and new turns go to the current branch.
+          </span>
+          <button
+            onClick={onExitBranch}
+            className="shrink-0 px-2 py-1 rounded border border-[var(--color-border)] hover:border-[var(--color-accent)]"
+          >
+            Back to current
+          </button>
+        </div>
+      )}
+
+      {jumpMiss && (
+        <div className="mx-4 mb-2 px-3 py-2 rounded border border-[var(--color-border)] bg-[var(--color-surface)] text-xs flex items-center justify-between gap-3">
+          <span className="text-[var(--color-text-dim)]">
+            {jumpMiss === "compact-hidden"
+              ? "That message is hidden by Compact mode."
+              : "That message is on a branch this session rewound away from."}
+          </span>
+          <div className="flex items-center gap-2 shrink-0">
+            {jumpMiss === "compact-hidden" && (
+              <button
+                onClick={() => {
+                  setConfig({ ui: { compact: false } });
+                  setRejump((r) => r + 1);
+                }}
+                className="px-2 py-1 rounded border border-[var(--color-border)] hover:border-[var(--color-accent)]"
+              >
+                Show all
+              </button>
+            )}
+            {jumpMiss === "off-path" && onShowBranch && scrollToMessage && (
+              <button
+                onClick={() => onShowBranch(scrollToMessage.uuid)}
+                className="px-2 py-1 rounded border border-[var(--color-border)] hover:border-[var(--color-accent)]"
+              >
+                Show this branch
+              </button>
+            )}
+            <button
+              onClick={() => setJumpMiss(null)}
+              className="text-[var(--color-text-dim)] hover:text-[var(--color-text)]"
+            >
+              dismiss
+            </button>
+          </div>
+        </div>
       )}
 
       {/* Turns (wrapped so the find gutter can overlay the scroller's edge) */}
@@ -691,7 +787,10 @@ const Turn = memo(function Turn({
     // is on the right" rule breaks every time a slash command appears.
     case "command":
       return (
-        <div className="flex items-baseline gap-2 justify-end">
+        <div
+          className="flex items-baseline gap-2 justify-end"
+          data-msg-uuids={turnUuids(turn).join(" ")}
+        >
           <span className="text-xs text-[var(--color-text-dim)]" title={tsTitle}>
             {ts}
           </span>
@@ -710,7 +809,7 @@ const Turn = memo(function Turn({
     // styled as a terminal rather than prose.
     case "bash":
       return (
-        <div className="flex flex-col items-end">
+        <div className="flex flex-col items-end" data-msg-uuids={turnUuids(turn).join(" ")}>
           {/* Mirrors the user header: label at the right edge, time before it. */}
           <div className="flex items-baseline gap-2 mb-1 justify-end">
             <span className="text-xs text-[var(--color-text-dim)]" title={tsTitle}>
@@ -764,6 +863,7 @@ const Turn = memo(function Turn({
     case "task_notification":
       return (
         <TaskNotificationBlock
+          uuids={turn.uuid}
           turnIndex={turnIndex}
           status={turn.status}
           summary={turn.summary}
@@ -941,12 +1041,15 @@ const MarkdownBlock = memo(function MarkdownBlock({ text }: { text: string }) {
 });
 
 const TaskNotificationBlock = memo(function TaskNotificationBlock({
+  uuids,
   turnIndex,
   status,
   summary,
   result,
   forceExpand,
 }: {
+  /** Its event uuid — a global-find hit lands on this turn by it. */
+  uuids: string;
   turnIndex: number;
   status: string;
   summary: string;
@@ -956,7 +1059,7 @@ const TaskNotificationBlock = memo(function TaskNotificationBlock({
   const [expanded, setExpanded] = useState(false);
   const open = expanded || !!forceExpand;
   return (
-    <div className="my-1 text-sm">
+    <div className="my-1 text-sm" data-msg-uuids={uuids}>
       <button
         onClick={() => setExpanded(!expanded)}
         className="flex items-baseline text-left w-full hover:bg-[var(--color-surface-hover)] rounded px-2 py-1 transition-colors text-[var(--color-text-dim)]"

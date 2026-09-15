@@ -33,6 +33,7 @@ A tool to browse, search, edit, compact, harvest, and resume Claude Code session
 - Session info panel — token cost, per-turn model, git branch, cwd.
 - **Compact** toggle — every prompt plus the first and last turn of each reply, so the tool-churn in the middle collapses (replies close at the next prompt, at a task notification, and at the end of the transcript). Plus a **Details** toggle — both persisted across restarts.
 - **Pre-compaction history** — renders all conversation trees in a compacted file with `── segment k/N · pre-compaction|active ──` dividers; pre-compaction turns are view-only (only the active tree is editable). → `2026-06-06-pre-compaction-history-design`
+- **Rewound branches** — a rewind or an edit leaves its abandoned branch in the session file, while the transcript draws one path per tree, so those messages are on no screen (5% of user messages global find could return, on a 213-session corpus). A find result landing on one now says so and offers **Show this branch**: the session re-renders along the path through that message and scrolls to it, with a banner back to the current branch. The branch view is frozen — new turns belong to the branch you left, so it doesn't follow the live tail — and its turns are marked non-editable, like pre-compaction ones.
 
 ## Search
 

@@ -53,7 +53,11 @@ export function useTranscript() {
   const [error, setError] = useState<string | null>(null);
   const unlistenRef = useRef<UnlistenFn | null>(null);
 
-  const open = useCallback(async (filePath: string, projectLabel: string) => {
+  // `branchUuid` opens the session showing the branch that message sits on
+  // rather than the one the file ends with — a find result can land on a prompt
+  // the session rewound past. Such a view is frozen: the backend sends no live
+  // tail for it, because new turns belong to the branch you're not looking at.
+  const open = useCallback(async (filePath: string, projectLabel: string, branchUuid?: string) => {
     // Clean up previous listener.
     if (unlistenRef.current) {
       unlistenRef.current();
@@ -67,8 +71,10 @@ export function useTranscript() {
       const result = await invoke<RenderedSession>("open_session", {
         filePath,
         projectLabel,
+        branchUuid,
       });
       setTranscript(result);
+      if (branchUuid) return; // frozen view: nothing to subscribe to
 
       // Subscribe to live tail events for THIS window only. The backend emits
       // with emit_to(<this window's label>), so each window receives only the

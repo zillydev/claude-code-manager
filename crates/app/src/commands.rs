@@ -143,9 +143,13 @@ pub async fn search_messages(
 }
 
 #[tauri::command]
+/// `branch_uuid` opens the session showing the branch that message is on,
+/// rather than the one the file ends with — global find can land on a prompt
+/// the session rewound past, which is otherwise in the file but on no screen.
 pub async fn open_session(
     file_path: String,
     project_label: String,
+    branch_uuid: Option<String>,
     window: tauri::WebviewWindow,
     app: AppHandle,
 ) -> Result<RenderedSession, String> {
@@ -153,10 +157,18 @@ pub async fn open_session(
     // thread so opening a big session doesn't freeze the window. The watcher
     // setup below stays on the command thread (it touches Tauri state).
     let fp_parse = file_path.clone();
+    let branch = branch_uuid.clone();
     let (rendered, bytes_read) =
         tauri::async_runtime::spawn_blocking(move || -> Result<(RenderedSession, u64), String> {
-            let session = store::open_session(fp_parse.into(), project_label)
+            let mut session = store::open_session(fp_parse.into(), project_label)
                 .map_err(|e| e.to_string())?;
+            // An unparseable or absent uuid falls back to the live branch:
+            // showing the session is better than refusing to open it.
+            if let Some(b) = branch.and_then(|b| uuid::Uuid::parse_str(&b).ok()) {
+                if let Some(leaf) = tree::branch_leaf(&session.events, b) {
+                    session.leaf = Some(leaf);
+                }
+            }
             let rendered = render_session(&session);
             Ok((rendered, session.bytes_read))
         })
@@ -171,6 +183,13 @@ pub async fn open_session(
 
     // Drop any previous watcher for this window only.
     guard.watchers.remove(&label);
+
+    // A branch view is a frozen historical path. New turns are appended to the
+    // LIVE branch, so tailing them into this one would splice two histories
+    // that diverged — the view stays still until you return to the current one.
+    if branch_uuid.is_some() {
+        return Ok(rendered);
+    }
 
     let (tx, rx) = channel::<()>();
     let fp = file_path.clone();

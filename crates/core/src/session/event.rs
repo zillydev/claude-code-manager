@@ -222,6 +222,24 @@ pub enum MessageContent {
     Blocks(Vec<UserBlock>),
 }
 
+impl MessageContent {
+    /// The conversation text: the whole string, or every `text` block joined.
+    /// Tool results, images and other blocks contribute nothing.
+    pub fn text(&self) -> String {
+        match self {
+            MessageContent::Text(t) => t.clone(),
+            MessageContent::Blocks(blocks) => blocks
+                .iter()
+                .filter_map(|b| match b {
+                    UserBlock::Text { text } => Some(text.as_str()),
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+                .join("\n"),
+        }
+    }
+}
+
 #[derive(Debug, Clone, serde::Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum UserBlock {
@@ -334,7 +352,59 @@ pub struct Usage {
 /// until the user acts on it.
 pub const USER_BLOCKING_TOOLS: &[&str] = &["AskUserQuestion", "ExitPlanMode"];
 
+/// Injected machinery that Claude Code writes as a user-role line: skill
+/// bodies, slash-command echoes, session caveats. The transcript never shows
+/// these, so nothing may point at one — a search result that opens nothing is
+/// worse than no result at all.
+///
+/// Whether the transcript renders nothing at all for a user message carrying
+/// this text. `<local-command-…>` is CLI machinery (a slash command's stdout or
+/// caveat); a `<command-…>` echo only becomes a turn when it names the command
+/// that ran. Search consults this too, so it never offers a result that has
+/// nothing to scroll to.
+pub fn user_text_hidden_from_transcript(text: &str) -> bool {
+    if text.starts_with("<local-command-") {
+        return true;
+    }
+    text.starts_with("<command-") && super::display::command_label(text).is_none()
+}
+
+/// The raw-line twin of [`Event::hidden_from_transcript`], for the paths that
+/// prefilter lines before parsing them. Kept adjacent so the two cannot drift;
+/// `both_say_hidden` in the tests below holds them to it.
+pub fn raw_line_hidden_from_transcript(v: &serde_json::Value) -> bool {
+    if v.get("isMeta").and_then(|x| x.as_bool()).unwrap_or(false) {
+        return true;
+    }
+    if v.get("type").and_then(|x| x.as_str()) != Some("user") {
+        return false;
+    }
+    let text = match v.pointer("/message/content") {
+        Some(serde_json::Value::String(s)) => s.clone(),
+        Some(serde_json::Value::Array(blocks)) => blocks
+            .iter()
+            .filter(|b| b.get("type").and_then(|x| x.as_str()) == Some("text"))
+            .filter_map(|b| b.get("text").and_then(|x| x.as_str()))
+            .collect::<Vec<_>>()
+            .join("\n"),
+        _ => String::new(),
+    };
+    user_text_hidden_from_transcript(&text)
+}
+
 impl Event {
+    /// Whether the transcript drops this event entirely — see
+    /// [`raw_line_hidden_from_transcript`].
+    pub fn hidden_from_transcript(&self) -> bool {
+        match self {
+            Event::User(u) => {
+                u.is_meta.unwrap_or(false)
+                    || user_text_hidden_from_transcript(&u.message.content.text())
+            }
+            _ => false,
+        }
+    }
+
     /// UUID of this event, if any.
     pub fn uuid(&self) -> Option<Uuid> {
         match self {
@@ -649,5 +719,53 @@ mod tests {
         let plain = r#"{"type":"user","message":{"role":"user","content":"hi"}}"#;
         let ev2: Event = serde_json::from_str(plain).unwrap();
         assert_eq!(ev2.forked_from_session(), None);
+    }
+
+    /// Helper: a user-role jsonl line carrying `text` as its content.
+    fn user_line(text: &str) -> String {
+        format!(
+            r#"{{"type":"user","uuid":"00000000-0000-0000-0000-0000000000a1","parentUuid":null,"timestamp":"2026-08-21T13:29:12.117Z","isSidechain":false,"message":{{"role":"user","content":{}}}}}"#,
+            serde_json::to_string(text).unwrap()
+        )
+    }
+
+    /// Both predicates must agree — search asks the raw-line one, the renderer
+    /// the typed one, and a disagreement is a result that opens nothing.
+    fn both_say_hidden(text: &str) -> (bool, bool) {
+        let line = user_line(text);
+        let v: serde_json::Value = serde_json::from_str(&line).unwrap();
+        let ev: Event = serde_json::from_str(&line).unwrap();
+        (raw_line_hidden_from_transcript(&v), ev.hidden_from_transcript())
+    }
+
+    #[test]
+    fn local_command_output_is_hidden_from_transcript() {
+        let (raw, typed) =
+            both_say_hidden("<local-command-stdout>Set model to Opus 5</local-command-stdout>");
+        assert!(typed, "the renderer drops it");
+        assert!(raw, "so search must not offer it");
+    }
+
+    #[test]
+    fn command_echo_without_a_name_is_hidden_from_transcript() {
+        let (raw, typed) = both_say_hidden("<command-message>reading</command-message>");
+        assert!(typed, "no <command-name>, so no Command turn is rendered");
+        assert!(raw);
+    }
+
+    #[test]
+    fn a_named_command_invocation_is_shown() {
+        let (raw, typed) = both_say_hidden(
+            "<command-name>/deploy</command-name><command-args>gateway</command-args>",
+        );
+        assert!(!typed, "renders as a Command turn, which carries a uuid");
+        assert!(!raw, "so it is a legitimate result");
+    }
+
+    #[test]
+    fn a_plain_prompt_is_shown() {
+        let (raw, typed) = both_say_hidden("can you fix the scroll bug");
+        assert!(!typed);
+        assert!(!raw);
     }
 }

@@ -108,6 +108,10 @@ pub enum RenderedTurn {
     Command {
         timestamp: Option<DateTime<Utc>>,
         command: String,
+        /// The event uuid behind it. Display-only turns still need one: search
+        /// hits point at message uuids, and the UI locates a turn by them.
+        #[serde(default)]
+        uuids: Vec<String>,
     },
     /// A `!` bash-mode block: the command the user ran and, when the next
     /// message carried it, its output. Display-only, like `Command`.
@@ -117,6 +121,10 @@ pub enum RenderedTurn {
         command: Option<String>,
         stdout: String,
         stderr: String,
+        /// Both event uuids when the output was merged in, so a hit on either
+        /// half finds this block.
+        #[serde(default)]
+        uuids: Vec<String>,
     },
     #[serde(rename = "summary")]
     Summary {
@@ -298,21 +306,11 @@ fn render_path_turns(path: &[&Event], editable: bool) -> Vec<RenderedTurn> {
         }
         match ev {
             Event::User(u) => {
-                if u.is_meta.unwrap_or(false) {
+                if ev.hidden_from_transcript() {
                     i += 1;
                     continue;
                 }
-                let text = match &u.message.content {
-                    MessageContent::Text(t) => t.clone(),
-                    MessageContent::Blocks(blocks) => blocks
-                        .iter()
-                        .filter_map(|b| match b {
-                            UserBlock::Text { text } => Some(text.as_str()),
-                            _ => None,
-                        })
-                        .collect::<Vec<_>>()
-                        .join("\n"),
-                };
+                let text = u.message.content.text();
                 let images: Vec<RenderedImage> = match &u.message.content {
                     MessageContent::Blocks(blocks) => blocks
                         .iter()
@@ -323,17 +321,17 @@ fn render_path_turns(path: &[&Event], editable: bool) -> Vec<RenderedTurn> {
                         .collect(),
                     _ => Vec::new(),
                 };
-                if text.starts_with("<command-") || text.starts_with("<local-command-") {
-                    // Slash-command machinery. Surface a real command invocation as
-                    // a compact turn (matching the terminal); drop the rest —
-                    // `<local-command-…>` caveat/stdout, or a nameless echo.
-                    if !text.starts_with("<local-command-") {
-                        if let Some(command) = crate::session::display::command_label(&text) {
-                            turns.push(RenderedTurn::Command {
-                                timestamp: ev.timestamp(),
-                                command,
-                            });
-                        }
+                if text.starts_with("<command-") {
+                    // A real slash-command invocation, shown as the compact turn
+                    // the terminal shows. The machinery around it — the injected
+                    // body, `<local-command-…>` stdout, a nameless echo — is
+                    // already gone via `hidden_from_transcript`.
+                    if let Some(command) = crate::session::display::command_label(&text) {
+                        turns.push(RenderedTurn::Command {
+                            timestamp: ev.timestamp(),
+                            command,
+                            uuids: ev.uuid().map(|u| u.to_string()).into_iter().collect(),
+                        });
                     }
                     i += 1;
                     continue;
@@ -352,25 +350,18 @@ fn render_path_turns(path: &[&Event], editable: bool) -> Vec<RenderedTurn> {
                         }
                     };
                     let mut consumed = 1;
+                    let mut uuids: Vec<String> =
+                        ev.uuid().map(|u| u.to_string()).into_iter().collect();
                     if command.is_some() {
                         if let Some(Event::User(next)) = path.get(i + 1).copied() {
-                            let next_text = match &next.message.content {
-                                MessageContent::Text(t) => t.clone(),
-                                MessageContent::Blocks(blocks) => blocks
-                                    .iter()
-                                    .filter_map(|b| match b {
-                                        UserBlock::Text { text } => Some(text.as_str()),
-                                        _ => None,
-                                    })
-                                    .collect::<Vec<_>>()
-                                    .join("\n"),
-                            };
+                            let next_text = next.message.content.text();
                             if let Some(crate::session::display::BashBlock::Output { stdout: o, stderr: e }) =
                                 crate::session::display::bash_block(&next_text)
                             {
                                 stdout = o;
                                 stderr = e;
                                 consumed = 2;
+                                uuids.extend(next.uuid.map(|u| u.to_string()));
                             }
                         }
                     }
@@ -379,6 +370,7 @@ fn render_path_turns(path: &[&Event], editable: bool) -> Vec<RenderedTurn> {
                         command,
                         stdout,
                         stderr,
+                        uuids,
                     });
                     i += consumed;
                     continue;
@@ -586,8 +578,15 @@ fn render_path_turns(path: &[&Event], editable: bool) -> Vec<RenderedTurn> {
 /// Renders every conversation tree in the file (one extra per auto-compaction),
 /// oldest first, with a `Compaction` divider between trees. Only the active
 /// (last) segment is editable; stats/title/indices come from the active path.
+/// `session.leaf` selects which branch of its tree renders — the file's own tip
+/// unless a caller asked for a rewound one.
 pub fn render_session(session: &Session) -> RenderedSession {
-    let segs = super::tree::segments(&session.events);
+    // A leaf other than the file's own tip means the caller asked to see a
+    // branch this session rewound away. That path renders read-only: an edit
+    // resolves by uuid and would rewrite history the session already left.
+    let viewing_branch =
+        session.leaf.is_some() && session.leaf != super::tree::resolve_leaf(&session.events);
+    let segs = super::tree::segments_with_leaf(&session.events, session.leaf);
     let active_idx = segs.len().saturating_sub(1);
 
     let mut turns: Vec<RenderedTurn> = Vec::new();
@@ -596,7 +595,7 @@ pub fn render_session(session: &Session) -> RenderedSession {
         if s > 0 {
             turns.push(RenderedTurn::Compaction { messages_before: prev_seg_msgs });
         }
-        let seg_turns = render_path_turns(seg, s == active_idx);
+        let seg_turns = render_path_turns(seg, s == active_idx && !viewing_branch);
         prev_seg_msgs = seg_turns
             .iter()
             .filter(|t| matches!(t, RenderedTurn::User { .. } | RenderedTurn::Assistant { .. }))
@@ -975,10 +974,12 @@ mod render_tests {
         let turns = render_path_turns(&path, true);
         assert_eq!(turns.len(), 1, "the two messages render as one block");
         match &turns[0] {
-            RenderedTurn::Bash { command, stdout, stderr, .. } => {
+            RenderedTurn::Bash { command, stdout, stderr, uuids, .. } => {
                 assert_eq!(command.as_deref(), Some("ls -la"));
                 assert_eq!(stdout, "total 8\nfile");
                 assert!(stderr.is_empty());
+                // A find hit on either half has to resolve to this one block.
+                assert_eq!(uuids, &vec![a.to_string(), b.to_string()]);
             }
             other => panic!("expected a bash turn, got {other:?}"),
         }
@@ -1256,11 +1257,70 @@ mod render_tests {
             })
             .collect();
         assert_eq!(cmds, vec![&"/deploy-gateway dev".to_string()]);
+        // It is display-only, but a global-find hit still points at the echo's
+        // uuid — without one, clicking that result scrolled nowhere.
+        match r.turns.iter().find(|t| matches!(t, RenderedTurn::Command { .. })).unwrap() {
+            RenderedTurn::Command { uuids, .. } => assert_eq!(uuids, &vec![cmd.to_string()]),
+            _ => unreachable!(),
+        }
         // The skill-injection (meta) and <local-command-…> turns are not rendered.
         let users = r.turns.iter().filter(|t| matches!(t, RenderedTurn::User { .. })).count();
         assert_eq!(users, 0, "no raw user/meta/machinery turns");
         let assts = r.turns.iter().filter(|t| matches!(t, RenderedTurn::Assistant { .. })).count();
         assert_eq!(assts, 1, "assistant reply still renders");
+    }
+
+    #[test]
+    fn rendering_at_a_branch_leaf_shows_the_rewound_prompt() {
+        //   a ─┬─ b   the question you rewound past
+        //      └─ c   what you asked instead
+        let a = "00000000-0000-0000-0000-0000000000a1";
+        let b = "00000000-0000-0000-0000-0000000000b2";
+        let c = "00000000-0000-0000-0000-0000000000c3";
+        let events = || {
+            vec![
+                uev(a, None, "one"),
+                uev(b, Some(a), "rewound question"),
+                uev(c, Some(a), "asked again"),
+            ]
+        };
+        let texts = |r: &RenderedSession| -> Vec<String> {
+            r.turns
+                .iter()
+                .filter_map(|t| match t {
+                    RenderedTurn::User { text, .. } => Some(text.clone()),
+                    _ => None,
+                })
+                .collect()
+        };
+
+        let live = render_session(&sess(events()));
+        assert_eq!(texts(&live), vec!["one", "asked again"], "the live branch");
+
+        let mut s = sess(events());
+        s.leaf = crate::session::tree::branch_leaf(&s.events, b.parse().unwrap());
+        let shown = render_session(&s);
+        assert_eq!(texts(&shown), vec!["one", "rewound question"], "its own branch");
+    }
+
+    #[test]
+    fn a_rewound_branch_is_marked_not_editable() {
+        // Marked the way pre-compaction segments are: an edit resolves by uuid
+        // and would rewrite history the session already left behind.
+        let a = "00000000-0000-0000-0000-0000000000a1";
+        let b = "00000000-0000-0000-0000-0000000000b2";
+        let c = "00000000-0000-0000-0000-0000000000c3";
+        let mut s = sess(vec![
+            uev(a, None, "one"),
+            uev(b, Some(a), "rewound question"),
+            uev(c, Some(a), "asked again"),
+        ]);
+        s.leaf = crate::session::tree::branch_leaf(&s.events, b.parse().unwrap());
+        let r = render_session(&s);
+        assert!(
+            r.turns.iter().all(|t| !matches!(t, RenderedTurn::User { editable: true, .. })),
+            "no turn on a rewound branch is editable"
+        );
     }
 
     fn sess(events: Vec<Event>) -> Session {

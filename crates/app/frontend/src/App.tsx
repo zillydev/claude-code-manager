@@ -80,6 +80,9 @@ export default function App() {
     /** Scroll request as an EVENT: `n` bumps on every jump, so clicking the
      *  same bookmark/result again re-scrolls even though the uuid is equal. */
     scrollToMessage?: { uuid: string; n: number };
+    /** Show the branch this message is on instead of the one the file ends
+     *  with. Set only by "Show this branch"; opening any session clears it. */
+    branchUuid?: string;
   } | null>(null);
 
   // Live per-session activity (epoch s of last real turn) for the sidebar
@@ -187,7 +190,7 @@ export default function App() {
       const exists = await invoke<boolean>("path_exists", { path: target.filePath });
       if (cancelled) return;
       if (exists) {
-        open(target.filePath, target.projectLabel);
+        open(target.filePath, target.projectLabel, target.branchUuid);
         const nowSecs = Math.floor(Date.now() / 1000);
         setLastViewed((m) => ({ ...m, [target.sessionId]: nowSecs }));
         if (polled) refresh(); // new session just appeared in its project dir
@@ -202,7 +205,29 @@ export default function App() {
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- see comment above
-  }, [target?.sessionId, target?.filePath, target?.projectLabel, open, close, refresh, setLastViewed]);
+  }, [
+    target?.sessionId,
+    target?.filePath,
+    target?.projectLabel,
+    target?.branchUuid,
+    open,
+    close,
+    refresh,
+    setLastViewed,
+  ]);
+
+  // Re-render the open session along the branch `uuid` sits on. Used when a
+  // find result points at a prompt the session rewound past: it is in the file,
+  // but the transcript draws one path per tree and that path isn't it.
+  const showBranch = useCallback((uuid: string) => {
+    setTarget((prev) => (prev ? { ...prev, branchUuid: uuid } : prev));
+  }, []);
+
+  // Back to the branch the file ends with — and to live tail, which a branch
+  // view deliberately has none of.
+  const exitBranch = useCallback(() => {
+    setTarget((prev) => (prev ? { ...prev, branchUuid: undefined } : prev));
+  }, []);
 
   // While a session is open IN A FOCUSED WINDOW, keep its last-viewed time
   // current, so live-tailed content you are actually watching isn't flagged
@@ -467,6 +492,9 @@ export default function App() {
                     onOpenSession={(s) => openSession(s)}
                     onViewTree={hasLineage ? () => setLineageFor(transcript.id) : null}
                     scrollToMessage={target?.scrollToMessage ?? null}
+                    viewingBranch={!!target?.branchUuid}
+                    onShowBranch={showBranch}
+                    onExitBranch={exitBranch}
                     visible={activeTab === "manager"}
                     onOpenFind={(id, q) => openFindTab(q ? `session:${id} ${q}` : `session:${id} `)}
                     tabs={
