@@ -23,6 +23,7 @@ What changed in each release, written for people using the app. Build-time detai
 
 **Changed**
 
+- **Tool results show what the call did.** A search like `tool:Bash` or `tool:AskUserQuestion` returned a wall of identical "(tool: Bash)" cards. Each card now shows the call itself: the command it ran, the question it asked, the file it edited, the pattern it searched for. Bookmarked tool calls read the same way, and a collapsed tool call in the transcript names what it did instead of showing raw JSON. Long file paths keep their file name.
 - **The find match you're on stands out.** It was the same amber as every other match, just darker, so it was hard to pick out; it is now a solid orange with its own text colour, and its mark in the scrollbar is orange too.
 - **A global-find result shows you the text you searched for.** Opening a result used to land on the right message but leave you to find the words in it yourself — hard in a long reply. It now opens the find bar with your search, starting on the match inside that message, so the text is highlighted, scrolled into view, and every other match in the session is a ⌘G away. Your find-bar toggles are left as you set them.
 - **`!` shell commands render as a terminal block.** Running `!cmd` in Claude Code wrote two messages showing raw `<bash-input>` / `<bash-stdout>` tags with HTML-escaped text (`&amp;` everywhere). They now merge into one block: the command on a `$` line with its output beneath, unescaped, stderr in red.

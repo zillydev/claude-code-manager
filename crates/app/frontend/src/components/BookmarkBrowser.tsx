@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import type { SessionSummary } from "../types";
+import type { SessionSummary, ToolPreview } from "../types";
+import ToolPreviewLine from "./ToolPreviewLine";
 import { useSessionMeta } from "../hooks/useSessionMeta";
 import { sessionTitle } from "../lib/sessionMeta";
 
@@ -8,6 +9,7 @@ interface Preview {
   uuid: string;
   snippet: string;
   timestamp: number | null;
+  tool: ToolPreview | null;
 }
 
 /** All bookmarks across every discovered session, grouped by session, newest
@@ -90,7 +92,7 @@ export default function BookmarkBrowser({
                 >
                   <span className="text-[var(--color-accent)] shrink-0">⚑</span>
                   <span className="truncate text-[var(--color-text)]">
-                    {p[u]?.snippet ?? "(message not found)"}
+                    {p[u]?.tool ? <ToolPreviewLine tool={p[u].tool} /> : (p[u]?.snippet ?? "(message not found)")}
                   </span>
                   <span className="ml-auto shrink-0 text-[var(--color-text-dim)]">
                     {fmtTime(p[u]?.timestamp ?? null)}

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import type { SessionSummary } from "../types";
+import type { SessionSummary, ToolPreview } from "../types";
+import ToolPreviewLine from "./ToolPreviewLine";
 import Spinner from "./Spinner";
 import MiniCalendar from "./MiniCalendar";
 import TagChip from "./TagChip";
@@ -16,6 +17,7 @@ interface Hit {
   ts: number | null;
   snippet: string;
   match_count: number;
+  tool: ToolPreview | null;
 }
 
 /** Discord-style global find: operators + free text, Enter to run.
@@ -415,7 +417,9 @@ export default function GlobalFind({
                     {/* Same type + rhythm as transcript message bodies (px-3/py-2 card,
                         text-sm) so results read like the conversation, not like chrome. */}
                     <div className="mt-1 text-sm text-[var(--color-text)] whitespace-normal wrap-anywhere">
-                      {splitHighlight(h.snippet, result.term).map((seg, j) =>
+                      {h.tool ? (
+                        <ToolPreviewLine tool={h.tool} />
+                      ) : splitHighlight(h.snippet, result.term).map((seg, j) =>
                         seg.hit ? (
                           <mark
                             key={j}

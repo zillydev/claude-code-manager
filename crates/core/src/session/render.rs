@@ -286,7 +286,7 @@ fn render_path_turns(path: &[&Event], editable: bool) -> Vec<RenderedTurn> {
                     blocks.push(RenderedBlock::ToolCall {
                         id: id.clone(),
                         name: name.clone(),
-                        input_summary: summarize_tool_input(name, input),
+                        input_summary: crate::session::display::tool_input_summary(name, input),
                         input_full: input.clone(),
                         result,
                     });
@@ -830,34 +830,6 @@ fn assistant_text(a: &super::event::AssistantEvent) -> String {
         })
         .collect::<Vec<_>>()
         .join("\n")
-}
-
-fn summarize_tool_input(name: &str, input: &serde_json::Value) -> String {
-    let keys: &[&str] = match name {
-        "Bash" => &["command", "description"],
-        "Read" => &["file_path"],
-        "Write" => &["file_path"],
-        "Edit" => &["file_path"],
-        _ => &["query", "file_path", "path", "command", "description", "prompt"],
-    };
-    for k in keys {
-        if let Some(v) = input.get(*k) {
-            if let Some(s) = v.as_str() {
-                return truncate(s, 120);
-            }
-        }
-    }
-    truncate(&input.to_string(), 120)
-}
-
-fn truncate(s: &str, max: usize) -> String {
-    let one_line: String = s.chars().map(|c| if c == '\n' || c == '\r' { ' ' } else { c }).collect();
-    if one_line.chars().count() <= max {
-        one_line
-    } else {
-        let head: String = one_line.chars().take(max - 1).collect();
-        format!("{}…", head)
-    }
 }
 
 #[cfg(test)]

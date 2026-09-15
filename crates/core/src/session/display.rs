@@ -101,6 +101,63 @@ pub fn one_line(text: &str) -> Option<String> {
     parse_task_notification(text).map(|tn| format!("task · {} · {}", tn.status, tn.summary))
 }
 
+/// One line naming what a tool call did, for collapsed tool headers and search previews.
+pub fn tool_input_summary(name: &str, input: &serde_json::Value) -> String {
+    // The first entry of a list-shaped input is what a reader would recognise the call by.
+    let first_of = |list: &str, field: &str| {
+        input.get(list)?.as_array()?.first()?.get(field)?.as_str().map(str::to_string)
+    };
+    let listed = match name {
+        "AskUserQuestion" => first_of("questions", "question"),
+        "TodoWrite" => first_of("todos", "content"),
+        _ => None,
+    };
+    if let Some(s) = listed {
+        return truncate(&s, 120);
+    }
+    let keys: &[&str] = match name {
+        "Bash" => &["command", "description"],
+        "Read" | "Write" | "Edit" | "MultiEdit" => &["file_path"],
+        "NotebookEdit" => &["notebook_path"],
+        "Grep" | "Glob" => &["pattern"],
+        "WebFetch" => &["url"],
+        "WebSearch" => &["query"],
+        "Agent" | "Task" => &["description", "prompt"],
+        _ => &["query", "file_path", "path", "command", "description", "prompt"],
+    };
+    for k in keys {
+        if let Some(v) = input.get(*k) {
+            if let Some(s) = v.as_str() {
+                // A path's end names the file; its start is the part a reader can spare.
+                let is_path = matches!(*k, "file_path" | "notebook_path" | "path");
+                return if is_path { truncate_front(s, 120) } else { truncate(s, 120) };
+            }
+        }
+    }
+    truncate(&input.to_string(), 120)
+}
+
+fn truncate_front(s: &str, max: usize) -> String {
+    let one_line: String = s.chars().map(|c| if c == '\n' || c == '\r' { ' ' } else { c }).collect();
+    let n = one_line.chars().count();
+    if n <= max {
+        one_line
+    } else {
+        let tail: String = one_line.chars().skip(n - (max - 1)).collect();
+        format!("…{tail}")
+    }
+}
+
+fn truncate(s: &str, max: usize) -> String {
+    let one_line: String = s.chars().map(|c| if c == '\n' || c == '\r' { ' ' } else { c }).collect();
+    if one_line.chars().count() <= max {
+        one_line
+    } else {
+        let head: String = one_line.chars().take(max - 1).collect();
+        format!("{}…", head)
+    }
+}
+
 #[cfg(test)]
 mod tests {
 
@@ -174,5 +231,48 @@ mod tests {
         let tn = "<task-notification>\n<status>completed</status>\n<summary>did X</summary>\n<result>r</result>\n</task-notification>";
         assert_eq!(one_line(tn).as_deref(), Some("task · completed · did X"));
         assert_eq!(one_line("a normal message"), None);
+    }
+
+    #[test]
+    fn tool_input_summary_names_what_the_call_did() {
+        use serde_json::json;
+        assert_eq!(tool_input_summary("Bash", &json!({"command": "git status", "description": "Show status"})), "git status");
+        assert_eq!(tool_input_summary("Edit", &json!({"file_path": "src/a.ts", "old_string": "x"})), "src/a.ts");
+        assert_eq!(tool_input_summary("Grep", &json!({"pattern": "TODO", "path": "src"})), "TODO");
+        assert_eq!(tool_input_summary("Glob", &json!({"pattern": "**/*.rs"})), "**/*.rs");
+        assert_eq!(tool_input_summary("WebFetch", &json!({"url": "https://x.dev", "prompt": "p"})), "https://x.dev");
+        assert_eq!(tool_input_summary("Agent", &json!({"description": "Find callers", "prompt": "long"})), "Find callers");
+        assert_eq!(
+            tool_input_summary("TodoWrite", &json!({"todos": [{"content": "Write tests", "status": "pending"}]})),
+            "Write tests"
+        );
+    }
+
+    #[test]
+    fn tool_input_summary_shows_an_askuserquestion_question_not_its_json() {
+        let input = serde_json::json!({"questions": [
+            {"question": "Which plan should new orgs start on?", "header": "Plan", "options": []},
+            {"question": "Second?", "header": "B", "options": []}
+        ]});
+        assert_eq!(tool_input_summary("AskUserQuestion", &input), "Which plan should new orgs start on?");
+    }
+
+    #[test]
+    fn a_long_path_keeps_its_file_name() {
+        let deep = format!("/Users/me/{}/deploy-panel-v2/components/OfferCard.tsx", "nested/".repeat(20));
+        let s = tool_input_summary("Edit", &serde_json::json!({ "file_path": deep }));
+        assert_eq!(s.chars().count(), 120, "capped");
+        assert!(s.starts_with('…'), "cut from the front, where the least telling part is");
+        assert!(s.ends_with("/components/OfferCard.tsx"), "the file name survives: {s}");
+    }
+
+    #[test]
+    fn tool_input_summary_falls_back_to_common_keys_then_json_on_one_capped_line() {
+        use serde_json::json;
+        assert_eq!(tool_input_summary("mcp__srv__search", &json!({"query": "needle"})), "needle");
+        assert_eq!(tool_input_summary("Mystery", &json!({"n": 1})), r#"{"n":1}"#);
+        let long = tool_input_summary("Bash", &json!({"command": format!("echo {}\nnext", "a".repeat(200))}));
+        assert_eq!(long.chars().count(), 120, "capped");
+        assert!(long.ends_with('…') && !long.contains('\n'), "one line, marked as cut");
     }
 }

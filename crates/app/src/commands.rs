@@ -340,6 +340,8 @@ pub struct MessagePreview {
     pub snippet: String,
     /// Epoch seconds of the message, when known.
     pub timestamp: Option<i64>,
+    /// Set when the message is previewed by a tool call rather than text.
+    pub tool: Option<store::ToolPreview>,
 }
 
 /// One-line previews (+ time) for specific message uuids in one session file —
@@ -357,10 +359,11 @@ pub async fn message_previews(
         let found = store::message_previews(std::path::Path::new(&file_path), &wanted);
         Ok(found
             .into_iter()
-            .map(|(u, (snippet, ts))| MessagePreview {
+            .map(|(u, p)| MessagePreview {
                 uuid: u.to_string(),
-                snippet,
-                timestamp: ts.map(|t| t.timestamp()),
+                snippet: p.snippet,
+                timestamp: p.ts.map(|t| t.timestamp()),
+                tool: p.tool,
             })
             .collect())
     })

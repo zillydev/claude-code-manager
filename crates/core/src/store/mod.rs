@@ -297,12 +297,17 @@ pub fn message_snippets(path: &Path, wanted: &HashSet<Uuid>) -> HashMap<Uuid, St
     out
 }
 
+/// One message's preview for views that show it without opening the session.
+#[derive(Debug, Clone)]
+pub struct MessagePreview {
+    pub snippet: String,
+    pub ts: Option<chrono::DateTime<chrono::Utc>>,
+    pub tool: Option<ToolPreview>,
+}
+
 /// [`message_snippets`] plus each message's timestamp — for views that show a
 /// preview with its time without opening the session (the bookmark browser).
-pub fn message_previews(
-    path: &Path,
-    wanted: &HashSet<Uuid>,
-) -> HashMap<Uuid, (String, Option<chrono::DateTime<chrono::Utc>>)> {
+pub fn message_previews(path: &Path, wanted: &HashSet<Uuid>) -> HashMap<Uuid, MessagePreview> {
     let mut out = HashMap::new();
     if wanted.is_empty() {
         return out;
@@ -316,10 +321,10 @@ pub fn message_previews(
         if !wanted.contains(&id) || out.contains_key(&id) {
             continue;
         }
-        if let Some(text) = preview_for_turn(&outcome.events, i) {
+        if let Some((text, tool)) = preview_for_turn(&outcome.events, i) {
             let line = one_line_truncated(&text, 60);
             if !line.is_empty() {
-                out.insert(id, (line, ev.timestamp()));
+                out.insert(id, MessagePreview { snippet: line, ts: ev.timestamp(), tool });
             }
         }
     }
@@ -332,7 +337,7 @@ pub fn message_previews(
 /// user prompt (the shape real files actually have).
 struct TurnScan {
     texts: Vec<String>,
-    tools: Vec<String>,
+    tools: Vec<ToolPreview>,
     thinking: Option<String>,
 }
 
@@ -356,7 +361,10 @@ fn turn_scan(events: &[Event], i: usize) -> TurnScan {
                         Block::Text { text } if !text.trim().is_empty() => {
                             scan.texts.push(text.clone());
                         }
-                        Block::ToolUse { name, .. } => scan.tools.push(name.clone()),
+                        Block::ToolUse { name, input, .. } => scan.tools.push(ToolPreview {
+                            name: name.clone(),
+                            summary: crate::session::display::tool_input_summary(name, input),
+                        }),
                         Block::Thinking { thinking: th, .. }
                             if scan.thinking.is_none() && !th.trim().is_empty() =>
                         {
@@ -383,22 +391,33 @@ fn turn_scan(events: &[Event], i: usize) -> TurnScan {
     scan
 }
 
-/// Label for a turn with no matched text: first text, else thinking, else a
-/// "(tool: X)" tag.
-fn preview_from_scan(scan: &TurnScan) -> Option<String> {
-    scan.texts
-        .first()
-        .cloned()
-        .or_else(|| scan.thinking.clone())
-        .or_else(|| scan.tools.first().map(|n| format!("(tool: {n})")))
+/// Label for a turn with no matched text: first text, else thinking, else a tool call —
+/// the one named by `prefer` (a `tool:` filter) when present, else the first.
+fn preview_from_scan(scan: &TurnScan, prefer: Option<&str>) -> Option<(String, Option<ToolPreview>)> {
+    if let Some(t) = scan.texts.first().or(scan.thinking.as_ref()) {
+        return Some((t.clone(), None));
+    }
+    let call = pick_tool(&scan.tools, prefer)?;
+    Some((tool_line(call), Some(call.clone())))
+}
+
+fn pick_tool<'a>(calls: &'a [ToolPreview], prefer: Option<&str>) -> Option<&'a ToolPreview> {
+    prefer
+        .and_then(|want| calls.iter().find(|c| c.name.eq_ignore_ascii_case(want)))
+        .or_else(|| calls.first())
+}
+
+/// Plain-text form of a tool preview, for consumers that only read `snippet`.
+fn tool_line(t: &ToolPreview) -> String {
+    format!("{}: {}", t.name, t.summary)
 }
 
 /// Preview for the REPLY anchored at `events[i]` — see [`turn_scan`].
-fn preview_for_turn(events: &[Event], i: usize) -> Option<String> {
+fn preview_for_turn(events: &[Event], i: usize) -> Option<(String, Option<ToolPreview>)> {
     if let Some(t) = preview_text(&events[i]) {
-        return Some(t);
+        return Some((t, None));
     }
-    preview_from_scan(&turn_scan(events, i))
+    preview_from_scan(&turn_scan(events, i), None)
 }
 
 fn preview_text(ev: &Event) -> Option<String> {
@@ -545,6 +564,14 @@ pub fn search_sessions(root: &Path, query: &str) -> Result<Vec<Uuid>> {
     Ok(matches)
 }
 
+/// A tool call as a result card shows it when there is no text to excerpt. The name
+/// stays raw; the UI owns how tool names display.
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+pub struct ToolPreview {
+    pub name: String,
+    pub summary: String,
+}
+
 /// A single matching message from a cross-session search.
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct MessageHit {
@@ -557,6 +584,8 @@ pub struct MessageHit {
     /// Occurrences of the query across the message's conversation text
     /// (0 when the hit satisfied a query-less filter).
     pub match_count: usize,
+    /// Set when the message has no text to excerpt and is previewed by a tool call instead.
+    pub tool: Option<ToolPreview>,
 }
 
 /// One candidate file for [`search_messages`], with an optional uuid restriction
@@ -637,7 +666,7 @@ pub fn search_messages(files: &[SearchFile], f: &MessageFilters) -> (Vec<Message
                 }
                 let scan = turn_scan(&outcome.events, i);
                 if let Some(tool) = &f.tool {
-                    if !scan.tools.iter().any(|n| n.eq_ignore_ascii_case(tool)) {
+                    if !scan.tools.iter().any(|t| t.name.eq_ignore_ascii_case(tool)) {
                         continue;
                     }
                 }
@@ -655,12 +684,13 @@ pub fn search_messages(files: &[SearchFile], f: &MessageFilters) -> (Vec<Message
                 } else {
                     continue; // text query unsatisfied in this turn
                 };
-                let (snippet, match_count) = match matched {
-                    Some(t) => snippet_excerpts(&t, &query_lower),
-                    None => (
-                        preview_from_scan(&scan).unwrap_or_else(|| "(no text)".to_string()),
-                        0,
-                    ),
+                let ((snippet, match_count), tool) = match matched {
+                    Some(t) => (snippet_excerpts(&t, &query_lower), None),
+                    None => {
+                        let (s, tool) = preview_from_scan(&scan, f.tool.as_deref())
+                            .unwrap_or_else(|| ("(no text)".to_string(), None));
+                        ((s, 0), tool)
+                    }
                 };
                 if skipped < f.skip {
                     skipped += 1;
@@ -673,6 +703,7 @@ pub fn search_messages(files: &[SearchFile], f: &MessageFilters) -> (Vec<Message
                     ts,
                     snippet,
                     match_count,
+                    tool,
                 });
                 if out.len() >= f.limit {
                     break 'files;
@@ -740,7 +771,7 @@ fn message_hit(
     }
     let content = v.pointer("/message/content")?;
     let mut texts: Vec<&str> = Vec::new();
-    let mut tool_names: Vec<&str> = Vec::new();
+    let mut calls: Vec<ToolPreview> = Vec::new();
     match content {
         serde_json::Value::String(s) => texts.push(s),
         serde_json::Value::Array(blocks) => {
@@ -753,7 +784,11 @@ fn message_hit(
                     }
                     Some("tool_use") => {
                         if let Some(n) = b.get("name").and_then(|x| x.as_str()) {
-                            tool_names.push(n);
+                            let input = b.get("input").cloned().unwrap_or_default();
+                            calls.push(ToolPreview {
+                                name: n.to_string(),
+                                summary: crate::session::display::tool_input_summary(n, &input),
+                            });
                         }
                     }
                     _ => {}
@@ -763,7 +798,7 @@ fn message_hit(
         _ => return None,
     }
     if let Some(tool) = &f.tool {
-        if !tool_names.iter().any(|n| n.eq_ignore_ascii_case(tool)) {
+        if !calls.iter().any(|c| c.name.eq_ignore_ascii_case(tool)) {
             return None;
         }
     }
@@ -779,17 +814,17 @@ fn message_hit(
     } else {
         None
     };
-    let (snippet, match_count) = match matched {
-        Some(tx) => snippet_excerpts(&tx, query_lower),
+    let ((snippet, match_count), tool) = match matched {
+        Some(tx) => (snippet_excerpts(&tx, query_lower), None),
         None if query_lower.is_empty() => {
             // `?`: nothing displayable and nothing required it.
-            let n = tool_names.first()?;
-            (format!("(tool: {n})"), 0)
+            let call = pick_tool(&calls, f.tool.as_deref())?.clone();
+            ((tool_line(&call), 0), Some(call))
         }
         None => return None, // text query not satisfied in conversation text
     };
     let uuid = v.get("uuid").and_then(|u| u.as_str()).and_then(|s| Uuid::parse_str(s).ok());
-    Some(MessageHit { session_id, uuid, role: t.to_string(), ts, snippet, match_count })
+    Some(MessageHit { session_id, uuid, role: t.to_string(), ts, snippet, match_count, tool })
 }
 
 /// Discord-style multi-excerpt snippet: a window (~40 chars before / ~70
@@ -1127,9 +1162,73 @@ mod tests {
         let wanted: std::collections::HashSet<Uuid> =
             [Uuid::parse_str(head).unwrap()].into_iter().collect();
         let got = message_previews(&path, &wanted);
-        let (snippet, _) = got.get(&Uuid::parse_str(head).unwrap()).expect("resolves");
-        assert_eq!(snippet, "the actual reply text");
+        let p = got.get(&Uuid::parse_str(head).unwrap()).expect("resolves");
+        assert_eq!(p.snippet, "the actual reply text");
         std::fs::remove_dir_all(&root).ok();
+    }
+
+    /// A session whose only assistant line is two tool calls and no text.
+    fn tool_only_session(tag: &str) -> (std::path::PathBuf, std::path::PathBuf, Uuid, Uuid) {
+        let root = std::env::temp_dir().join(format!("cm-tool-{tag}-{}", std::process::id()));
+        let proj = root.join("projects").join("-tmp-proj");
+        fs::create_dir_all(&proj).unwrap();
+        let sid = Uuid::parse_str("00000000-0000-0000-0000-00000000eeee").unwrap();
+        let call = "00000000-0000-0000-0000-0000000000c1";
+        let path = proj.join(format!("{sid}.jsonl"));
+        let body = [
+            r#"{"type":"user","uuid":"00000000-0000-0000-0000-0000000000c0","timestamp":"2026-09-10T05:16:00Z","message":{"role":"user","content":"check the repo"}}"#,
+            r#"{"type":"assistant","uuid":"00000000-0000-0000-0000-0000000000c1","timestamp":"2026-09-10T05:18:00Z","message":{"role":"assistant","content":[{"type":"tool_use","id":"t1","name":"Read","input":{"file_path":"src/a.ts"}},{"type":"tool_use","id":"t2","name":"Bash","input":{"command":"git status","description":"Show status"}}]}}"#,
+        ]
+        .join("\n");
+        fs::write(&path, body + "\n").unwrap();
+        (root, path, sid, Uuid::parse_str(call).unwrap())
+    }
+
+    #[test]
+    fn a_tool_filtered_hit_previews_the_call_it_matched() {
+        let (root, path, sid, _) = tool_only_session("filter");
+        let files = [SearchFile { path, session_id: sid, only_uuids: None }];
+        let (hits, _) = search_messages(
+            &files,
+            &MessageFilters { tool: Some("bash".into()), limit: 10, ..Default::default() },
+        );
+        assert_eq!(hits.len(), 1);
+        assert_eq!(
+            hits[0].tool,
+            Some(ToolPreview { name: "Bash".into(), summary: "git status".into() }),
+            "the Bash call the filter asked for, not the Read before it"
+        );
+        assert_eq!(hits[0].snippet, "Bash: git status");
+        fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn a_bookmarked_tool_turn_previews_its_first_call() {
+        let (root, path, sid, call) = tool_only_session("bm");
+        let files = [SearchFile { path: path.clone(), session_id: sid, only_uuids: Some(vec![call]) }];
+        let (hits, _) = search_messages(&files, &MessageFilters { limit: 10, ..Default::default() });
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].tool, Some(ToolPreview { name: "Read".into(), summary: "src/a.ts".into() }));
+
+        // The bookmark browser's preview carries the same.
+        let wanted: std::collections::HashSet<Uuid> = [call].into_iter().collect();
+        let p = message_previews(&path, &wanted).remove(&call).expect("resolves");
+        assert_eq!(p.tool, Some(ToolPreview { name: "Read".into(), summary: "src/a.ts".into() }));
+        assert_eq!(p.snippet, "Read: src/a.ts");
+        fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn a_text_hit_carries_no_tool_preview() {
+        let (root, path, sid, _) = tool_only_session("text");
+        let files = [SearchFile { path, session_id: sid, only_uuids: None }];
+        let (hits, _) = search_messages(
+            &files,
+            &MessageFilters { text: "repo".into(), limit: 10, ..Default::default() },
+        );
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].tool, None);
+        fs::remove_dir_all(&root).ok();
     }
 
     #[test]
@@ -1154,9 +1253,9 @@ mod tests {
 
         let wanted: HashSet<Uuid> = [Uuid::parse_str(u1).unwrap()].into_iter().collect();
         let got = message_previews(&path, &wanted);
-        let (snippet, ts) = got.get(&Uuid::parse_str(u1).unwrap()).unwrap();
-        assert_eq!(snippet, "bookmark me");
-        assert_eq!(ts.unwrap().timestamp(), 1_785_924_000);
+        let p = got.get(&Uuid::parse_str(u1).unwrap()).unwrap();
+        assert_eq!(p.snippet, "bookmark me");
+        assert_eq!(p.ts.unwrap().timestamp(), 1_785_924_000);
         std::fs::remove_dir_all(&root).ok();
     }
 

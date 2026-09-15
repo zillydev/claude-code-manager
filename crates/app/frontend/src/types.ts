@@ -175,3 +175,9 @@ export interface CommitResult {
   new_path: string;
   repairs: Violation[];
 }
+
+/** A tool call standing in for a message that has no text to preview. `name` is raw. */
+export interface ToolPreview {
+  name: string;
+  summary: string;
+}
