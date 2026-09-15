@@ -20,7 +20,7 @@
 - [x] selecting a user message in global find doesn't scroll to the message
 - [ ] fetch latest version and show upgrade notice or button to upgrade to latest version
 - [x] the last user prompt in the sidebar and title bar becomes stale sometimes
-- [ ] confirmation dialog when closing a window with cmd+w or closing the whole app with cmd+q, if there are open sessions running
+- [x] confirmation dialog when closing a window with cmd+w or closing the whole app with cmd+q, if there are open sessions running
 - [x] a cross button in the global find search bar, similar to filter sessions search bar
 - [ ] copy link to a session, which when opened will open the app and will navigate to that session
 - [x] session id: c0d18796-0c1a-4dd7-9968-0a3db334f508 ; message id: 4c799957-1679-43c5-992c-8b0a2542091f ; the selected option is not highlighted as green

@@ -10,6 +10,10 @@ import LineageTree from "./components/LineageTree";
 import Settings from "./components/Settings";
 import Spinner from "./components/Spinner";
 import DevRebuildBanner from "./components/DevRebuildBanner";
+import ConfirmStopDialog from "./components/ConfirmStopDialog";
+import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
+import { workingSessions } from "./lib/closeGuard";
+import type { SessionSummary } from "./types";
 import { ChevronsRight } from "lucide-react";
 import { usePersistentState } from "./hooks/usePersistentState";
 import { useActivity } from "./hooks/useActivity";
@@ -88,6 +92,24 @@ export default function App() {
   // Live per-session activity (epoch s of last real turn) for the sidebar
   // running dot, and the per-session last-viewed times that drive "unread".
   const activity = useActivity();
+
+  // Closing this window (⌘W) or quitting (⌘Q) kills the terminals it hosts; the backend sends
+  // their ids and this decides — confirm at once when none is mid-turn, else ask.
+  const [stopPrompt, setStopPrompt] = useState<{ kind: "close" | "quit"; sessions: SessionSummary[] } | null>(null);
+  const closeGuardRef = useRef({ sessions, activity });
+  closeGuardRef.current = { sessions, activity };
+  useEffect(() => {
+    const win = getCurrentWebviewWindow();
+    const confirm = (kind: "close" | "quit") => invoke(kind === "close" ? "confirm_close" : "confirm_quit");
+    const handle = (kind: "close" | "quit") => (e: { payload: string[] }) => {
+      const { sessions: all, activity: act } = closeGuardRef.current;
+      const working = workingSessions(e.payload, all, act, Math.floor(Date.now() / 1000));
+      if (working.length === 0) confirm(kind);
+      else setStopPrompt({ kind, sessions: working });
+    };
+    const unlisten = [win.listen<string[]>("close-requested", handle("close")), win.listen<string[]>("quit-requested", handle("quit"))];
+    return () => unlisten.forEach((p) => p.then((f) => f()));
+  }, []);
   // "Viewed" means seen, not merely open: a session live-tailing in a window on
   // another Space isn't being read, so its turns must still count as unread.
   const windowFocused = useWindowFocused();
@@ -576,6 +598,14 @@ export default function App() {
         />
       )}
       {settingsOpen && <Settings onClose={() => setSettingsOpen(false)} />}
+      {stopPrompt && (
+        <ConfirmStopDialog
+          kind={stopPrompt.kind}
+          sessions={stopPrompt.sessions}
+          onCancel={() => setStopPrompt(null)}
+          onConfirm={() => invoke(stopPrompt.kind === "close" ? "confirm_close" : "confirm_quit")}
+        />
+      )}
       <DevRebuildBanner />
     </div>
   );

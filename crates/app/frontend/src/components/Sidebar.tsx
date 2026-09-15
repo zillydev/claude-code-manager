@@ -33,6 +33,7 @@ import {
 } from "../lib/sessionMeta";
 import { sessionUpdatedAt } from "../lib/sessions";
 import { deriveStatus, showsUnread } from "../lib/sessionStatus";
+import { statusInputs } from "../lib/closeGuard";
 import type { LiveActivity } from "../hooks/useActivity";
 
 interface Props {
@@ -448,18 +449,17 @@ export default function Sidebar({
             const entry = meta.sessions[s.id];
             const renaming = renamingId === s.id;
             const act = activity.get(s.id);
-            const liveEventAt = act?.at ?? s.last_event_at?.secs_since_epoch ?? null;
-            const awaiting = act?.awaiting ?? s.awaiting_input;
+            const inputs = statusInputs(s, act);
             // No view history (never opened) ⇒ not unread, else every session floods
             // unread on first launch. Baseline to the session's own last event so only
             // sessions you've opened (which persist a real lastViewed) can go unread.
             const status = deriveStatus(
-              liveEventAt,
-              awaiting,
-              lastViewed[s.id] ?? liveEventAt ?? 0,
+              inputs.lastEventAt,
+              inputs.awaiting,
+              lastViewed[s.id] ?? inputs.lastEventAt ?? 0,
               now,
-              act?.hosted ? { busy: act.busy, busyAt: act.busyAt, interruptAt: act.interruptAt } : null,
-              act?.hook ?? null,
+              inputs.terminal,
+              inputs.hook,
             );
             const unread = showsUnread(status, s.id === activeId, windowFocused);
             return (

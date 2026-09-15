@@ -8,6 +8,7 @@ What changed in each release, written for people using the app. Build-time detai
 
 **Added**
 
+- **A warning before closing on running work.** Closing a window or quitting with Claude still working in one of its terminals now asks first, listing those sessions; closing it would stop them mid-turn. Idle terminals close as before, since their sessions resume from where they were. (Quitting from the Dock or logging out doesn't ask.)
 - **A clear button in global find.** A ✕ in the search field clears the query and its results at once and leaves the cursor in the field, with the search options showing again.
 - **Precise status via Claude Code hooks** (opt-in, Settings → Integrations) — Claude itself now reports each session's state, so the sidebar and the published status file can say **needs you** the instant a question, permission prompt, or plan appears, and **your turn** within seconds of a reply finishing — no more waiting out the quiet-terminal hold. It installs a small relay into `~/.claude/settings.json` (your existing hooks are untouched; a one-time backup is kept, and switching off removes exactly what was added). Sessions started before toggling keep the inferred status.
 

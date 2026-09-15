@@ -1,3 +1,4 @@
+mod close_guard;
 mod commands;
 mod config;
 mod dev_reload;
@@ -33,7 +34,13 @@ fn build_menu(handle: &tauri::AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
             &PredefinedMenuItem::hide_others(handle, None)?,
             &PredefinedMenuItem::show_all(handle, None)?,
             &PredefinedMenuItem::separator(handle)?,
-            &PredefinedMenuItem::quit(handle, None)?,
+            &MenuItem::with_id(
+                handle,
+                "quit",
+                format!("Quit {}", handle.package_info().name),
+                true,
+                Some("CmdOrCtrl+Q"),
+            )?,
         ],
     )?;
 
@@ -254,11 +261,16 @@ pub fn run() {
         .on_menu_event(|app, event| {
             if event.id().as_ref() == "new_window" {
                 window::spawn_window(app);
+            } else if event.id().as_ref() == "quit" {
+                close_guard::request_quit(app);
             } else if event.id().as_ref() == dev_reload::MENU_ID {
                 dev_reload::start_rebuild(app);
             }
         })
         .on_window_event(|win, event| {
+            if let WindowEvent::CloseRequested { api, .. } = event {
+                close_guard::on_close_requested(win, api);
+            }
             // When a window is destroyed, drop its live-tail watcher (the tail
             // thread exits when the channel sender is dropped). A backstop for
             // hard closes where the frontend's stop_watching may not run.
@@ -302,6 +314,8 @@ pub fn run() {
             commands::terminal_input,
             commands::terminal_resize,
             commands::terminal_close,
+            close_guard::confirm_close,
+            close_guard::confirm_quit,
             dev_reload::dev_rebuild,
             dev_reload::dev_take_view,
             dev_reload::dev_set_view,
