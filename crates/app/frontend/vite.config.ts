@@ -16,6 +16,5 @@ export default defineConfig({
     hmr: host
       ? { protocol: "ws", host, port: port + 1 }
       : undefined,
-    watch: { ignored: ["**/crates/**"] },
   },
 });
