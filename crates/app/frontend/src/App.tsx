@@ -79,7 +79,7 @@ export default function App() {
     /** Message uuid to scroll the transcript to on open (e.g. a fork point). */
     /** Scroll request as an EVENT: `n` bumps on every jump, so clicking the
      *  same bookmark/result again re-scrolls even though the uuid is equal. */
-    scrollToMessage?: { uuid: string; n: number };
+    scrollToMessage?: { uuid: string; n: number; term?: string };
     /** Show the branch this message is on instead of the one the file ends
      *  with. Set only by "Show this branch"; opening any session clears it. */
     branchUuid?: string;
@@ -122,7 +122,7 @@ export default function App() {
   // `scrollToMessage` optionally scrolls the transcript to a specific message
   // (e.g. a fork point opened from the lineage tree).
   const openSession = useCallback(
-    (s: { id: string; file_path: string; project_label: string }, scrollToMessage?: string) => {
+    (s: { id: string; file_path: string; project_label: string }, scrollToMessage?: string, term?: string) => {
       setTarget((prev) => {
         // Opening a DIFFERENT session from the Terminal tab: land in Manager
         // unless that session already has a live terminal. Staying on Terminal
@@ -136,7 +136,7 @@ export default function App() {
           filePath: s.file_path,
           projectLabel: s.project_label,
           scrollToMessage: scrollToMessage
-            ? { uuid: scrollToMessage, n: (prev?.scrollToMessage?.n ?? 0) + 1 }
+            ? { uuid: scrollToMessage, n: (prev?.scrollToMessage?.n ?? 0) + 1, term }
             : undefined,
         };
       });
@@ -416,7 +416,7 @@ export default function App() {
               windowFocused={windowFocused}
               activity={activity}
               lastViewed={lastViewed}
-              onSelect={(s, messageUuid) => openSession(s, messageUuid)}
+              onSelect={(s, messageUuid, term) => openSession(s, messageUuid, term)}
               onCollapse={() => setConfig({ ui: { sidebarCollapsed: true } })}
               onDelete={async (s) => {
                 try {

@@ -31,7 +31,8 @@ export default function GlobalFind({
    *  replaces the input (e.g. `session:<id> `). A nonce because this pane stays
    *  mounted across tab switches — a plain initial value could never re-apply. */
   activate: { q: string | null; n: number };
-  onOpen: (s: SessionSummary, messageUuid?: string) => void;
+  /** `term` is the query's free text, for the transcript to find within the message. */
+  onOpen: (s: SessionSummary, messageUuid?: string, term?: string) => void;
 }) {
   const { meta } = useSessionMeta();
   const [input, setInput] = useState("");
@@ -384,7 +385,7 @@ export default function GlobalFind({
                 {(
                   <button
                     key={`${h.uuid ?? i}`}
-                    onClick={() => onOpen(s, h.uuid ?? undefined)}
+                    onClick={() => onOpen(s, h.uuid ?? undefined, result.term || undefined)}
                     className="w-full text-left text-xs px-3 py-2 rounded-md border border-[var(--color-border)] bg-[var(--color-bg)] hover:border-[var(--color-accent)]"
                   >
                     <div className="flex items-baseline gap-1.5">

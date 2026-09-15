@@ -32,6 +32,7 @@ import { makeSegId } from "../lib/segments";
 import { isNearBottom } from "../lib/scroll";
 import { filterCompact } from "../lib/compactView";
 import { locateJump, turnUuids, type JumpTarget } from "../lib/jumpTarget";
+import { seedQuery } from "../lib/findHandoff";
 
 interface Props {
   session: RenderedSession;
@@ -41,7 +42,7 @@ interface Props {
   onViewTree?: (() => void) | null;
   /** Scroll+flash request (uuid + a nonce that bumps per request, so the same
    *  message can be re-requested); null = jump to bottom on open. */
-  scrollToMessage?: { uuid: string; n: number } | null;
+  scrollToMessage?: { uuid: string; n: number; term?: string } | null;
   /** Whether the transcript's tab is currently showing (false when on Terminal). */
   visible?: boolean;
   /** The Manager/Terminal toggle, slotted into the header's right cluster. */
@@ -131,6 +132,9 @@ export default function Transcript({
   // In-session find (⌘F). Matches what is rendered — compact mode included.
   const find = useFind(turnsRef, visibleTurns);
   const { open: findOpen, openBar: findOpenBar, close: findClose } = find;
+  // Read at jump time; keying the jump on the toggles would re-fire it on every toggle.
+  const findOptsRef = useRef(find.opts);
+  findOptsRef.current = find.opts;
   // Right-click menu for a turn — the same actions as its ⋯ menu.
   const turnMenu = useContextMenu<RenderedTurn>();
   // Stable handlers so the memoized <Turn>s don't re-render needlessly.
@@ -247,13 +251,19 @@ export default function Transcript({
           () => el.classList.remove("ring-2", "ring-[var(--color-accent)]", "rounded"),
           1600,
         );
+        // A find result carries its search: open the bar on it, starting inside this message.
+        const { term, uuid } = scrollToMessage;
+        if (term) {
+          const turn = turnLists.current.visible.findIndex((t) => turnUuids(t).includes(uuid));
+          findOpenBar(seedQuery(term, findOptsRef.current), turn >= 0 ? turn : undefined);
+        }
       });
     });
     return () => {
       cancelAnimationFrame(raf1);
       cancelAnimationFrame(raf2);
     };
-  }, [session.id, scrollToMessage?.uuid, scrollToMessage?.n, rejump, setPinned]);
+  }, [session.id, scrollToMessage?.uuid, scrollToMessage?.n, rejump, setPinned, findOpenBar]);
 
   // A jump that landed nowhere can become possible later: showing a rewound
   // branch re-renders the session under the SAME id, so neither the request nor
@@ -497,7 +507,7 @@ export default function Transcript({
                 right: m.active ? 0 : 1,
                 width: m.active ? 9 : 6,
                 height: m.active ? 4 : 3,
-                backgroundColor: "var(--color-system)",
+                backgroundColor: m.active ? "var(--color-find-active)" : "var(--color-system)",
                 opacity: m.active ? 1 : 0.55,
               }}
             />

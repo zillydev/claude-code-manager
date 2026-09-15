@@ -44,7 +44,7 @@ interface Props {
   activity: Map<string, LiveActivity>;
   lastViewed: Record<string, number>;
   /** Open a session; with a message uuid, scrolled to + flashing that message. */
-  onSelect: (s: SessionSummary, messageUuid?: string) => void;
+  onSelect: (s: SessionSummary, messageUuid?: string, term?: string) => void;
   onCollapse: () => void;
   onDelete: (s: SessionSummary) => void | Promise<void>;
   /** Creates the session and resolves with its new id (so we can tag it). */
@@ -818,7 +818,7 @@ export default function Sidebar({
         <GlobalFind
           sessions={sessions}
           activate={findActivate}
-          onOpen={(s, uuid) => onSelect(s, uuid)}
+          onOpen={(s, uuid, term) => onSelect(s, uuid, term)}
         />
       </div>
     </aside>

@@ -15,7 +15,7 @@ export type Matcher =
   | { ok: true; find: (text: string) => Span[] }
   | { ok: false; error: string };
 
-function escapeRegExp(s: string): string {
+export function escapeRegExp(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 

@@ -40,7 +40,7 @@ export const DEFAULT_CONFIG: Config = {
   integrations: { publishStatus: false },
 };
 
-/** The 14 `--color-*` variables for each preset theme. */
+/** The 16 `--color-*` variables for each preset theme. */
 export const THEMES: Record<string, Record<string, string>> = {
   "github-dark": {
     "--color-bg": "#0d1117",
@@ -53,6 +53,8 @@ export const THEMES: Record<string, Record<string, string>> = {
     "--color-user": "#79c0ff",
     "--color-assistant": "#7ee787",
     "--color-system": "#d29922",
+    "--color-find-active": "#f0883e",
+    "--color-find-active-text": "#0d1117",
     "--color-tool": "#d2a8ff",
     "--color-tool-result-bg": "#0d1117",
     "--color-error": "#f85149",
@@ -75,6 +77,8 @@ export const THEMES: Record<string, Record<string, string>> = {
     "--color-user": "#0550ae",
     "--color-assistant": "#1a7f37",
     "--color-system": "#9a6700",
+    "--color-find-active": "#fb8f44",
+    "--color-find-active-text": "#1f2328",
     "--color-tool": "#8250df",
     "--color-tool-result-bg": "#eaeef2",
     "--color-error": "#cf222e",

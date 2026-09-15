@@ -169,6 +169,21 @@ export function gutterMarks(container: HTMLElement, matches: FindMatch[], active
   return out;
 }
 
+/** Rebuild the scroller's compositing layer for two frames. WKWebView repaints less than it painted when a
+ *  highlight changes, leaving bands of the old colour; only a full re-raster clears them. Returns a cancel. */
+export function rerasterize(scroller: HTMLElement): () => void {
+  scroller.style.willChange = "transform";
+  let raf2 = 0;
+  const raf1 = requestAnimationFrame(() => {
+    raf2 = requestAnimationFrame(() => (scroller.style.willChange = ""));
+  });
+  return () => {
+    cancelAnimationFrame(raf1);
+    cancelAnimationFrame(raf2);
+    scroller.style.willChange = "";
+  };
+}
+
 export function clearHighlights(): void {
   const reg = registry();
   if (!reg) return;

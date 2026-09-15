@@ -3,11 +3,31 @@ import { THEMES, resolveFont, themePalette, DEFAULT_CONFIG, type Config } from "
 import { applyConfig } from "./applyConfig";
 
 describe("themes", () => {
-  it("every theme defines the same vars (14 color + 6 syntax)", () => {
+  it("every theme defines the same vars (16 color + 6 syntax)", () => {
     const keys = Object.keys(THEMES["github-dark"]).sort();
-    expect(keys).toHaveLength(20);
+    expect(keys).toHaveLength(22);
     for (const [name, palette] of Object.entries(THEMES)) {
       expect(Object.keys(palette).sort(), `theme ${name}`).toEqual(keys);
+    }
+  });
+
+  it("the active find match is a solid fill its own text stays readable on", () => {
+    // WCAG relative luminance and contrast ratio; 4.5:1 is the body-text minimum.
+    const lum = (hex: string) => {
+      const c = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255);
+      const [r, g, b] = c.map((v) => (v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4));
+      return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+    };
+    for (const [name, palette] of Object.entries(THEMES)) {
+      const fill = palette["--color-find-active"];
+      const text = palette["--color-find-active-text"];
+      expect(fill, `theme ${name}`).toMatch(/^#[0-9a-f]{6}$/i);
+      expect(text, `theme ${name}`).toMatch(/^#[0-9a-f]{6}$/i);
+      const [hi, lo] = [lum(fill), lum(text)].sort((a, b) => b - a);
+      expect((hi + 0.05) / (lo + 0.05), `theme ${name}`).toBeGreaterThanOrEqual(4.5);
+      expect(fill.toLowerCase(), `theme ${name}: not the other matches' amber`).not.toBe(
+        palette["--color-system"].toLowerCase(),
+      );
     }
   });
 });

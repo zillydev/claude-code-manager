@@ -1,5 +1,6 @@
-import { useCallback, useDeferredValue, useEffect, useLayoutEffect, useState } from "react";
+import { useCallback, useDeferredValue, useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { RenderedTurn } from "../types";
+import { activeIndexAfterSearch } from "../lib/findHandoff";
 import { compileMatcher, type FindOpts } from "../lib/findMatcher";
 import { compareMatches, modelMatches, revealKey, sameMatches, type FindMatch } from "../lib/findMatches";
 import {
@@ -7,6 +8,7 @@ import {
   domMatches,
   gutterMarks,
   paintHighlights,
+  rerasterize,
   scrollMatchIntoView,
   type GutterMark,
 } from "../lib/findPaint";
@@ -22,8 +24,9 @@ const EMPTY_KEYS: ReadonlySet<string> = new Set();
 
 export interface UseFind {
   open: boolean;
-  /** Open (or refocus) the bar. `prefill` non-empty replaces the query. */
-  openBar: (prefill?: string | null) => void;
+  /** Open (or refocus) the bar. `prefill` non-empty replaces the query; `startTurn`
+   *  starts on the first match in that turn instead of the first overall. */
+  openBar: (prefill?: string | null, startTurn?: number) => void;
   close: () => void;
   query: string;
   setQuery: (s: string) => void;
@@ -65,10 +68,20 @@ export function useFind(containerRef: React.RefObject<HTMLElement | null>, turns
   const [marks, setMarks] = useState<GutterMark[]>([]);
 
   const deferredQuery = useDeferredValue(query);
+  // Whether the paint effect last left highlights on screen; clearing them needs a re-raster too.
+  const painted = useRef(false);
+  // Read by the recompute without keying it on every keystroke.
+  const queryRef = useRef(query);
+  queryRef.current = query;
+  // A start-turn request, applied once to the search that `openBar` began.
+  const [startAt, setStartAt] = useState<{ turn: number; n: number } | null>(null);
+  const appliedStart = useRef(0);
+  const lastSearch = useRef<{ query: string; opts: FindOptions } | null>(null);
 
-  const openBar = useCallback((prefill?: string | null) => {
+  const openBar = useCallback((prefill?: string | null, startTurn?: number) => {
     setOpen(true);
     if (prefill) setQuery(prefill);
+    if (startTurn !== undefined) setStartAt((prev) => ({ turn: startTurn, n: (prev?.n ?? 0) + 1 }));
     setFocusNonce((n) => n + 1);
   }, []);
 
@@ -82,11 +95,6 @@ export function useFind(containerRef: React.RefObject<HTMLElement | null>, turns
     setMarks((prev) => (prev.length === 0 ? prev : []));
     clearHighlights();
   }, []);
-
-  // A new query or option set starts from the first match.
-  useEffect(() => {
-    setActiveIndex(0);
-  }, [deferredQuery, opts]);
 
   // Switching the tools toggle off collapses what navigation had opened.
   useEffect(() => {
@@ -116,8 +124,17 @@ export function useFind(containerRef: React.RefObject<HTMLElement | null>, turns
     const model = opts.tools ? modelMatches(turns, m.find) : [];
     const all = [...dom, ...model].sort(compareMatches);
     setMatches((prev) => (sameMatches(prev, all) ? prev : all));
-    setActiveIndex((i) => (all.length === 0 ? 0 : Math.min(i, all.length - 1)));
-  }, [open, deferredQuery, opts, turns, containerRef]);
+    const fresh = lastSearch.current?.query !== deferredQuery || lastSearch.current?.opts !== opts;
+    lastSearch.current = { query: deferredQuery, opts };
+    // Decided here because a passive effect runs after this one and would reset a requested start;
+    // the query check skips a pass that still sees the deferred, pre-prefill query.
+    let startTurn: number | null = null;
+    if (startAt && startAt.n !== appliedStart.current && deferredQuery === queryRef.current) {
+      appliedStart.current = startAt.n;
+      startTurn = startAt.turn;
+    }
+    setActiveIndex((i) => activeIndexAfterSearch(i, all, fresh, startTurn));
+  }, [open, deferredQuery, opts, turns, containerRef, startAt]);
 
   // Stepping onto a match inside a collapsed body opens that body.
   useEffect(() => {
@@ -132,10 +149,14 @@ export function useFind(containerRef: React.RefObject<HTMLElement | null>, turns
     if (!open || !container || matches.length === 0) {
       clearHighlights();
       setMarks((prev) => (prev.length === 0 ? prev : []));
-      return;
+      if (!painted.current || !container) return;
+      painted.current = false;
+      return rerasterize(container);
     }
     const activeRange = paintHighlights(container, matches, activeIndex);
     if (activeRange) scrollMatchIntoView(activeRange);
+    painted.current = true;
+    const cancelReraster = rerasterize(container);
     const next = gutterMarks(container, matches, activeIndex);
     setMarks((prev) =>
       prev.length === next.length &&
@@ -143,6 +164,7 @@ export function useFind(containerRef: React.RefObject<HTMLElement | null>, turns
         ? prev
         : next,
     );
+    return cancelReraster;
   }, [open, matches, activeIndex, revealedKeys, containerRef]);
 
   const next = useCallback(() => {

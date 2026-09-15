@@ -23,6 +23,8 @@ What changed in each release, written for people using the app. Build-time detai
 
 **Changed**
 
+- **The find match you're on stands out.** It was the same amber as every other match, just darker, so it was hard to pick out; it is now a solid orange with its own text colour, and its mark in the scrollbar is orange too.
+- **A global-find result shows you the text you searched for.** Opening a result used to land on the right message but leave you to find the words in it yourself — hard in a long reply. It now opens the find bar with your search, starting on the match inside that message, so the text is highlighted, scrolled into view, and every other match in the session is a ⌘G away. Your find-bar toggles are left as you set them.
 - **`!` shell commands render as a terminal block.** Running `!cmd` in Claude Code wrote two messages showing raw `<bash-input>` / `<bash-stdout>` tags with HTML-escaped text (`&amp;` everywhere). They now merge into one block: the command on a `$` line with its output beneath, unescaped, stderr in red.
 - **A long unbroken string no longer breaks the layout.** A message containing a long URL (or any token with nowhere to wrap) stretched its bubble past the pane instead of wrapping; find results could do the same in the sidebar.
 - **Bash commands render as shell scripts.** Half of them are multi-line, and as JSON every newline arrived as a literal `\n` in one long string. The script now reads as lines, syntax-highlighted, with the description and timeout as `#` comments above it.
