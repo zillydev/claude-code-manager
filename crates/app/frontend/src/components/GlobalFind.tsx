@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { X } from "lucide-react";
 import type { SessionSummary, ToolPreview } from "../types";
 import ToolPreviewLine from "./ToolPreviewLine";
 import Spinner from "./Spinner";
@@ -151,13 +152,14 @@ export default function GlobalFind({
     }
     setError(null);
     setRunning(true);
+    let req: Record<string, unknown> | null = null;
     try {
       const files = candidates(query).map((s) => ({
         file_path: s.file_path,
         session_id: s.id,
         only_uuids: query.bookmarked ? (meta.sessions[s.id]?.bookmarks ?? []) : null,
       }));
-      const req = {
+      req = {
         files,
         filters: {
           text: query.text,
@@ -170,33 +172,48 @@ export default function GlobalFind({
       };
       lastReq.current = req;
       const res = await invoke<{ hits: Hit[]; truncated: boolean }>("search_messages", req);
+      // A newer search, or ✕, has replaced this one: its answer is no longer wanted.
+      if (lastReq.current !== req) return;
       setResult({ ...res, term: query.text });
     } catch (e) {
-      setError(String(e));
+      // `req` is null only for a failure before the request existed, which nothing can have superseded.
+      if (req === null || lastReq.current === req) setError(String(e));
     } finally {
-      setRunning(false);
+      if (req === null || lastReq.current === req) setRunning(false);
     }
   };
 
   const loadMore = async () => {
     if (!result || !lastReq.current || loadingMore) return;
     setLoadingMore(true);
+    const prev = lastReq.current as { files: unknown; filters: Record<string, unknown> };
     try {
-      const prev = lastReq.current as { files: unknown; filters: Record<string, unknown> };
       const res = await invoke<{ hits: Hit[]; truncated: boolean }>("search_messages", {
         files: prev.files,
         filters: { ...prev.filters, skip: result.hits.length },
       });
+      if (lastReq.current !== prev) return;
       setResult({
         hits: [...result.hits, ...res.hits],
         truncated: res.truncated,
         term: result.term,
       });
     } catch (e) {
-      setError(String(e));
+      if (lastReq.current === prev) setError(String(e));
     } finally {
       setLoadingMore(false);
     }
+  };
+
+  // ✕: back to an empty pane with the cursor in the field, so the options legend offers a fresh start.
+  const clear = () => {
+    lastReq.current = null;
+    setInput("");
+    setResult(null);
+    setError(null);
+    setRanQuery(false);
+    setRunning(false);
+    inputRef.current?.focus();
   };
 
   // Discord-style flat order: strictly newest message first across ALL
@@ -235,6 +252,8 @@ export default function GlobalFind({
   return (
     <div className="flex flex-col h-full min-h-0">
         <div className="p-2 border-b border-[var(--color-border)]">
+          {/* relative: hosts the clear-✕ inside the field's right edge, as in the sessions filter. */}
+          <div className="relative">
           <input
             ref={inputRef}
             value={input}
@@ -248,8 +267,22 @@ export default function GlobalFind({
             onFocus={() => setFocused(true)}
             onBlur={() => setFocused(false)}
             placeholder="Search all sessions…"
-            className="w-full bg-[var(--color-bg)] text-[var(--color-text)] text-xs pl-2 pr-2 py-1 rounded border border-[var(--color-border)] outline-none focus:border-[var(--color-accent)]"
+            className="w-full bg-[var(--color-bg)] text-[var(--color-text)] text-xs pl-2 pr-6 py-1 rounded border border-[var(--color-border)] outline-none focus:border-[var(--color-accent)]"
           />
+          {(input || result || error) && (
+            <button
+              // mousedown + preventDefault: the field keeps focus, so the legend isn't hidden and re-shown.
+              onMouseDown={(e) => {
+                e.preventDefault();
+                clear();
+              }}
+              title="Clear search"
+              className="absolute right-1 top-1/2 -translate-y-1/2 flex items-center px-1 text-[var(--color-text-dim)] hover:text-[var(--color-text)]"
+            >
+              <X size={12} strokeWidth={2} />
+            </button>
+          )}
+          </div>
           {/* Between tokens (empty input, or a completed token + space) the
               legend returns so operators chain — until Enter, when results
               take the space; editing the query brings it back. */}

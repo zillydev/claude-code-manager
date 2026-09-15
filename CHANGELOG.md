@@ -8,12 +8,14 @@ What changed in each release, written for people using the app. Build-time detai
 
 **Added**
 
+- **A clear button in global find.** A ✕ in the search field clears the query and its results at once and leaves the cursor in the field, with the search options showing again.
 - **Precise status via Claude Code hooks** (opt-in, Settings → Integrations) — Claude itself now reports each session's state, so the sidebar and the published status file can say **needs you** the instant a question, permission prompt, or plan appears, and **your turn** within seconds of a reply finishing — no more waiting out the quiet-terminal hold. It installs a small relay into `~/.claude/settings.json` (your existing hooks are untouched; a one-time backup is kept, and switching off removes exactly what was added). Sessions started before toggling keep the inferred status.
 
 - **About section in Settings** — shows the running build's version, and opens the repository, that version's release notes, and the issue tracker.
 
 **Fixed**
 
+- **A slow search can't overwrite a newer one.** Running a second search before the first finished could leave the first one's results on screen once it caught up; only the latest search's results are shown now.
 - **Question cards show every answer.** A chosen option whose label contains a comma is highlighted again (Claude Code quotes such labels inside the answer sentence, and the card's parser stopped at the first quote), and an answer you typed instead of picking — including a notes-only answer — now appears as its own accented row under the question, rather than the card looking unanswered.
 - **Pressing Esc before Claude's first token no longer leaves the session "running".** Claude Code writes no interrupt marker when there was nothing to interrupt, and no hook fires on Esc — so ccm now treats the Esc / Ctrl-C you press in its own terminal as the end of the turn.
 - **Interrupting Claude while nothing was streaming no longer leaves the session "running".** Esc during a queued prompt or a task notification writes the interrupt marker without the message id the previous detection relied on — a third of all interrupts. The marker text itself now ends the turn.
