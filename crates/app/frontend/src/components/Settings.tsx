@@ -5,9 +5,12 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 import { useConfig } from "../hooks/useConfig";
 import { THEME_LIST, UI_FONTS, MONO_FONTS } from "../lib/config";
 import { useSessions } from "../hooks/useSessions";
+import { useUpdateAvailable } from "../hooks/useUpdateAvailable";
 import { matchProjectGroups, projectGroups } from "../lib/filterMatch";
 import Dropdown from "./Dropdown";
 import FilterMenu, { type MenuItem } from "./FilterMenu";
+import { ReleaseLink, UpgradeCommand } from "./UpdateNote";
+import { REPO_URL, releaseUrl } from "../lib/repo";
 
 /** Settings overlay: theme, typography, and behavior defaults. Every control
  *  applies live via setConfig (which persists + broadcasts to other windows). */
@@ -21,6 +24,7 @@ export default function Settings({ onClose }: { onClose: () => void }) {
   // Read from the bundle rather than hardcoded, so it can't drift from the
   // build someone is actually running when they report a problem.
   const [version, setVersion] = useState<string | null>(null);
+  const latest = useUpdateAvailable();
   // Truth lives in ~/.claude/settings.json, so probe rather than mirror in config.
   const [hooksOn, setHooksOn] = useState<boolean | null>(null);
   const [hooksError, setHooksError] = useState<string | null>(null);
@@ -267,10 +271,18 @@ export default function Settings({ onClose }: { onClose: () => void }) {
               {version ?? "…"}
             </span>
           </Row>
+          {latest && (
+            <>
+              <Row label="Update available">
+                <ReleaseLink version={latest} />
+              </Row>
+              <UpgradeCommand />
+            </>
+          )}
           <div className="flex gap-2">
             <LinkButton href={REPO_URL}>GitHub</LinkButton>
             {/* Deep-links to THIS build's notes, not just the latest. */}
-            <LinkButton href={version ? `${REPO_URL}/releases/tag/v${version}` : `${REPO_URL}/releases`}>
+            <LinkButton href={version ? releaseUrl(version) : `${REPO_URL}/releases`}>
               Release notes
             </LinkButton>
             <LinkButton href={`${REPO_URL}/issues/new`}>Report an issue</LinkButton>
@@ -407,8 +419,6 @@ function FontSelect({
     </div>
   );
 }
-
-const REPO_URL = "https://github.com/zillydev/claude-code-manager";
 
 /** Opens in the user's browser, not in the webview — an external page inside
  *  the app window would have no way back. */

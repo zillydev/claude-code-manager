@@ -9,6 +9,7 @@ mod session_meta;
 mod shared;
 mod status_file;
 mod terminal;
+mod update_check;
 mod win_id;
 mod window;
 
@@ -99,6 +100,7 @@ pub fn run() {
         .manage(Mutex::new(terminal::TerminalState::default()))
         .manage(shared::Shared::new())
         .manage(dev_reload::DevReloadState::default())
+        .manage(update_check::UpdateState::default())
         .setup(|app| {
             // Links arrive through the plugin; one that launched the app is also readable once here.
             let link_handle = app.handle().clone();
@@ -118,6 +120,7 @@ pub fn run() {
                 dock_name::set_dev_dock_name(name);
             }
             dev_reload::restore_windows(app.handle());
+            update_check::start(app.handle());
             // One app-wide poller: every 3s it refreshes the shared activity scan
             // and (only when the project dir's signature changes) re-discovers,
             // then broadcasts to ALL windows. Replaces each window polling on its
@@ -341,6 +344,7 @@ pub fn run() {
             close_guard::confirm_close,
             close_guard::confirm_quit,
             session_link::link_listener_ready,
+            update_check::update_available,
             dev_reload::dev_rebuild,
             dev_reload::dev_take_view,
             dev_reload::dev_set_view,

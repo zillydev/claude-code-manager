@@ -21,6 +21,7 @@ import NoteEditor from "./NoteEditor";
 import TagManager from "./TagManager";
 import GlobalFind from "./GlobalFind";
 import OpenSessionsPane from "./OpenSessionsPane";
+import UpdateNote from "./UpdateNote";
 import BookmarkBrowser from "./BookmarkBrowser";
 import { useSessionMeta } from "../hooks/useSessionMeta";
 import { useConfig } from "../hooks/useConfig";
@@ -853,6 +854,7 @@ export default function Sidebar({
       >
         <OpenSessionsPane sessions={sessions} activity={activity} now={now} onOpen={(s) => onSelect(s)} />
       </div>
+      <UpdateNote />
     </aside>
   );
 }

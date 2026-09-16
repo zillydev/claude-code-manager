@@ -8,6 +8,7 @@ What changed in each release, written for people using the app. Build-time detai
 
 **Added**
 
+- **A notice when a new version is out.** The app checks GitHub for a newer release now and then, and when there is one, the foot of the sidebar says so, with the command that upgrades it — `brew upgrade --cask claude-code-manager` — and a button to copy it. Click the version to read its release notes. Dismiss it with ✕ and it stays hidden until the next release; Settings → About keeps showing it.
 - **An Open tab for running terminals.** A new sidebar tab (⌘4) lists every session with Claude running in a terminal, across all your windows, and which window each is in. Close one with ✕ — it asks first if Claude is mid-turn — or close all the idle ones at once.
 - **Session links.** "Copy link" in a session's menu copies a `claude-code-manager://session/…` link; clicking it — say, in an Obsidian note — opens the app on that session, launching it if it isn't running and bringing forward the window that already has it. Links open the installed app, not a development build.
 - **A warning before closing on running work.** Closing a window or quitting with Claude still working in one of its terminals now asks first, listing those sessions; closing it would stop them mid-turn. Idle terminals close as before, since their sessions resume from where they were. (Quitting from the Dock or logging out doesn't ask.)

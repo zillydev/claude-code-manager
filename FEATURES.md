@@ -95,6 +95,7 @@ A tool to browse, search, edit, compact, harvest, and resume Claude Code session
 
 - **Inline loading indicators** — a shared `<Spinner>` atom marks every async action while it runs: fork, sidebar delete / rename / new-session, the terminal's "Starting claude…" overlay, session-open and search. → `2026-06-21-loading-indicators-design`
 - **Session status indicators** — sidebar dots driven by a lightweight focus-gated poll (`session_activity`, tail-reads recent files): a green pulsing dot when claude is mid-turn (steady through thinking pauses — keyed on `awaiting_input` turn-completeness, not write recency), and an accent dot + bold title for **unread** (your turn — a completed reply or a turn parked on `AskUserQuestion` / `ExitPlanMode` — newer than when you last opened it). → `2026-06-22-session-indicators-design`
+- **Update notice** — one app-wide backend check of GitHub's latest release (10 s after launch, then once 6 h of wall-clock time have passed; failures silent; TLS via native-tls with the Keychain's roots) tells every window when a newer version is out: a dismissible note at the foot of the sidebar — "Update available v0.1.3", the version linking to its release notes, over `brew upgrade --cask claude-code-manager` in a code box with a copy button (dismissed per version, across windows) — repeated in Settings → About. Debug builds check only with `CM_UPDATE_CHECK_AS=<version>`, which stands in for the running version. → `2026-09-16-update-notice-design`
 
 ## Integrations
 
