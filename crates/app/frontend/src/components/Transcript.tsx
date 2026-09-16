@@ -49,6 +49,8 @@ interface Props {
   tabs?: ReactNode;
   /** ↗ in the find bar: open the global find pinned to this session with `query`. */
   onOpenFind?: (sessionId: string, query: string) => void;
+  /** Open a session by id once it is in the session list — used to land on a fork just created. */
+  onOpenSessionId?: (id: string) => void;
   /** True while showing a branch the session rewound away (a frozen view). */
   viewingBranch?: boolean;
   /** Re-render the session along the branch this message sits on. */
@@ -66,6 +68,7 @@ export default function Transcript({
   visible = true,
   tabs,
   onOpenFind,
+  onOpenSessionId,
   viewingBranch = false,
   onShowBranch,
   onExitBranch,
@@ -160,10 +163,15 @@ export default function Transcript({
     const tags = entryTags(m.sessions[id]);
     if (newId && tags.length > 0) set(newId, tags);
   }, []);
+  // Through a ref, like inheritTags: handleFork is a prop of memoized Turns and must keep its identity.
+  const openIdRef = useRef(onOpenSessionId);
+  openIdRef.current = onOpenSessionId;
   const handleFork = useCallback(
     async (forkUuid: string) => {
       const res = await editor.fork(sourcePath, forkUuid);
       inheritTags(res?.new_session_id);
+      // A fork keeps the forked message's timestamps, so it sorts among old sessions; opening it scrolls the sidebar there.
+      if (res) openIdRef.current?.(res.new_session_id);
     },
     [editor.fork, sourcePath, inheritTags],
   );

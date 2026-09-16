@@ -20,3 +20,10 @@ export function resolveLink(id: string, sessions: SessionSummary[], loading: boo
   if (session) return { kind: "open", session };
   return refreshed ? { kind: "missing" } : { kind: "refresh" };
 }
+
+/** What to say when a session opened by id never appears. A fork's file was just written, so it can't be gone. */
+export function missingNotice(source: "link" | "fork"): string {
+  return source === "fork"
+    ? "The fork was created, but it isn't showing yet — it will appear in the sidebar shortly."
+    : "No session with that id — it may have been deleted, or lives on another machine.";
+}

@@ -13,7 +13,7 @@ import DevRebuildBanner from "./components/DevRebuildBanner";
 import ConfirmStopDialog from "./components/ConfirmStopDialog";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { workingSessions } from "./lib/closeGuard";
-import { resolveLink } from "./lib/sessionLink";
+import { missingNotice, resolveLink } from "./lib/sessionLink";
 import type { SessionSummary } from "./types";
 import { ChevronsRight } from "lucide-react";
 import { usePersistentState } from "./hooks/usePersistentState";
@@ -167,34 +167,36 @@ export default function App() {
     [],
   );
 
-  // A clicked session link arrives from the backend; it is held until the session list can answer.
-  const [pendingLink, setPendingLink] = useState<{ id: string; refreshed: boolean } | null>(null);
-  const [linkMissing, setLinkMissing] = useState(false);
+  // A session to open by id — from a clicked link, or a fork just written — held until the session list can answer.
+  const [pendingOpen, setPendingOpen] = useState<{ id: string; refreshed: boolean; source: "link" | "fork" } | null>(null);
+  const [openMissing, setOpenMissing] = useState<string | null>(null);
+  const openSessionById = useCallback((id: string, source: "link" | "fork") => {
+    setOpenMissing(null);
+    setPendingOpen({ id, refreshed: false, source });
+  }, []);
+  const openForkedSession = useCallback((id: string) => openSessionById(id, "fork"), [openSessionById]);
   useEffect(() => {
-    const unlisten = getCurrentWebviewWindow().listen<string>("open-session-link", (e) => {
-      setLinkMissing(false);
-      setPendingLink({ id: e.payload, refreshed: false });
-    });
+    const unlisten = getCurrentWebviewWindow().listen<string>("open-session-link", (e) => openSessionById(e.payload, "link"));
     // Only once listening: the backend holds a link until this window can receive it.
     unlisten.then(() => invoke("link_listener_ready"));
     return () => {
       unlisten.then((f) => f());
     };
-  }, []);
+  }, [openSessionById]);
   useEffect(() => {
-    if (!pendingLink) return;
-    const r = resolveLink(pendingLink.id, sessions, loading, pendingLink.refreshed);
+    if (!pendingOpen) return;
+    const r = resolveLink(pendingOpen.id, sessions, loading, pendingOpen.refreshed);
     if (r.kind === "open") {
-      setPendingLink(null);
+      setPendingOpen(null);
       openSession(r.session);
     } else if (r.kind === "refresh") {
-      setPendingLink({ ...pendingLink, refreshed: true });
+      setPendingOpen({ ...pendingOpen, refreshed: true });
       refresh();
     } else if (r.kind === "missing") {
-      setPendingLink(null);
-      setLinkMissing(true);
+      setPendingOpen(null);
+      setOpenMissing(missingNotice(pendingOpen.source));
     }
-  }, [pendingLink, sessions, loading, openSession, refresh]);
+  }, [pendingOpen, sessions, loading, openSession, refresh]);
 
   const onTerminalStatus = useCallback(
     (sid: string, status: "live" | "exited" | "busy") =>
@@ -496,13 +498,11 @@ export default function App() {
         </>
       )}
       <main className="flex-1 overflow-hidden flex flex-col">
-        {linkMissing && (
+        {openMissing && (
           <div className="mx-4 mt-2 px-3 py-2 rounded border border-[var(--color-border)] bg-[var(--color-surface)] text-xs flex items-center justify-between gap-3">
-            <span className="text-[var(--color-text-dim)]">
-              No session with that id — it may have been deleted, or lives on another machine.
-            </span>
+            <span className="text-[var(--color-text-dim)]">{openMissing}</span>
             <button
-              onClick={() => setLinkMissing(false)}
+              onClick={() => setOpenMissing(null)}
               className="text-[var(--color-text-dim)] hover:text-[var(--color-text)]"
             >
               dismiss
@@ -556,6 +556,7 @@ export default function App() {
                     session={transcript}
                     branchPoints={branchPoints}
                     onOpenSession={(s) => openSession(s)}
+                    onOpenSessionId={openForkedSession}
                     onViewTree={hasLineage ? () => setLineageFor(transcript.id) : null}
                     scrollToMessage={target?.scrollToMessage ?? null}
                     viewingBranch={!!target?.branchUuid}

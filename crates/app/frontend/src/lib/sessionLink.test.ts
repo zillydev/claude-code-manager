@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { resolveLink, sessionLink } from "./sessionLink";
+import { missingNotice, resolveLink, sessionLink } from "./sessionLink";
 import type { SessionSummary } from "../types";
 
 const ID = "0dd9d545-8a0a-44cc-a85b-23bb6896da97";
@@ -24,5 +24,13 @@ describe("resolveLink", () => {
   it("refreshes once before calling a session missing", () => {
     expect(resolveLink(ID, [session("other")], false, false)).toEqual({ kind: "refresh" });
     expect(resolveLink(ID, [session("other")], false, true)).toEqual({ kind: "missing" });
+  });
+});
+
+describe("missingNotice", () => {
+  it("tells a link apart from a fork: only a link can name a session that is gone", () => {
+    expect(missingNotice("link")).toMatch(/deleted|another machine/);
+    expect(missingNotice("fork")).toMatch(/fork was created/);
+    expect(missingNotice("fork")).not.toMatch(/deleted/);
   });
 });
