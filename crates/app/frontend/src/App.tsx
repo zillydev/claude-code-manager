@@ -13,6 +13,7 @@ import DevRebuildBanner from "./components/DevRebuildBanner";
 import ConfirmStopDialog from "./components/ConfirmStopDialog";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { workingSessions } from "./lib/closeGuard";
+import { resolveLink } from "./lib/sessionLink";
 import type { SessionSummary } from "./types";
 import { ChevronsRight } from "lucide-react";
 import { usePersistentState } from "./hooks/usePersistentState";
@@ -165,6 +166,35 @@ export default function App() {
     },
     [],
   );
+
+  // A clicked session link arrives from the backend; it is held until the session list can answer.
+  const [pendingLink, setPendingLink] = useState<{ id: string; refreshed: boolean } | null>(null);
+  const [linkMissing, setLinkMissing] = useState(false);
+  useEffect(() => {
+    const unlisten = getCurrentWebviewWindow().listen<string>("open-session-link", (e) => {
+      setLinkMissing(false);
+      setPendingLink({ id: e.payload, refreshed: false });
+    });
+    // Only once listening: the backend holds a link until this window can receive it.
+    unlisten.then(() => invoke("link_listener_ready"));
+    return () => {
+      unlisten.then((f) => f());
+    };
+  }, []);
+  useEffect(() => {
+    if (!pendingLink) return;
+    const r = resolveLink(pendingLink.id, sessions, loading, pendingLink.refreshed);
+    if (r.kind === "open") {
+      setPendingLink(null);
+      openSession(r.session);
+    } else if (r.kind === "refresh") {
+      setPendingLink({ ...pendingLink, refreshed: true });
+      refresh();
+    } else if (r.kind === "missing") {
+      setPendingLink(null);
+      setLinkMissing(true);
+    }
+  }, [pendingLink, sessions, loading, openSession, refresh]);
 
   const onTerminalStatus = useCallback(
     (sid: string, status: "live" | "exited" | "busy") =>
@@ -465,6 +495,19 @@ export default function App() {
         </>
       )}
       <main className="flex-1 overflow-hidden flex flex-col">
+        {linkMissing && (
+          <div className="mx-4 mt-2 px-3 py-2 rounded border border-[var(--color-border)] bg-[var(--color-surface)] text-xs flex items-center justify-between gap-3">
+            <span className="text-[var(--color-text-dim)]">
+              No session with that id — it may have been deleted, or lives on another machine.
+            </span>
+            <button
+              onClick={() => setLinkMissing(false)}
+              className="text-[var(--color-text-dim)] hover:text-[var(--color-text)]"
+            >
+              dismiss
+            </button>
+          </div>
+        )}
         <div className="flex-1 overflow-hidden">
           <div className="h-full" style={{ display: activeTab === "manager" ? "block" : "none" }}>
             <div className="flex flex-col h-full">

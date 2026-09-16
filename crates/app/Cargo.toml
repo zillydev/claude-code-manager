@@ -26,6 +26,7 @@ serde_json = { version = "1", features = ["preserve_order"] }
 uuid = { version = "1", features = ["serde", "v4"] }
 portable-pty = "0.8"
 base64 = "0.22"
+tauri-plugin-deep-link = "2"
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"

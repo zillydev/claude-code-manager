@@ -188,6 +188,7 @@ pub async fn open_session(
         .map_err(|e| e.to_string())??;
 
     let label = window.label().to_string();
+    crate::session_link::record_open(&app, &label, &rendered.id);
 
     // Start file watcher for live tail, scoped to THIS window.
     let state = app.state::<Mutex<WatcherState>>();
@@ -230,6 +231,7 @@ pub fn stop_watching(window: tauri::WebviewWindow, app: AppHandle) -> Result<(),
     let state = app.state::<Mutex<WatcherState>>();
     let mut guard = state.lock().map_err(|e| e.to_string())?;
     guard.watchers.remove(window.label());
+    crate::session_link::clear_open(&app, window.label());
     Ok(())
 }
 

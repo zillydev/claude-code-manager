@@ -4,6 +4,7 @@ mod config;
 mod dev_reload;
 mod dock_name;
 mod hooks;
+mod session_link;
 mod session_meta;
 mod shared;
 mod status_file;
@@ -16,6 +17,7 @@ use std::time::Duration;
 
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem, Submenu};
 use tauri::{Emitter, Manager, WindowEvent};
+use tauri_plugin_deep_link::DeepLinkExt;
 
 /// Build the application menu: the standard macOS App/Edit/Window items
 /// (installing a custom menu replaces the OS default, so the standard
@@ -91,11 +93,25 @@ fn build_menu(handle: &tauri::AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_deep_link::init())
+        .manage(Mutex::new(session_link::LinkState::default()))
         .manage(Mutex::new(commands::WatcherState::default()))
         .manage(Mutex::new(terminal::TerminalState::default()))
         .manage(shared::Shared::new())
         .manage(dev_reload::DevReloadState::default())
         .setup(|app| {
+            // Links arrive through the plugin; one that launched the app is also readable once here.
+            let link_handle = app.handle().clone();
+            app.deep_link().on_open_url(move |event| {
+                for url in event.urls() {
+                    session_link::handle_url(&link_handle, url.as_str());
+                }
+            });
+            if let Ok(Some(urls)) = app.deep_link().get_current() {
+                for url in urls {
+                    session_link::handle_url(app.handle(), url.as_str());
+                }
+            }
             // Unbundled dev runs would otherwise show the binary name in the
             // Dock; no-op in release bundles and off macOS.
             if let Some(name) = app.config().product_name.as_deref() {
@@ -271,10 +287,14 @@ pub fn run() {
             if let WindowEvent::CloseRequested { api, .. } = event {
                 close_guard::on_close_requested(win, api);
             }
+            if let WindowEvent::Focused(true) = event {
+                session_link::focused(win.app_handle(), win.label());
+            }
             // When a window is destroyed, drop its live-tail watcher (the tail
             // thread exits when the channel sender is dropped). A backstop for
             // hard closes where the frontend's stop_watching may not run.
             if let WindowEvent::Destroyed = event {
+                session_link::forget_window(win.app_handle(), win.label());
                 if let Some(state) = win.try_state::<Mutex<commands::WatcherState>>() {
                     if let Ok(mut guard) = state.lock() {
                         guard.watchers.remove(win.label());
@@ -316,6 +336,7 @@ pub fn run() {
             commands::terminal_close,
             close_guard::confirm_close,
             close_guard::confirm_quit,
+            session_link::link_listener_ready,
             dev_reload::dev_rebuild,
             dev_reload::dev_take_view,
             dev_reload::dev_set_view,

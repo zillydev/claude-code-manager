@@ -34,6 +34,7 @@ import {
 import { sessionUpdatedAt } from "../lib/sessions";
 import { deriveStatus, showsUnread } from "../lib/sessionStatus";
 import { statusInputs } from "../lib/closeGuard";
+import { sessionLink } from "../lib/sessionLink";
 import type { LiveActivity } from "../hooks/useActivity";
 
 interface Props {
@@ -82,6 +83,16 @@ export default function Sidebar({
   const [draftAlias, setDraftAlias] = useState("");
   const [tagsFor, setTagsFor] = useState<SessionSummary | null>(null);
   const [noteFor, setNoteFor] = useState<SessionSummary | null>(null);
+  // The row whose link was just copied; its time label confirms, since the menu closes on click.
+  const [linkCopiedId, setLinkCopiedId] = useState<string | null>(null);
+  const copyLink = (id: string) =>
+    navigator.clipboard.writeText(sessionLink(id)).then(
+      () => {
+        setLinkCopiedId(id);
+        setTimeout(() => setLinkCopiedId((c) => (c === id ? null : c)), 1200);
+      },
+      () => {},
+    );
   // Right-click menu for a row — the ⋯ menu's actions plus the ones that only
   // make sense from a pointer (open in terminal, copy ids, reveal in Finder).
   const rowMenu = useContextMenu<SessionSummary>();
@@ -547,7 +558,7 @@ export default function Sidebar({
                       {s.project_label}
                     </span>
                     <span className="text-[10px] text-[var(--color-text-dim)] ml-2 shrink-0">
-                      {relativeTime(sessionUpdatedAt(s, act?.at))}
+                      {linkCopiedId === s.id ? "link copied ✓" : relativeTime(sessionUpdatedAt(s, act?.at))}
                     </span>
                   </div>
                   {entry?.alias ? (
@@ -712,6 +723,17 @@ export default function Sidebar({
                         >
                           Note…
                         </button>
+                        <button
+                          role="menuitem"
+                          className={menuItemClass}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            close();
+                            copyLink(s.id);
+                          }}
+                        >
+                          Copy link
+                        </button>
                         <ConfirmMenuItem
                           label="Delete"
                           confirmLabel="Confirm delete"
@@ -766,6 +788,7 @@ export default function Sidebar({
                 })}
                 {item("Tags…", () => setTagsFor(s))}
                 {item("Note…", () => setNoteFor(s))}
+                {item("Copy link", () => copyLink(s.id))}
                 {/* Two clicks, like the ⋯ menu: a context menu is easy to hit
                     by accident, and this deletes a session. */}
                 <button
