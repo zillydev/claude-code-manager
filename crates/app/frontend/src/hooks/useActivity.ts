@@ -8,6 +8,8 @@ type Activity = {
   awaiting_input: boolean;
   /** ccm is running this session's claude process (live PTY in a terminal tab). */
   hosted: boolean;
+  /** Label of the window whose terminal runs it, when hosted. */
+  owner?: string | null;
   busy: boolean;
   /** Epoch s the terminal was last working; once quiet, when claude began waiting. */
   busy_at: number;
@@ -19,6 +21,7 @@ export type LiveActivity = {
   at: number;
   awaiting: boolean;
   hosted: boolean;
+  owner: string | null;
   busy: boolean;
   busyAt: number;
   /** Claude's own phase from the opt-in hook relay, when installed. */
@@ -34,6 +37,7 @@ const toMap = (rows: Activity[]): Map<string, LiveActivity> =>
         at: r.last_event_at,
         awaiting: r.awaiting_input,
         hosted: r.hosted,
+        owner: r.owner ?? null,
         busy: r.busy,
         busyAt: r.busy_at,
         hook: r.hook ?? null,

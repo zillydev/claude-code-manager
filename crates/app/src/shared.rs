@@ -100,6 +100,7 @@ impl Shared {
                     .unwrap_or(0),
                 awaiting_input: awaiting,
                 hosted: false, // filled in by the poller, which knows the PTY pool
+                owner: None,
                 busy: false,
                 busy_at: 0,
                 hook: None,

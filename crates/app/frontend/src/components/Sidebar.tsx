@@ -2,6 +2,7 @@ import { useState, useMemo, useEffect, useRef } from "react";
 import type { SessionSummary, SortField, SortDir, DateRange } from "../types";
 import Spinner from "./Spinner";
 import {
+  SquareTerminal,
   Bookmark,
   ChevronsLeft,
   Ellipsis,
@@ -19,6 +20,7 @@ import TagEditor from "./TagEditor";
 import NoteEditor from "./NoteEditor";
 import TagManager from "./TagManager";
 import GlobalFind from "./GlobalFind";
+import OpenSessionsPane from "./OpenSessionsPane";
 import BookmarkBrowser from "./BookmarkBrowser";
 import { useSessionMeta } from "../hooks/useSessionMeta";
 import { useConfig } from "../hooks/useConfig";
@@ -54,8 +56,8 @@ interface Props {
   onViewTree: (s: SessionSummary) => void;
   onOpenSettings: () => void;
   /** Which sidebar pane is showing (Obsidian-style icon tabs). */
-  tab: "sessions" | "bookmarks" | "find";
-  onTabChange: (t: "sessions" | "bookmarks" | "find") => void;
+  tab: "sessions" | "bookmarks" | "find" | "open";
+  onTabChange: (t: "sessions" | "bookmarks" | "find" | "open") => void;
   /** Focus/prefill request for the find pane (see GlobalFind.activate). */
   findActivate: { q: string | null; n: number };
 }
@@ -301,6 +303,7 @@ export default function Sidebar({
             ["sessions", FolderOpen, "Sessions (⌘1)"],
             ["bookmarks", Bookmark, "Bookmarks (⌘2) — every flagged message"],
             ["find", Search, "Find (⌘3 / ⌘⇧F) — search all sessions"],
+            ["open", SquareTerminal, "Open (⌘4) — sessions running in a terminal"],
           ] as const
         ).map(([t, Icon, title]) => (
           <button
@@ -843,6 +846,12 @@ export default function Sidebar({
           activate={findActivate}
           onOpen={(s, uuid, term) => onSelect(s, uuid, term)}
         />
+      </div>
+      <div
+        className="flex flex-col flex-1 min-h-0"
+        style={{ display: tab === "open" ? undefined : "none" }}
+      >
+        <OpenSessionsPane sessions={sessions} activity={activity} now={now} onOpen={(s) => onSelect(s)} />
       </div>
     </aside>
   );

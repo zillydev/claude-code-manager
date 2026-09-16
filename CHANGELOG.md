@@ -8,6 +8,7 @@ What changed in each release, written for people using the app. Build-time detai
 
 **Added**
 
+- **An Open tab for running terminals.** A new sidebar tab (⌘4) lists every session with Claude running in a terminal, across all your windows, and which window each is in. Close one with ✕ — it asks first if Claude is mid-turn — or close all the idle ones at once.
 - **Session links.** "Copy link" in a session's menu copies a `claude-code-manager://session/…` link; clicking it — say, in an Obsidian note — opens the app on that session, launching it if it isn't running and bringing forward the window that already has it. Links open the installed app, not a development build.
 - **A warning before closing on running work.** Closing a window or quitting with Claude still working in one of its terminals now asks first, listing those sessions; closing it would stop them mid-turn. Idle terminals close as before, since their sessions resume from where they were. (Quitting from the Dock or logging out doesn't ask.)
 - **A clear button in global find.** A ✕ in the search field clears the query and its results at once and leaves the cursor in the field, with the search options showing again.

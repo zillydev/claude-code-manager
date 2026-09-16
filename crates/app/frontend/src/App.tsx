@@ -39,7 +39,7 @@ export default function App() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   // Obsidian-style sidebar tabs. Tab state lives here (single writer) because
   // the ⌘F/⌘⇧F shortcuts and the find prefill flow through App.
-  const [sidebarTab, setSidebarTab] = useState<"sessions" | "bookmarks" | "find">("sessions");
+  const [sidebarTab, setSidebarTab] = useState<"sessions" | "bookmarks" | "find" | "open">("sessions");
   const [findActivate, setFindActivate] = useState<{ q: string | null; n: number }>({
     q: null,
     n: 0,
@@ -57,7 +57,7 @@ export default function App() {
   // ⌘1/⌘2 — show a sidebar tab (expanding a collapsed sidebar, like ⌘⇧F).
   // ⌘3 goes through openFindTab so the find input also takes focus.
   const showSidebarTab = useCallback(
-    (t: "sessions" | "bookmarks") => {
+    (t: "sessions" | "bookmarks" | "open") => {
       setConfig({ ui: { sidebarCollapsed: false } });
       setSidebarTab(t);
     },
@@ -432,11 +432,12 @@ export default function App() {
         e.preventDefault();
         e.stopPropagation();
         setSettingsOpen(true);
-      } else if (k === "1" || k === "2" || k === "3") {
+      } else if (k === "1" || k === "2" || k === "3" || k === "4") {
         e.preventDefault();
         e.stopPropagation();
         if (k === "1") showSidebarTab("sessions");
         else if (k === "2") showSidebarTab("bookmarks");
+        else if (k === "4") showSidebarTab("open");
         else openFindTab(null);
       }
     };

@@ -537,6 +537,9 @@ pub struct SessionActivity {
     /// staleness backstop — a 20-minute tool call is still "running".
     #[serde(default)]
     pub hosted: bool,
+    /// Label of the window whose terminal runs this session (`None` unless `hosted`).
+    #[serde(default)]
+    pub owner: Option<String>,
     /// Hosted AND claude authored real output recently — not just alive, and
     /// not merely repainting in answer to the user's own keys.
     pub busy: bool,

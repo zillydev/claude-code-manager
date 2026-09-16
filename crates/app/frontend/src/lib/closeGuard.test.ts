@@ -7,7 +7,7 @@ const NOW = 1_000_000;
 const session = (id: string, awaiting = false): SessionSummary =>
   ({ id, title: id, last_event_at: { secs_since_epoch: NOW - 5, nanos_since_epoch: 0 }, awaiting_input: awaiting }) as SessionSummary;
 const act = (over: Partial<LiveActivity>): LiveActivity => ({
-  at: NOW - 5, awaiting: false, hosted: true, busy: false, busyAt: NOW - 5, hook: null, interruptAt: 0, ...over,
+  at: NOW - 5, awaiting: false, hosted: true, owner: "main", busy: false, busyAt: NOW - 5, hook: null, interruptAt: 0, ...over,
 });
 
 describe("statusInputs", () => {

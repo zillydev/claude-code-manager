@@ -180,8 +180,11 @@ pub fn run() {
                         .collect();
                     let hosted_ids: std::collections::BTreeSet<&str> =
                         hosted_now.iter().map(|h| h.session_id.as_str()).collect();
+                    let owner_of: std::collections::BTreeMap<&str, &str> =
+                        hosted_now.iter().map(|h| (h.session_id.as_str(), h.owner.as_str())).collect();
                     for a in outcome.activity.iter_mut() {
                         a.hosted = hosted_ids.contains(a.id.as_str());
+                        a.owner = owner_of.get(a.id.as_str()).map(|o| o.to_string());
                         a.busy = busy_ids.contains(a.id.as_str());
                         a.busy_at = busy_at.get(a.id.as_str()).copied().unwrap_or(0);
                         a.hook = hook_state.get(&a.id).cloned();
@@ -214,6 +217,7 @@ pub fn run() {
                                     .unwrap_or(0),
                                 awaiting_input: s.awaiting_input,
                                 hosted: hosted_ids.contains(&s.id.to_string().as_str()),
+                                owner: owner_of.get(&s.id.to_string().as_str()).map(|o| o.to_string()),
                                 busy: busy_ids.contains(&s.id.to_string().as_str()),
                                 busy_at: busy_at
                                     .get(&s.id.to_string().as_str())

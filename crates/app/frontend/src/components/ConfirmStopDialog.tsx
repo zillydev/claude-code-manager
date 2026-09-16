@@ -10,7 +10,7 @@ export default function ConfirmStopDialog({
   onCancel,
   onConfirm,
 }: {
-  kind: "close" | "quit";
+  kind: "close" | "quit" | "terminal";
   sessions: SessionSummary[];
   onCancel: () => void;
   onConfirm: () => void;
@@ -42,7 +42,8 @@ export default function ConfirmStopDialog({
           ))}
         </ul>
         <div className="text-xs text-[var(--color-text-dim)]">
-          {kind === "close" ? "Closing this window" : "Quitting"} stops {n === 1 ? "it" : "them"} mid-turn. The
+          {kind === "close" ? "Closing this window" : kind === "quit" ? "Quitting" : "Closing its terminal"} stops{" "}
+          {n === 1 ? "it" : "them"} mid-turn. The
           session can be resumed, but the work in progress is lost.
         </div>
         <div className="flex justify-end gap-2">
@@ -55,7 +56,7 @@ export default function ConfirmStopDialog({
             Cancel
           </button>
           <button onClick={onConfirm} className="text-xs px-3 py-1 rounded bg-[var(--color-error)] text-white">
-            {kind === "close" ? "Close anyway" : "Quit anyway"}
+            {kind === "quit" ? "Quit anyway" : "Close anyway"}
           </button>
         </div>
       </div>
