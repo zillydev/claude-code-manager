@@ -8,6 +8,7 @@ What changed in each release, written for people using the app. Build-time detai
 
 **Fixed**
 
+- **A question you chatted about instead of answering says so.** Picking "Chat about this" on one of Claude's questions left its card looking unanswered, since Claude Code records it as a declined question rather than an answer; the card now ends with "Chat about this". A question dismissed with Esc reads "Dismissed without an answer".
 - **Messages no longer appear twice.** Clicking another session while a large one was still loading left the window listening to the live tail twice, so from then on every new message showed up twice — in whichever session it displayed — until the app was restarted. And a message Claude wrote at the very moment a session opened could arrive twice too, or, if it was half-written, not at all. Now only the most recent open listens, and a session picks up exactly where its first read stopped.
 
 **Changed**

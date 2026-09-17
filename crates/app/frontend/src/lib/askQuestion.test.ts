@@ -239,3 +239,49 @@ describe("askLines with the answers", () => {
     expect(askText(askLines(SCREENSHOT.input, SCREENSHOT.result)!)).toContain("  ↳ no changes");
   });
 });
+
+// Verbatim from sessions: what Claude Code records when "Chat about this" is picked, and when a question is dismissed.
+const CHAT_ABOUT_THIS = `The user doesn't want to proceed with this tool use. The tool use was rejected (eg. if it was a file edit, the new_string was NOT written to the file). To tell you how to proceed, the user said:
+The user wants to clarify these questions.
+    This means they may have additional information, context or questions for you.
+    Take their response into account and then reformulate the questions if appropriate.
+    Start by asking them what they would like to clarify.
+
+    Questions asked:
+- "Where should the link live?"
+  (No answer provided)
+
+Note: The user's next message may contain a correction or preference. Pay close attention — if they explain what went wrong or how they'd prefer you to work, consider saving that to memory for future sessions.`;
+const DISMISSED = `The user doesn't want to proceed with this tool use. The tool use was rejected (eg. if it was a file edit, the new_string was NOT written to the file). STOP what you are doing and wait for the user to tell you how to proceed.
+
+Note: The user's next message may contain a correction or preference. Pay close attention — if they explain what went wrong or how they'd prefer you to work, consider saving that to memory for future sessions.`;
+
+describe("askLines when the question wasn't answered", () => {
+  it("says the user chose to chat about it, accented like an answer", () => {
+    const lines = askLines(input, CHAT_ABOUT_THIS)!;
+    expect(lines.filter((l) => l.kind === "option").some((l) => l.chosen)).toBe(false);
+    expect(lines[lines.length - 1]).toEqual({ kind: "outcome", chosen: true, text: "  ↳ Chat about this" });
+  });
+
+  it("says a dismissed question got no answer, without accent", () => {
+    const lines = askLines(input, DISMISSED)!;
+    expect(lines[lines.length - 1]).toEqual({ kind: "outcome", chosen: false, text: "  ↳ Dismissed without an answer" });
+  });
+
+  it("adds one row after all the questions of a card", () => {
+    const two = { questions: [...input.questions, { question: "And the icon?", options: [{ label: "Link" }] }] };
+    const lines = askLines(two, CHAT_ABOUT_THIS)!;
+    expect(lines.filter((l) => l.kind === "outcome")).toHaveLength(1);
+    expect(lines[lines.length - 1].kind).toBe("outcome");
+  });
+
+  it("adds nothing for a tool error or a missing result", () => {
+    const error = "<tool_use_error>InputValidationError: AskUserQuestion failed due to the following issue:</tool_use_error>";
+    expect(askLines(input, error)!.some((l) => l.kind === "outcome")).toBe(false);
+    expect(askLines(input)!.some((l) => l.kind === "outcome")).toBe(false);
+  });
+
+  it("puts the row in the text the find bar matches", () => {
+    expect(askText(askLines(input, CHAT_ABOUT_THIS)!)).toContain("  ↳ Chat about this");
+  });
+});

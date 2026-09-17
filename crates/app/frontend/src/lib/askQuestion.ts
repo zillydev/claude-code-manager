@@ -1,6 +1,6 @@
 /** One rendered line of an AskUserQuestion body. */
 export interface AskLine {
-  kind: "question" | "option" | "typed" | "preview" | "blank";
+  kind: "question" | "option" | "typed" | "preview" | "blank" | "outcome";
   text: string;
   /** For an option row: its label. */
   label?: string;
@@ -85,7 +85,22 @@ export function askLines(
       if (typed.trim()) out.push({ kind: "typed", chosen: true, text: `  ↳ ${typed.trim()}` });
     }
   }
+  const outcome = answers.size === 0 ? unansweredOutcome(result) : null;
+  if (outcome) out.push(outcome);
   return out;
+}
+
+/** The row for a card left unanswered on purpose: "Chat about this" picked, or the questions dismissed. Claude Code
+ *  records both as a rejected tool call worded for the model, so they're recognised by that wording. */
+function unansweredOutcome(result: string | null): AskLine | null {
+  if (!result) return null;
+  if (result.includes("The user wants to clarify these questions")) {
+    return { kind: "outcome", chosen: true, text: "  ↳ Chat about this" };
+  }
+  if (result.startsWith("The user doesn't want to proceed with this tool use")) {
+    return { kind: "outcome", chosen: false, text: "  ↳ Dismissed without an answer" };
+  }
+  return null;
 }
 
 /** The lines as plain text — what the transcript renders AND what the find bar
