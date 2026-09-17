@@ -1,6 +1,6 @@
 [package]
 name = "claude-code-manager-core"
-version = "0.1.2"
+version = "0.1.3"
 edition = "2021"
 description = "Shared core: parse, render, and safely rewrite Claude Code session .jsonl files."
 license = "MIT"

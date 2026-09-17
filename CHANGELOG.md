@@ -4,7 +4,7 @@ What changed in each release, written for people using the app. Build-time detai
 
 > **Maintenance:** add entries under **Unreleased** on the feature branch, alongside the `FEATURES.md` update. At release time that heading becomes the version. `release.yml` publishes the section matching the tag and fails if it finds none, so a release can't ship without notes.
 
-## Unreleased
+## v0.1.3 — 2026-09-17
 
 **Added**
 
@@ -14,9 +14,8 @@ What changed in each release, written for people using the app. Build-time detai
 - **Session links.** "Copy link" in a session's menu copies a `claude-code-manager://session/…` link; clicking it — say, in an Obsidian note — opens the app on that session, launching it if it isn't running and bringing forward the window that already has it. Links open the installed app, not a development build.
 - **A warning before closing on running work.** Closing a window or quitting with Claude still working in one of its terminals now asks first, listing those sessions; closing it would stop them mid-turn. Idle terminals close as before, since their sessions resume from where they were. (Quitting from the Dock or logging out doesn't ask.)
 - **A clear button in global find.** A ✕ in the search field clears the query and its results at once and leaves the cursor in the field, with the search options showing again.
-- **Precise status via Claude Code hooks** (opt-in, Settings → Integrations) — Claude itself now reports each session's state, so the sidebar and the published status file can say **needs you** the instant a question, permission prompt, or plan appears, and **your turn** within seconds of a reply finishing — no more waiting out the quiet-terminal hold. It installs a small relay into `~/.claude/settings.json` (your existing hooks are untouched; a one-time backup is kept, and switching off removes exactly what was added). Sessions started before toggling keep the inferred status.
-
-- **About section in Settings** — shows the running build's version, and opens the repository, that version's release notes, and the issue tracker.
+- **Precise status via Claude Code hooks.** Opt-in, in Settings → Integrations: Claude itself now reports each session's state, so the sidebar and the published status file can say **needs you** the instant a question, permission prompt, or plan appears, and **your turn** within seconds of a reply finishing — no more waiting out the quiet-terminal hold. It installs a small relay into `~/.claude/settings.json` (your existing hooks are untouched; a one-time backup is kept, and switching off removes exactly what was added). Sessions started before toggling keep the inferred status.
+- **An About section in Settings.** It shows the running build's version, and opens the repository, that version's release notes, and the issue tracker.
 
 **Fixed**
 
@@ -28,7 +27,6 @@ What changed in each release, written for people using the app. Build-time detai
 - **Pressing Esc before Claude's first token no longer leaves the session "running".** Claude Code writes no interrupt marker when there was nothing to interrupt, and no hook fires on Esc — so ccm now treats the Esc / Ctrl-C you press in its own terminal as the end of the turn.
 - **Interrupting Claude while nothing was streaming no longer leaves the session "running".** Esc during a queued prompt or a task notification writes the interrupt marker without the message id the previous detection relied on — a third of all interrupts. The marker text itself now ends the turn.
 - **A global-find result takes you to the message.** Clicking one often did nothing, for several unrelated reasons. Results included lines Claude Code writes as user messages but the transcript never shows — skill bodies, slash-command caveats, and a slash command's own stdout (`Set model to …`), which alone was 104 of 355 unreachable results on a real corpus — so there was nothing to scroll to; search now asks the same question the renderer does, and stops offering them. Slash-command, `!` shell and task-notification turns *are* shown but carried no anchor to scroll to (one subagent-heavy session had 180 unreachable task notifications); they do now. And a message on a branch the session rewound away from is in the file but on no screen: the transcript now says so and offers **Show this branch**, which re-renders the session along that path and scrolls to the message, with a banner back to the current branch. A message Compact mode is filtering still offers Show all.
-
 - **A session waiting on a question shows as unread, not running.** Claude Code writes nothing to its session file while a question is on screen, and a live terminal only proves the process exists — so for a session ccm is running, the terminal itself now answers, by attribution: output that follows your own keystroke or a resize is the TUI answering *you* (browsing a question's options, typing, scrolling), while a real burst Claude wasn't asked for — a spinner tick, streamed text — is work. That moment of falling silent is also what dates the wait, since the file still ends on your own prompt: the session goes unread, the way a finished turn does, and clears when you look at it — including the session you have open, if its window is behind another or on a Space you're not on. A long build keeps its running indicator throughout.
 
 **Changed**

@@ -1,6 +1,6 @@
 [package]
 name = "claude-code-manager-cli"
-version = "0.1.2"
+version = "0.1.3"
 edition = "2021"
 description = "The `claude-code-manager` CLI: session surgery over Claude Code session files."
 license = "MIT"
