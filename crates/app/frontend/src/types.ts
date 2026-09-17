@@ -143,6 +143,30 @@ export interface ToolCallResult {
   is_error: boolean;
   /** Images the tool returned (absent when none — serde skips empty). */
   images?: RenderedImage[];
+  /** Files a shell command changed (absent when none). */
+  file_changes?: FileChanges;
+}
+
+/** Claude Code's record of the files a shell command changed. */
+export interface FileChanges {
+  files: FileChange[];
+  /** Changed files Claude Code left out of `files`. */
+  more: number;
+}
+
+export interface FileChange {
+  path: string;
+  created: boolean;
+  hunks: Hunk[];
+}
+
+/** One unified-diff hunk; each line keeps its " ", "+" or "-" prefix. */
+export interface Hunk {
+  old_start: number;
+  old_lines: number;
+  new_start: number;
+  new_lines: number;
+  lines: string[];
 }
 
 /** A base64 image ready for a data: URI. */

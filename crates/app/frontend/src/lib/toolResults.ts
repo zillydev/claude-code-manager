@@ -3,13 +3,14 @@
 // "(no result)". The backend emits the batch's tool_results as
 // `session-tool-results`; this patches them into the transcript by id.
 
-import type { RenderedImage, RenderedTurn } from "../types";
+import type { FileChanges, RenderedImage, RenderedTurn } from "../types";
 
 export interface ToolResultUpdate {
   tool_use_id: string;
   text: string;
   is_error: boolean;
   images?: RenderedImage[];
+  file_changes?: FileChanges;
 }
 
 /**
@@ -33,7 +34,10 @@ export function patchToolResults(
         const u = byId.get(b.id);
         if (u) {
           turnChanged = true;
-          return { ...b, result: { text: u.text, is_error: u.is_error, images: u.images } };
+          return {
+            ...b,
+            result: { text: u.text, is_error: u.is_error, images: u.images, file_changes: u.file_changes },
+          };
         }
       }
       return b;

@@ -4,6 +4,7 @@ use chrono::{DateTime, Utc};
 use serde::Serialize;
 
 use super::event::{Block, Event, MessageContent, UserBlock};
+use super::file_changes::FileChanges;
 use super::Session;
 
 #[derive(Debug, Clone, Serialize)]
@@ -199,6 +200,9 @@ pub struct ToolCallResult {
     /// Images the tool returned (e.g. browser screenshots), base64.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub images: Vec<RenderedImage>,
+    /// Files a shell command changed; boxed so `RenderedBlock::ToolCall` stays small.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub file_changes: Option<Box<FileChanges>>,
 }
 
 /// A base64 image carried by a user message or tool result, ready for a
@@ -282,6 +286,7 @@ fn render_path_turns(path: &[&Event], editable: bool) -> Vec<RenderedTurn> {
                         text: r.text.clone(),
                         is_error: r.is_error,
                         images: r.images.clone(),
+                        file_changes: r.file_changes.clone().map(Box::new),
                     });
                     blocks.push(RenderedBlock::ToolCall {
                         id: id.clone(),
@@ -708,6 +713,7 @@ struct ToolResultEntry {
     text: String,
     is_error: bool,
     images: Vec<RenderedImage>,
+    file_changes: Option<FileChanges>,
 }
 
 /// A tool_result observed in a batch of events. Used by the live tail to
@@ -722,6 +728,8 @@ pub struct ToolResultUpdate {
     pub is_error: bool,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub images: Vec<RenderedImage>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub file_changes: Option<FileChanges>,
 }
 
 /// Extract every tool_result in `events` (a tail batch), keyed for back-fill.
@@ -734,6 +742,7 @@ pub fn tool_result_updates(events: &[Event]) -> Vec<ToolResultUpdate> {
             text: e.text,
             is_error: e.is_error,
             images: e.images,
+            file_changes: e.file_changes,
         })
         .collect()
 }
@@ -743,6 +752,11 @@ fn collect_tool_results(path: &[&Event]) -> HashMap<String, ToolResultEntry> {
     for ev in path {
         if let Event::User(u) = ev {
             if let MessageContent::Blocks(blocks) = &u.message.content {
+                // `toolUseResult` belongs to the line, so it's only attributable when the line holds one result.
+                let results_on_line = blocks
+                    .iter()
+                    .filter(|b| matches!(b, UserBlock::ToolResult { .. }))
+                    .count();
                 for b in blocks {
                     if let UserBlock::ToolResult {
                         tool_use_id,
@@ -768,6 +782,13 @@ fn collect_tool_results(path: &[&Event]) -> HashMap<String, ToolResultEntry> {
                                 text: content.as_text(),
                                 is_error: *is_error,
                                 images,
+                                file_changes: if results_on_line == 1 {
+                                    super::file_changes::from_tool_use_result(
+                                        u.tool_use_result.as_ref(),
+                                    )
+                                } else {
+                                    None
+                                },
                             },
                         );
                     }
@@ -976,6 +997,44 @@ mod render_tests {
         // The tail back-fill carries them too.
         let ups = tool_result_updates(&events);
         assert_eq!(ups[0].images.len(), 1);
+    }
+
+    /// A Bash call and its result line, whose `toolUseResult` records one changed file.
+    fn bash_with_file_changes() -> Vec<Event> {
+        let asst = r#"{"type":"assistant","uuid":"00000000-0000-0000-0000-0000000000d1","message":{"role":"assistant","content":[{"type":"tool_use","id":"toolu_sed","name":"Bash","input":{"command":"sed -i '' s/a/b/ x.md"}}]}}"#;
+        let result = r#"{"type":"user","uuid":"00000000-0000-0000-0000-0000000000d2","parentUuid":"00000000-0000-0000-0000-0000000000d1","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_sed","content":"","is_error":false}]},"toolUseResult":{"stdout":"","stderr":"","interrupted":false,"bashEditDiff":{"files":[{"filePath":"/repo/x.md","hunks":[{"oldStart":1,"oldLines":1,"newStart":1,"newLines":1,"lines":["-a","+b"]}]}],"moreFiles":0,"changedFiles":["/repo/x.md"]}}}"#;
+        [asst, result]
+            .iter()
+            .map(|l| serde_json::from_str(l).unwrap())
+            .collect()
+    }
+
+    #[test]
+    fn a_tool_result_carries_the_files_its_command_changed() {
+        let events = bash_with_file_changes();
+        let path: Vec<&Event> = events.iter().collect();
+        let turns = render_path_turns(&path, true);
+        let RenderedTurn::Assistant { blocks, .. } = &turns[0] else { panic!("assistant turn") };
+        let RenderedBlock::ToolCall { result: Some(r), .. } = &blocks[0] else { panic!("tool call") };
+        let changes = r.file_changes.as_ref().expect("file changes");
+        assert_eq!(changes.files[0].path, "/repo/x.md");
+        assert_eq!(changes.files[0].hunks[0].lines, vec!["-a", "+b"]);
+    }
+
+    #[test]
+    fn the_tail_back_fill_carries_file_changes() {
+        let ups = tool_result_updates(&bash_with_file_changes());
+        assert_eq!(ups[0].file_changes.as_ref().map(|c| c.files.len()), Some(1));
+    }
+
+    #[test]
+    fn a_line_with_several_tool_results_attributes_no_file_changes() {
+        // `toolUseResult` sits on the line, not on a result, so with two it can't be placed.
+        let line = r#"{"type":"user","uuid":"00000000-0000-0000-0000-0000000000d3","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_1","content":"a"},{"type":"tool_result","tool_use_id":"toolu_2","content":"b"}]},"toolUseResult":{"bashEditDiff":{"files":[{"filePath":"/repo/x.md","hunks":[]}],"moreFiles":0}}}"#;
+        let events: Vec<Event> = vec![serde_json::from_str(line).unwrap()];
+        let ups = tool_result_updates(&events);
+        assert_eq!(ups.len(), 2);
+        assert!(ups.iter().all(|u| u.file_changes.is_none()));
     }
 
     #[test]

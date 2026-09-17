@@ -42,6 +42,15 @@ describe("patchToolResults", () => {
     expect(t.blocks[0].result).toEqual({ text: "== output ==", is_error: false });
   });
 
+  it("carries the files a late command changed", () => {
+    const file_changes = { files: [{ path: "/a", created: true, hunks: [] }], more: 0 };
+    const turns = [asstTurn([toolCall("toolu_sed", null)])];
+    const next = patchToolResults(turns, [{ ...up("toolu_sed"), file_changes }]);
+    const t = next[0];
+    if (t.type !== "assistant" || t.blocks[0].type !== "tool_call") throw new Error("shape");
+    expect(t.blocks[0].result?.file_changes).toEqual(file_changes);
+  });
+
   it("never overwrites an existing result (same-batch pairs already embedded)", () => {
     const turns = [asstTurn([toolCall("toolu_a", { text: "original", is_error: false })])];
     const next = patchToolResults(turns, [up("toolu_a", "late duplicate")]);

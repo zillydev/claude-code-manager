@@ -3,11 +3,14 @@ import type { RenderedBlock, ToolCallResult } from "../types";
 import { makeSegId } from "../lib/segments";
 import { prettyToolName } from "../lib/toolDisplay";
 import { toolInputText, toolResultText } from "../lib/findMatches";
-import { diffLineText, diffSources, toolDiff, type DiffLine } from "../lib/toolDiff";
+import { diffSources, toolDiff, type DiffLine } from "../lib/toolDiff";
 import { highlightToLines, languageForPath, type Token } from "../lib/syntax";
+import { wordEmphasis } from "../lib/wordDiff";
 import { askLines, type AskLine } from "../lib/askQuestion";
 import { bashLines, type BashLine } from "../lib/bashBody";
 import { ImageStrip } from "./InlineImage";
+import DiffRow from "./DiffRow";
+import { ChangesBadge, FileChangesBody } from "./FileChanges";
 
 interface Props {
   block: Extract<RenderedBlock, { type: "tool_call" }>;
@@ -38,6 +41,7 @@ export default function ToolCall({ block, turnIndex, blockIndex, forceExpand }: 
         <span className="text-[var(--color-text-dim)] text-xs truncate min-w-0">
           {block.input_summary}
         </span>
+        {block.result?.file_changes && <ChangesBadge changes={block.result.file_changes} />}
       </button>
 
       {open && (
@@ -49,7 +53,15 @@ export default function ToolCall({ block, turnIndex, blockIndex, forceExpand }: 
             segId={makeSegId(turnIndex, blockIndex, "tool-input")}
           />
           {block.result ? (
-            <ToolResult result={block.result} segId={makeSegId(turnIndex, blockIndex, "tool-result")} />
+            <>
+              <ToolResult result={block.result} segId={makeSegId(turnIndex, blockIndex, "tool-result")} />
+              {block.result.file_changes && (
+                <FileChangesBody
+                  changes={block.result.file_changes}
+                  segId={makeSegId(turnIndex, blockIndex, "tool-changes")}
+                />
+              )}
+            </>
           ) : (
             <div className="px-3 py-1.5 text-xs text-[var(--color-text-dim)] italic">
               (no result)
@@ -125,48 +137,19 @@ function DiffBody({
     if (!lang) return null;
     return { old: highlightToLines(src.old, lang), new: highlightToLines(src.new, lang) };
   }, [name, input]);
+  const emph = useMemo(() => wordEmphasis(lines), [lines]);
 
   return (
     <>
-      {lines.map((l, i) => {
-        const marked = l.kind === "add" || l.kind === "del";
-        const side = tokens && l.side ? tokens[l.side][l.index ?? -1] : undefined;
-        const tail = i === lines.length - 1 ? "" : "\n";
-        return (
-          <span
-            key={i}
-            className={`block ${
-              l.kind === "add"
-                ? "bg-[color-mix(in_srgb,var(--color-assistant)_14%,transparent)]"
-                : l.kind === "del"
-                  ? "bg-[color-mix(in_srgb,var(--color-error)_14%,transparent)]"
-                  : ""
-            }`}
-          >
-            <span
-              className={
-                marked
-                  ? l.kind === "add"
-                    ? "text-[var(--color-assistant)]"
-                    : "text-[var(--color-error)]"
-                  : "text-[var(--color-text-dim)]"
-              }
-            >
-              {diffLineText({ ...l, text: "" })}
-            </span>
-            {side && side.length > 0 ? (
-              side.map((t: Token, k: number) => (
-                <span key={k} className={t.cls}>
-                  {t.text}
-                </span>
-              ))
-            ) : (
-              <span className={marked ? "" : "text-[var(--color-text-dim)]"}>{l.text}</span>
-            )}
-            {tail}
-          </span>
-        );
-      })}
+      {lines.map((l, i) => (
+        <DiffRow
+          key={i}
+          line={l}
+          tokens={tokens && l.side ? tokens[l.side][l.index ?? -1] : undefined}
+          emph={emph[i]}
+          tail={i === lines.length - 1 ? "" : "\n"}
+        />
+      ))}
     </>
   );
 }

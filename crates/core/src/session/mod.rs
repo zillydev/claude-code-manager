@@ -2,6 +2,7 @@ pub mod clone;
 pub mod display;
 pub mod edit;
 pub mod event;
+pub mod file_changes;
 pub mod parse;
 pub mod raw;
 pub mod render;

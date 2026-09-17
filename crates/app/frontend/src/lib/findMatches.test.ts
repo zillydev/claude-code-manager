@@ -6,12 +6,14 @@ import {
   parseSegId,
   revealKey,
   sameMatches,
+  standInSegId,
   toolInputText,
   toolResultText,
   type FindMatch,
 } from "./findMatches";
 import { compileMatcher } from "./findMatcher";
 import { makeSegId } from "./segments";
+import { fileChangesText } from "./fileChanges";
 import type { RenderedTurn } from "../types";
 
 function find(q: string) {
@@ -59,7 +61,30 @@ describe("modelMatches", () => {
   });
 
   it("MODEL_FIELDS names exactly the collapsed-body fields", () => {
-    expect([...MODEL_FIELDS].sort()).toEqual(["task-result", "tool-input", "tool-result"]);
+    expect([...MODEL_FIELDS].sort()).toEqual(["task-result", "tool-changes", "tool-input", "tool-result"]);
+  });
+
+  it("searches the files a command changed, in the text the transcript draws", () => {
+    const changes = {
+      files: [{ path: "/repo/a.md", created: false, hunks: [{ old_start: 1, old_lines: 1, new_start: 1, new_lines: 1, lines: ["-old", "+needle"] }] }],
+      more: 0,
+    };
+    const bash: RenderedTurn[] = [
+      {
+        type: "assistant", timestamp: null, model: null, uuid: "a2",
+        edit_index: 0, fork_index: 0, edit_uuid: "a2", fork_uuid: "a2", uuids: ["a2"], editable: true,
+        blocks: [
+          {
+            type: "tool_call", id: "t2", name: "Bash", input_summary: "sed",
+            input_full: { command: "sed -i s/old/new/ a.md" },
+            result: { text: "", is_error: false, file_changes: changes },
+          },
+        ],
+      },
+    ];
+    const ms = modelMatches(bash, find("needle"));
+    expect(ms.map((m) => m.segId)).toEqual([makeSegId(0, 0, "tool-changes")]);
+    expect(fileChangesText(changes).slice(ms[0].start, ms[0].end)).toBe("needle");
   });
 });
 
@@ -89,6 +114,7 @@ describe("ordering + keys", () => {
 
   it("compareMatches sorts by turn, block, field rank, then offset", () => {
     const list = [
+      mk(1, 0, "tool-changes", 0),
       mk(1, 0, "tool-result", 0),
       mk(0, null, "user-text", 5),
       mk(1, 0, "tool-input", 9),
@@ -102,6 +128,7 @@ describe("ordering + keys", () => {
       "1:0:tool-name:0",
       "1:0:tool-input:9",
       "1:0:tool-result:0",
+      "1:0:tool-changes:0",
       "1:1:assistant-text:0",
     ]);
   });
@@ -114,9 +141,18 @@ describe("ordering + keys", () => {
   it("revealKey addresses the collapsible that must open for a match", () => {
     expect(revealKey(mk(4, 2, "tool-input", 0))).toBe("4:2");
     expect(revealKey(mk(4, 2, "tool-result", 0))).toBe("4:2");
+    expect(revealKey(mk(4, 2, "tool-changes", 0))).toBe("4:2");
     expect(revealKey(mk(9, null, "task-result", 0))).toBe("9:task");
     expect(revealKey(mk(9, null, "user-text", 0))).toBeNull();
     expect(revealKey(mk(4, 2, "tool-name", 0))).toBeNull();
+  });
+
+  it("standInSegId marks a collapsed body at the line that stays visible", () => {
+    expect(standInSegId(mk(4, 2, "tool-input", 0))).toBe("4:2:tool-name");
+    expect(standInSegId(mk(4, 2, "tool-result", 0))).toBe("4:2:tool-name");
+    expect(standInSegId(mk(4, 2, "tool-changes", 0))).toBe("4:2:tool-name");
+    expect(standInSegId(mk(9, null, "task-result", 0))).toBe("9:-:task-summary");
+    expect(standInSegId(mk(9, null, "user-text", 0))).toBeNull();
   });
 
   it("sameMatches compares by position, not identity", () => {

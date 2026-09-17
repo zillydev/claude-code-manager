@@ -7,6 +7,7 @@ import { prettyResultText } from "./toolDisplay";
 import { diffText, toolDiff } from "./toolDiff";
 import { askLines, askText } from "./askQuestion";
 import { bashLines, bashText } from "./bashBody";
+import { fileChangesText } from "./fileChanges";
 import type { Span } from "./findMatcher";
 
 export interface FindMatch {
@@ -25,6 +26,7 @@ export interface FindMatch {
 export const MODEL_FIELDS: ReadonlySet<SegField> = new Set<SegField>([
   "tool-input",
   "tool-result",
+  "tool-changes",
   "task-result",
 ]);
 
@@ -37,7 +39,7 @@ export function parseSegId(segId: string): {
   return { turnIndex: Number(t), blockIndex: b === "-" ? null : Number(b), field: f as SegField };
 }
 
-// Within one block a tool call renders name → input → result, top to bottom.
+// Within one block a tool call renders name → input → result → changed files, top to bottom.
 const FIELD_RANK: Record<SegField, number> = {
   "user-text": 0,
   "assistant-text": 0,
@@ -48,6 +50,7 @@ const FIELD_RANK: Record<SegField, number> = {
   "tool-name": 0,
   "tool-input": 1,
   "tool-result": 2,
+  "tool-changes": 3,
   "task-summary": 0,
   "task-result": 1,
 };
@@ -108,6 +111,7 @@ export function modelMatches(turns: RenderedTurn[], find: (t: string) => Span[])
         if (b.type !== "tool_call") return;
         push(ti, bi, "tool-input", toolInputText(b.name, b.input_full, b.result?.text ?? null));
         if (b.result) push(ti, bi, "tool-result", toolResultText(b.result));
+        if (b.result?.file_changes) push(ti, bi, "tool-changes", fileChangesText(b.result.file_changes));
       });
     }
   });
@@ -118,8 +122,20 @@ export function modelMatches(turns: RenderedTurn[], find: (t: string) => Span[])
  *  a tool call's body, `"ti:task"` for a task notification's result, null
  *  for always-visible text. Transcript turns these into `forceExpand` props. */
 export function revealKey(m: FindMatch): string | null {
-  if (m.field === "tool-input" || m.field === "tool-result") return `${m.turnIndex}:${m.blockIndex}`;
+  if (m.field === "tool-input" || m.field === "tool-result" || m.field === "tool-changes") {
+    return `${m.turnIndex}:${m.blockIndex}`;
+  }
   if (m.field === "task-result") return `${m.turnIndex}:task`;
+  return null;
+}
+
+/** The always-visible segment that marks a match while its body is collapsed: the tool call's name, or the task's
+ *  summary. Null for fields that are never collapsed. */
+export function standInSegId(m: FindMatch): string | null {
+  if (m.field === "tool-input" || m.field === "tool-result" || m.field === "tool-changes") {
+    return makeSegId(m.turnIndex, m.blockIndex, "tool-name");
+  }
+  if (m.field === "task-result") return makeSegId(m.turnIndex, null, "task-summary");
   return null;
 }
 

@@ -10,6 +10,7 @@ export type SegField =
   | "tool-name"
   | "tool-input"
   | "tool-result"
+  | "tool-changes"
   | "task-summary"
   | "task-result";
 

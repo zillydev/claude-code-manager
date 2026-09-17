@@ -3,7 +3,7 @@
  *  matches are painted with the CSS Custom Highlight API — no DOM mutation,
  *  so React re-renders can't lose or duplicate marks. */
 import type { Span } from "./findMatcher";
-import { MODEL_FIELDS, parseSegId, type FindMatch } from "./findMatches";
+import { MODEL_FIELDS, parseSegId, standInSegId, type FindMatch } from "./findMatches";
 
 // The Highlight API has no TS lib typings yet in this toolchain.
 type HighlightCtor = new (...ranges: Range[]) => { add(r: Range): void; priority: number };
@@ -145,12 +145,7 @@ export function gutterMarks(container: HTMLElement, matches: FindMatch[], active
     let el = byId.get(m.segId);
     if (!el) {
       // Collapsed body: mark the always-visible line of the same collapsible.
-      const standIn =
-        m.field === "tool-input" || m.field === "tool-result"
-          ? `${m.turnIndex}:${m.blockIndex}:tool-name`
-          : m.field === "task-result"
-            ? `${m.turnIndex}:-:task-summary`
-            : null;
+      const standIn = standInSegId(m);
       if (standIn) el = byId.get(standIn);
       if (!el) return;
     }
