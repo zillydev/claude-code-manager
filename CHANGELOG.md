@@ -20,6 +20,7 @@ What changed in each release, written for people using the app. Build-time detai
 
 **Fixed**
 
+- **Selecting text no longer closes a dialog.** Dragging to select text in the note editor — or in Settings, the tag editor or any other dialog — and letting go outside it closed the dialog, because the release counted as a click on the dimmed background. A dialog now closes only when the click both starts and ends on the background.
 - **A fork opens as soon as you create it.** Forking stayed on the original session, and the new one — which keeps the forked message's timestamps — sorted among old sessions, far below where you were looking. Forking now opens the fork, and the sidebar scrolls to its row wherever it sorts.
 - **A session's title is its latest prompt, not an out-of-date one.** The sidebar and title bar took the title from a record Claude Code writes only now and then, so it lagged a turn behind while Claude worked, and stuck on an older prompt for good when a session stopped before the next write — 45 of 300 recent sessions showed a stale one. The title now comes from the conversation itself, including prompts with images, `/commands`, `!` commands and messages queued while Claude works, and a finished background task can no longer become the title. The title bar also updates as you go, rather than only when the session is reopened.
 - **A slow search can't overwrite a newer one.** Running a second search before the first finished could leave the first one's results on screen once it caught up; only the latest search's results are shown now.

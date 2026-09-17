@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useBackdropDismiss } from "../hooks/useBackdropDismiss";
 import { useSessionMeta } from "../hooks/useSessionMeta";
 import { TAG_PALETTE, nextPaletteColor, type Tag } from "../lib/sessionMeta";
 
@@ -33,10 +34,11 @@ export default function TagManager({ onClose }: { onClose: () => void }) {
     setNewName("");
   };
 
+  const backdrop = useBackdropDismiss(onClose);
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
-      onClick={onClose}
+      {...backdrop}
     >
       <div
         className="w-full max-w-sm max-h-[85vh] overflow-auto rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-4 shadow-xl space-y-3"

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useBackdropDismiss } from "../hooks/useBackdropDismiss";
 import { getVersion } from "@tauri-apps/api/app";
 import { invoke } from "@tauri-apps/api/core";
 import { openUrl } from "@tauri-apps/plugin-opener";
@@ -61,10 +62,11 @@ export default function Settings({ onClose }: { onClose: () => void }) {
   const stepBtn =
     "w-6 h-6 rounded border border-[var(--color-border)] text-[var(--color-text-dim)] hover:border-[var(--color-accent)] hover:text-[var(--color-accent)]";
 
+  const backdrop = useBackdropDismiss(onClose);
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
-      onClick={onClose}
+      {...backdrop}
     >
       <div
         className="w-full max-w-md max-h-[85vh] overflow-auto rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-4 shadow-xl space-y-4"

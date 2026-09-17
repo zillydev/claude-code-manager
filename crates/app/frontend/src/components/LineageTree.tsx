@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useBackdropDismiss } from "../hooks/useBackdropDismiss";
 import { invoke } from "@tauri-apps/api/core";
 import type { SessionSummary } from "../types";
 import { buildLineageTree, type LineageNode } from "../lib/lineageTree";
@@ -51,6 +52,7 @@ export default function LineageTree({
       .catch(() => {});
   }, [root]);
 
+  const backdrop = useBackdropDismiss(onClose);
   if (!root) return null;
 
   const renderNode = (node: LineageNode, depth: number, parent?: LineageNode) => {
@@ -114,7 +116,7 @@ export default function LineageTree({
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
-      onClick={onClose}
+      {...backdrop}
     >
       <div
         className="w-full max-w-2xl max-h-[80vh] overflow-auto rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-4 shadow-xl"

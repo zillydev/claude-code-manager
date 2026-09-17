@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { useBackdropDismiss } from "../hooks/useBackdropDismiss";
 import { Command, CornerDownLeft } from "lucide-react";
 import { useSessionMeta } from "../hooks/useSessionMeta";
 import { isSaveShortcut } from "../lib/saveShortcut";
@@ -43,10 +44,11 @@ export default function NoteEditor({
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
 
+  const backdrop = useBackdropDismiss(onClose);
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
-      onClick={onClose}
+      {...backdrop}
     >
       <div
         className="w-full max-w-sm rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-4 shadow-xl space-y-3"

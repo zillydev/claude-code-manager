@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useBackdropDismiss } from "../hooks/useBackdropDismiss";
 import type { RenderedImage } from "../types";
 
 /** An image carried by a message or tool result, rendered from its base64
@@ -10,6 +11,7 @@ import type { RenderedImage } from "../types";
 export default function InlineImage({ image, alt }: { image: RenderedImage; alt: string }) {
   const [open, setOpen] = useState(false);
   const src = `data:${image.media_type};base64,${image.data}`;
+  const backdrop = useBackdropDismiss(() => setOpen(false));
 
   useEffect(() => {
     if (!open) return;
@@ -35,7 +37,7 @@ export default function InlineImage({ image, alt }: { image: RenderedImage; alt:
       {open && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 cursor-zoom-out"
-          onClick={() => setOpen(false)}
+          {...backdrop}
         >
           <img
             src={src}

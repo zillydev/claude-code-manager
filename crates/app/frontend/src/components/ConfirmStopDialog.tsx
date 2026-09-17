@@ -1,4 +1,5 @@
 import { useEffect } from "react";
+import { useBackdropDismiss } from "../hooks/useBackdropDismiss";
 import type { SessionSummary } from "../types";
 import { useSessionMeta } from "../hooks/useSessionMeta";
 import { sessionTitle } from "../lib/sessionMeta";
@@ -25,8 +26,9 @@ export default function ConfirmStopDialog({
   }, [onCancel]);
 
   const n = sessions.length;
+  const backdrop = useBackdropDismiss(onCancel);
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={onCancel}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" {...backdrop}>
       <div
         className="w-full max-w-sm rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-4 shadow-xl space-y-3"
         onClick={(e) => e.stopPropagation()}
