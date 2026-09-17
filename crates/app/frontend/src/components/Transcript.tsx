@@ -30,6 +30,7 @@ import { useSessionMeta } from "../hooks/useSessionMeta";
 import { entryTags } from "../lib/sessionMeta";
 import { makeSegId } from "../lib/segments";
 import { isNearBottom } from "../lib/scroll";
+import { loadPosition, pickAnchor, savePosition, type ScrollAnchor } from "../lib/scrollMemory";
 import { filterCompact } from "../lib/compactView";
 import { locateJump, turnUuids, type JumpTarget } from "../lib/jumpTarget";
 import { seedQuery } from "../lib/findHandoff";
@@ -109,6 +110,40 @@ export default function Transcript({
     turnsRef.current?.scrollTo({ top: 0, behavior: "smooth" });
   }, []);
   const prevSessionId = useRef<string | null>(null);
+  // A remembered position waiting to be put back once the view can be measured, which it can't while hidden.
+  const restoreRef = useRef<ScrollAnchor | null>(null);
+  const restoreRaf = useRef(0);
+  // The latest position measured while scrolling, written once scrolling settles, on switching away, or on unmount.
+  const pendingSave = useRef<{ id: string; anchor: ScrollAnchor | null } | null>(null);
+  const saveTimer = useRef(0);
+  const scrollKeyRef = useRef({ id: session.id, branch: viewingBranch, visible });
+  scrollKeyRef.current = { id: session.id, branch: viewingBranch, visible };
+  const flushSave = useCallback(() => {
+    window.clearTimeout(saveTimer.current);
+    const p = pendingSave.current;
+    pendingSave.current = null;
+    if (p) savePosition(p.id, p.anchor);
+  }, []);
+  // Put a remembered position back after layout; a message no longer drawn falls back to the latest.
+  const scheduleRestore = useCallback(() => {
+    cancelAnimationFrame(restoreRaf.current);
+    restoreRaf.current = requestAnimationFrame(() => {
+      restoreRaf.current = requestAnimationFrame(() => {
+        restoreRaf.current = 0;
+        const anchor = restoreRef.current;
+        restoreRef.current = null;
+        const scroller = turnsRef.current;
+        if (!anchor || !scroller) return;
+        const el = scroller.querySelector<HTMLElement>(`[data-msg-uuids~="${anchor.uuid}"]`);
+        if (!el) {
+          setPinned(true);
+          bottomRef.current?.scrollIntoView();
+          return;
+        }
+        scroller.scrollTop += el.getBoundingClientRect().top - scroller.getBoundingClientRect().top + anchor.offset;
+      });
+    });
+  }, [setPinned]);
   const editor = useEditor();
   const sourcePath = session.source_path;
 
@@ -181,16 +216,38 @@ export default function Transcript({
   useEffect(() => {
     const container = turnsRef.current;
     if (!container) return;
+    let anchorRaf = 0;
     const onScroll = () => {
       setPinned(isNearBottom(container));
       setAtTop(container.scrollTop < 4); // same-value sets bail in React
+      // Measured once a frame however fast scroll events fire. Not measured in a branch view (its position isn't
+      // the session's), while a restore is pending, or while hidden, where a sizeless view would read as the bottom.
+      if (anchorRaf) return;
+      anchorRaf = requestAnimationFrame(() => {
+        anchorRaf = 0;
+        const { id, branch } = scrollKeyRef.current;
+        if (branch || restoreRef.current || container.clientHeight === 0) return;
+        pendingSave.current = { id, anchor: isNearBottom(container) ? null : viewAnchor(container) };
+        window.clearTimeout(saveTimer.current);
+        saveTimer.current = window.setTimeout(flushSave, 250);
+      });
     };
     container.addEventListener("scroll", onScroll, { passive: true });
-    return () => container.removeEventListener("scroll", onScroll);
-  }, [setPinned]);
+    window.addEventListener("pagehide", flushSave);
+    return () => {
+      container.removeEventListener("scroll", onScroll);
+      window.removeEventListener("pagehide", flushSave);
+      cancelAnimationFrame(anchorRaf);
+      cancelAnimationFrame(restoreRaf.current);
+      flushSave();
+    };
+  }, [setPinned, flushSave]);
 
-  // On opening/switching a session, jump to the latest — unless we were asked to
-  // scroll to a specific message (the effect below handles that). When the
+  // Switching sessions writes the one being left before the new one's scrolling can replace it.
+  useEffect(() => flushSave, [session.id, flushSave]);
+
+  // On opening/switching a session, return to where it was left, else jump to the latest — unless we were asked
+  // to scroll to a specific message (the effect below handles that). When the
   // rendered set changes within the same session — a live-tail turn, or a
   // compact/find toggle that reshapes height — re-pin to the bottom if we were
   // there (otherwise a toggle leaves scrollTop pointing at now-different content).
@@ -198,8 +255,14 @@ export default function Transcript({
     const isNewSession = prevSessionId.current !== session.id;
     prevSessionId.current = session.id;
     if (isNewSession) {
+      restoreRef.current = null;
+      const saved = scrollToMessage || scrollKeyRef.current.branch ? null : loadPosition(session.id);
       if (scrollToMessage) {
         setPinned(false); // the scroll-to-message effect takes over
+      } else if (saved) {
+        setPinned(false);
+        restoreRef.current = saved;
+        if (scrollKeyRef.current.visible) scheduleRestore();
       } else {
         setPinned(true);
         bottomRef.current?.scrollIntoView();
@@ -210,7 +273,7 @@ export default function Transcript({
     } else if (atBottomRef.current) {
       bottomRef.current?.scrollIntoView({ behavior: "smooth" });
     }
-  }, [session.id, visibleTurns.length, scrollToMessage?.n, setPinned]);
+  }, [session.id, visibleTurns.length, scrollToMessage?.n, setPinned, scheduleRestore]);
 
   // Scroll to + flash a specific message (e.g. a fork point opened from the
   // lineage tree). Keyed on the message too, so it also fires when the target is
@@ -219,6 +282,9 @@ export default function Transcript({
   // (merged) turn; a couple of rAFs let heavy turns finish laying out first.
   useEffect(() => {
     if (!scrollToMessage) return;
+    // An explicit jump outranks a remembered position still waiting to be put back.
+    restoreRef.current = null;
+    cancelAnimationFrame(restoreRaf.current);
     // Ask the turn data first: a querySelector miss can't tell "this session
     // never shows that message" from "it hasn't laid out yet", and silently
     // doing nothing is exactly what a dead search result looked like.
@@ -288,14 +354,19 @@ export default function Transcript({
   // A notice about the previous session's jump has nothing to say about this one.
   useEffect(() => setJumpMiss(null), [session.id]);
 
-  // When this tab becomes visible again, restore the bottom if we were pinned
-  // there: display:none can drift the scroll position, and live turns may have
+  // When this tab becomes visible again, put back a position that couldn't be measured while hidden, or restore
+  // the bottom if we were pinned there: display:none can drift the scroll position, and live turns may have
   // arrived while the pane was hidden (so the old bottom is no longer the bottom).
   useEffect(() => {
-    if (!visible || !atBottomRef.current) return;
+    if (!visible) return;
+    if (restoreRef.current) {
+      scheduleRestore();
+      return;
+    }
+    if (!atBottomRef.current) return;
     const raf = requestAnimationFrame(() => bottomRef.current?.scrollIntoView());
     return () => cancelAnimationFrame(raf);
-  }, [visible]);
+  }, [visible, scheduleRestore]);
 
   // ⌘F opens/refocuses the in-session find bar (Zed's buffer search; ⌘⇧F is
   // the global find, handled in App). Only while this tab is showing — with
@@ -587,6 +658,19 @@ export default function Transcript({
         </div>
       )}
     </div>
+  );
+}
+
+/** The scroller's view as the turn at its top edge and how far into it the view starts. */
+function viewAnchor(scroller: HTMLElement): ScrollAnchor | null {
+  const turns = scroller.querySelectorAll<HTMLElement>("[data-msg-uuids]");
+  return pickAnchor(
+    turns.length,
+    (i) => {
+      const r = turns[i].getBoundingClientRect();
+      return { uuid: turns[i].dataset.msgUuids!.split(" ")[0], top: r.top, bottom: r.bottom };
+    },
+    scroller.getBoundingClientRect().top,
   );
 }
 
