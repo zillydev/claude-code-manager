@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { menuItemClass } from "./Dropdown";
+import { headerAt, leavesSection } from "../lib/filterRows";
 
-/** One navigable row. `section` renders a header immediately above it. */
+/** One navigable row. Rows sharing a `section` are a group, headed where it starts. */
 export interface MenuItem {
   key: string;
   node: ReactNode;
@@ -90,7 +91,6 @@ export default function FilterMenu({ items, empty, close, search, footer }: Prop
     }
   };
 
-  let index = -1;
   return (
     <div ref={boxRef} tabIndex={-1} onKeyDown={onKeyDown} className="outline-none">
       {search && (
@@ -109,17 +109,18 @@ export default function FilterMenu({ items, empty, close, search, footer }: Prop
         {list.length === 0 && (
           <div className="px-3 py-1.5 text-[11px] text-[var(--color-text-dim)]">{empty}</div>
         )}
-        {list.map((it) => {
-          index += 1;
-          const i = index;
+        {list.map((it, i) => {
+          const header = headerAt(list, i);
+          // A rule closes the section above when no header of this row's own already draws one.
+          const rule = it.divider || leavesSection(list, i);
           return (
             <div key={it.key}>
-              {it.divider && !it.section && (
+              {rule && !header && (
                 <div className="my-1 border-t border-[var(--color-border)]" />
               )}
-              {it.section && (
+              {header && (
                 <div className="mt-1 border-t border-[var(--color-border)] px-3 pt-1.5 pb-0.5 text-[10px] uppercase tracking-wide text-[var(--color-text-dim)]">
-                  {it.section}
+                  {header}
                 </div>
               )}
               <button

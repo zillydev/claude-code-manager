@@ -4,6 +4,7 @@ import type { DateRange } from "../types";
 import type { SessionMeta } from "../lib/sessionMeta";
 import { archivedTags } from "../lib/sessionMeta";
 import { matchProjectGroups, matches, type ProjectGroup } from "../lib/filterMatch";
+import { pinSelected } from "../lib/filterRows";
 import Dropdown, { menuItemClass } from "./Dropdown";
 import FilterMenu, { type MenuItem } from "./FilterMenu";
 import TagChip from "./TagChip";
@@ -86,12 +87,12 @@ export default function SessionFilters({
       // A name with several directories expands to per-directory rows — the
       // collision rule the old <select> used.
       if (g.cwds.length > 1) {
-        g.cwds.forEach((c, i) => {
+        g.cwds.forEach((c) => {
           out.push({
             key: `dir:${c}`,
             node: shortenPath(c),
             title: c,
-            section: i === 0 ? g.name : undefined,
+            section: g.name,
             selected: project === `dir:${c}`,
             onSelect: () => {
               setProject(`dir:${c}`);
@@ -151,21 +152,8 @@ export default function SessionFilters({
         ...row(t),
         divider: i === 0 && pin.length > 0,
       })),
-      ...archived.map((t, i) => row(t, i === 0 ? "Archived" : undefined)),
+      ...archived.map((t) => row(t, "Archived")),
     ];
-  };
-
-  /** Move the selected row to the top, with a rule under it. Single-select
-   *  menus only — see `pinned` for why the tag menu can't sort live. */
-  const pinSelected = (items: MenuItem[]): MenuItem[] => {
-    const i = items.findIndex((it) => it.selected);
-    if (i <= 0) return items;
-    const rest = items.filter((_, j) => j !== i);
-    if (rest.length === 0) return items;
-    // The pinned row leaves its section behind; the next row inherits it.
-    const orphanSection = items[i].section;
-    if (orphanSection && rest[0]) rest[0] = { ...rest[0], section: orphanSection };
-    return [{ ...items[i], section: undefined }, { ...rest[0], divider: true }, ...rest.slice(1)];
   };
 
   return (
