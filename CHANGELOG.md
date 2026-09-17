@@ -10,6 +10,10 @@ What changed in each release, written for people using the app. Build-time detai
 
 - **Messages no longer appear twice.** Clicking another session while a large one was still loading left the window listening to the live tail twice, so from then on every new message showed up twice — in whichever session it displayed — until the app was restarted. And a message Claude wrote at the very moment a session opened could arrive twice too, or, if it was half-written, not at all. Now only the most recent open listens, and a session picks up exactly where its first read stopped.
 
+**Changed**
+
+- **Precise session status is on by default, as a Claude Code plugin.** Claude reports each session's state itself — a question or permission prompt shows as needing you the moment it appears — through a small `ccm-status` plugin the app adds to Claude Code, and a note in the sidebar says so. Turn it off in Settings or with `/plugin`, and it stays off. If you had switched it on before, its hooks move out of `~/.claude/settings.json` into the plugin. It needs Apple's command line tools, and uninstalling the app leaves nothing behind that errors.
+
 ## v0.1.3 — 2026-09-17
 
 **Added**

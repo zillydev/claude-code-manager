@@ -1,0 +1,14 @@
+{
+  "name": "claude-code-manager",
+  "owner": {
+    "name": "zillydev"
+  },
+  "description": "The status plugin bundled with Claude Code Manager.",
+  "plugins": [
+    {
+      "name": "ccm-status",
+      "source": "./plugins/ccm-status",
+      "description": "Reports each session's state to Claude Code Manager."
+    }
+  ]
+}

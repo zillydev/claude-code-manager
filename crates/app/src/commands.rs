@@ -507,6 +507,8 @@ pub fn get_config() -> crate::config::Config {
 /// the new theme/typography/behavior live.
 #[tauri::command]
 pub fn set_config(config: crate::config::Config, app: AppHandle) -> Result<(), String> {
+    // A window's copy may predate a choice the backend made since.
+    let config = crate::config::with_backend_owned(config, &crate::config::load());
     crate::config::save(&config).map_err(|e| e.to_string())?;
     let _ = app.emit("config-changed", &config);
     Ok(())
@@ -538,23 +540,6 @@ pub fn set_last_viewed(
     shared: tauri::State<'_, crate::shared::Shared>,
 ) {
     shared.merge_last_viewed(map);
-}
-
-/// Install / remove / probe the Claude Code hook relay (Settings toggle).
-/// State lives in `~/.claude/settings.json` itself — no ccm config duplicates it.
-#[tauri::command]
-pub fn hooks_install() -> Result<(), String> {
-    crate::hooks::install()
-}
-
-#[tauri::command]
-pub fn hooks_uninstall() -> Result<(), String> {
-    crate::hooks::uninstall()
-}
-
-#[tauri::command]
-pub fn hooks_installed() -> bool {
-    crate::hooks::installed()
 }
 
 #[derive(Serialize, Clone)]

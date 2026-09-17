@@ -1,0 +1,9 @@
+{
+  "name": "ccm-status",
+  "version": "1.0.0",
+  "description": "Reports each session's state (running, needs you, your turn) to Claude Code Manager.",
+  "author": {
+    "name": "zillydev"
+  },
+  "homepage": "https://github.com/zillydev/claude-code-manager"
+}

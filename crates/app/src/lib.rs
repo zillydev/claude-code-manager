@@ -4,6 +4,8 @@ mod config;
 mod dev_reload;
 mod dock_name;
 mod hooks;
+mod plugin;
+mod precise_status;
 mod session_link;
 mod session_meta;
 mod shared;
@@ -121,6 +123,7 @@ pub fn run() {
             }
             dev_reload::restore_windows(app.handle());
             update_check::start(app.handle());
+            precise_status::start(app.handle());
             // One app-wide poller: every 3s it refreshes the shared activity scan
             // and (only when the project dir's signature changes) re-discovers,
             // then broadcasts to ALL windows. Replaces each window polling on its
@@ -322,9 +325,10 @@ pub fn run() {
             commands::open_session,
             commands::stop_watching,
             commands::search_messages,
-            commands::hooks_install,
-            commands::hooks_uninstall,
-            commands::hooks_installed,
+            precise_status::precise_status_choice,
+            precise_status::precise_status_enabled,
+            precise_status::precise_status_enable,
+            precise_status::precise_status_disable,
             commands::fork_session,
             commands::message_previews,
             commands::delete_session,

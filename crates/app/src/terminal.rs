@@ -35,18 +35,7 @@ fn which_in(path: &str, name: &str) -> Option<std::path::PathBuf> {
     })
 }
 
-/// Resolve how to start claude, and with what PATH.
-///
-/// A GUI app inherits launchd's minimal PATH, so ccm asks a LOGIN shell for the
-/// real one (see [`login_path`]). That misses a common case: `zsh -lc` reads
-/// `.zprofile` but NOT `.zshrc`, and `.zshrc` is exactly where Claude Code's
-/// native installer, nvm, fnm and asdf put their PATH. A user whose `claude`
-/// lives in `~/.local/bin` exported from `.zshrc` therefore had the terminal
-/// fail with "no such file", despite `claude` working fine in their terminal.
-///
-/// So: try the login PATH, then an INTERACTIVE login shell's PATH (which does
-/// read `.zshrc`), then the standard install directories. Whichever wins also
-/// supplies the child's PATH, so claude's own subprocesses resolve too.
+/// Resolve how to start claude, and with what PATH: the user's `claude-tracked` wrapper when present, else [`find_claude`].
 fn resolve_entrypoint() -> Result<Entrypoint, String> {
     // The user's own wrapper, if present, wins — it execs claude after adding
     // window-tracking env (see the claude-tracked script).
@@ -60,6 +49,22 @@ fn resolve_entrypoint() -> Result<Entrypoint, String> {
         }
     }
 
+    find_claude()
+}
+
+/// The real `claude` executable and the PATH it needs, never the `claude-tracked` wrapper.
+///
+/// A GUI app inherits launchd's minimal PATH, so ccm asks a LOGIN shell for the
+/// real one (see [`login_path`]). That misses a common case: `zsh -lc` reads
+/// `.zprofile` but NOT `.zshrc`, and `.zshrc` is exactly where Claude Code's
+/// native installer, nvm, fnm and asdf put their PATH. A user whose `claude`
+/// lives in `~/.local/bin` exported from `.zshrc` therefore had the terminal
+/// fail with "no such file", despite `claude` working fine in their terminal.
+///
+/// So: try the login PATH, then an INTERACTIVE login shell's PATH (which does
+/// read `.zshrc`), then the standard install directories. Whichever wins also
+/// supplies the child's PATH, so claude's own subprocesses resolve too.
+pub(crate) fn find_claude() -> Result<Entrypoint, String> {
     if let Some(path) = login_path() {
         if which_in(&path, "claude").is_some() {
             return Ok(Entrypoint { program: "claude".into(), path: Some(path) });

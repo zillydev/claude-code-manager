@@ -24,8 +24,8 @@ pub struct Config {
     pub integrations: Integrations,
 }
 
-/// Optional side effects the user opts into. Off by default: ccm writes nothing
-/// outside its own config file unless asked.
+/// Integrations with other tools. Precise status is owned by the backend (see precise_status.rs); the rest are
+/// opt-in side effects.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Integrations {
@@ -33,6 +33,27 @@ pub struct Integrations {
     /// third-party tools (status bars, notifiers).
     #[serde(default)]
     pub publish_status: bool,
+    #[serde(default)]
+    pub precise_status: PreciseStatus,
+}
+
+/// Whether the bundled status plugin should be in Claude Code, as far as anyone has chosen.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum PreciseStatus {
+    /// Nobody has chosen; the installed app enables it at launch.
+    #[default]
+    Unset,
+    /// Enabled by the app on its own; the sidebar announces it once.
+    Auto,
+    On,
+    Off,
+}
+
+/// `incoming` from a window, with the fields only the backend may change taken from disk.
+pub fn with_backend_owned(mut incoming: Config, on_disk: &Config) -> Config {
+    incoming.integrations.precise_status = on_disk.integrations.precise_status;
+    incoming
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -310,5 +331,24 @@ mod tests {
         assert!(path.exists());
         assert!(!path.with_extension("json.tmp").exists());
         let _ = std::fs::remove_dir_all(path.parent().unwrap());
+    }
+    #[test]
+    fn precise_status_defaults_to_unset_and_round_trips() {
+        let c: Config = serde_json::from_str("{}").unwrap();
+        assert_eq!(c.integrations.precise_status, PreciseStatus::Unset);
+        let c: Config = serde_json::from_str(r#"{"integrations":{"preciseStatus":"off"}}"#).unwrap();
+        assert_eq!(c.integrations.precise_status, PreciseStatus::Off);
+        let out = serde_json::to_value(&c).unwrap();
+        assert_eq!(out["integrations"]["preciseStatus"], "off");
+    }
+
+    #[test]
+    fn a_window_saving_config_keeps_the_backend_owned_choice() {
+        let mut on_disk = Config::default();
+        on_disk.integrations.precise_status = PreciseStatus::Off;
+        let incoming = Config { theme: "light".into(), ..Config::default() };
+        let saved = with_backend_owned(incoming, &on_disk);
+        assert_eq!(saved.integrations.precise_status, PreciseStatus::Off);
+        assert_eq!(saved.theme, "light");
     }
 }

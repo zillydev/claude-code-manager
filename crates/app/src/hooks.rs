@@ -4,10 +4,10 @@
 //! only guess from repaint traffic — but claude announces every transition
 //! itself if asked: `UserPromptSubmit` when a turn starts, `PreToolUse` when an
 //! `AskUserQuestion`/`ExitPlanMode` card goes up, `PermissionRequest` when it
-//! waits for approval, `Stop` when it finishes. A tiny relay script (installed
-//! into `~/.claude/settings.json`, opt-in) appends each event to an ndjson file
-//! in the config dir; the poller tails it and folds events into a per-session
-//! phase.
+//! waits for approval, `Stop` when it finishes. A tiny relay (the bundled
+//! `ccm-status` Claude Code plugin, see precise_status.rs) appends each event to an
+//! ndjson file in the config dir; the poller tails it and folds events into a
+//! per-session phase.
 //!
 //! Hook state is treated as a WITNESS, not the authority: it wins only while it
 //! is at least as new as the session file's last event, so a missed edge (Esc
@@ -22,61 +22,20 @@ use std::path::PathBuf;
 use serde::Serialize;
 use serde_json::{json, Value};
 
-/// Marker every installed hook command contains — how our entries are found
-/// (and removed) inside the user's settings without touching anyone else's.
+/// Marker in the hook commands ccm used to write into `~/.claude/settings.json`,
+/// which is how those entries are found and removed without touching anyone else's.
 const RELAY_NAME: &str = "claude-hook-relay.py";
 
 /// Events file the relay appends to and the poller tails.
 pub const EVENTS_FILE: &str = "hook-events.ndjson";
 
-/// The relay: stdin JSON in, one compact line out. Python because it is on
-/// every macOS box and the user's own hook script measured ~90ms — fine for
-/// per-event cost. Mirrors `config::config_dir` resolution so both ends agree.
-const RELAY_SCRIPT: &str = r#"#!/usr/bin/env python3
-# claude-code-manager hook relay (managed file — reinstalled on toggle).
-import json, os, sys, time
-
-d = os.environ.get("CLAUDE_CODE_MANAGER_CONFIG_DIR")
-if not d:
-    xdg = os.environ.get("XDG_CONFIG_HOME")
-    base = xdg if xdg else os.path.join(os.environ.get("HOME", "."), ".config")
-    d = os.path.join(base, "claude-code-manager")
-OUT = os.path.join(d, "hook-events.ndjson")
-
-try:
-    p = json.load(sys.stdin)
-except Exception:
-    sys.exit(0)
-line = json.dumps({
-    "ts": round(time.time(), 2),
-    "event": p.get("hook_event_name") or "",
-    "sid": p.get("session_id") or "",
-    "tool": p.get("tool_name") or "",
-    "notif": p.get("notification_type") or "",
-    "src": p.get("source") or "",
-}, separators=(",", ":"))
-os.makedirs(d, exist_ok=True)
-try:
-    if os.path.getsize(OUT) > 512_000:
-        tail = open(OUT).readlines()[-1500:]
-        open(OUT, "w").writelines(tail)
-except OSError:
-    pass
-with open(OUT, "a") as f:
-    f.write(line + "\n")
-"#;
-
-pub fn relay_path() -> PathBuf {
-    crate::config::config_dir().join(RELAY_NAME)
-}
-
 pub fn events_path() -> PathBuf {
     crate::config::config_dir().join(EVENTS_FILE)
 }
 
-/// (event, PreToolUse/PostToolUse matcher) pairs we register. PermissionRequest
-/// fires only when a decision is actually pending, Notification only when
-/// claude notifies — both rare, so no matcher needed there.
+/// (event, PreToolUse/PostToolUse matcher) pairs the plugin's `hooks.json` registers, pinned by test.
+/// PermissionRequest and Notification fire rarely, so they need no matcher.
+#[cfg(test)]
 const HOOK_EVENTS: &[(&str, Option<&str>)] = &[
     ("SessionStart", None),
     ("SessionEnd", None),
@@ -89,8 +48,13 @@ const HOOK_EVENTS: &[(&str, Option<&str>)] = &[
     ("Notification", None),
 ];
 
+/// How the bundled plugin runs its relay: python by absolute path, so the bundle needn't keep an execute bit.
+#[cfg(test)]
+const PLUGIN_RELAY_COMMAND: &str = r#"/usr/bin/python3 "${CLAUDE_PLUGIN_ROOT}/relay.py""#;
+
 /// Add our hook entries to a parsed `~/.claude/settings.json`, idempotently:
 /// any previous entries of ours are removed first, everyone else's are kept.
+#[cfg(test)]
 pub fn install_into(settings: &mut Value, relay_cmd: &str) {
     uninstall_from(settings);
     if !settings.is_object() {
@@ -266,29 +230,14 @@ impl EventTail {
     }
 }
 
-/// Install the relay script + settings entries. Backs the settings file up once
-/// (`settings.json.ccm-backup`) before its first modification.
-pub fn install() -> Result<(), String> {
-    let relay = relay_path();
-    std::fs::create_dir_all(relay.parent().unwrap()).map_err(|e| e.to_string())?;
-    std::fs::write(&relay, RELAY_SCRIPT).map_err(|e| e.to_string())?;
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(&relay, std::fs::Permissions::from_mode(0o755))
-            .map_err(|e| e.to_string())?;
-    }
-    edit_settings(|s| install_into(s, relay.to_str().unwrap_or_default()))
-}
-
-pub fn uninstall() -> Result<(), String> {
-    // The relay file stays: sessions started while enabled hold the old hook
-    // snapshot and would otherwise invoke a missing command on every event.
-    edit_settings(uninstall_from)
-}
-
-pub fn installed() -> bool {
+/// Our entries from before the plugin, still in `~/.claude/settings.json`.
+pub fn legacy_installed() -> bool {
     read_settings().map(|s| is_installed(&s)).unwrap_or(false)
+}
+
+/// Removes those entries, leaving everyone else's hooks and settings untouched. Backs the file up once first.
+pub fn remove_legacy() -> Result<(), String> {
+    edit_settings(uninstall_from)
 }
 
 fn claude_settings_path() -> PathBuf {
@@ -324,6 +273,29 @@ fn edit_settings(f: impl FnOnce(&mut Value)) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_bundled_plugin_registers_exactly_our_hook_events() {
+        let bundled: Value =
+            serde_json::from_str(include_str!("../plugin/plugins/ccm-status/hooks/hooks.json")).unwrap();
+        let hooks = bundled["hooks"].as_object().expect("hooks object");
+        let mut got: Vec<(String, Option<String>, String)> = hooks
+            .iter()
+            .flat_map(|(event, groups)| {
+                groups.as_array().unwrap().iter().map(move |g| {
+                    let cmd = g["hooks"][0]["command"].as_str().unwrap().to_string();
+                    (event.clone(), g["matcher"].as_str().map(str::to_string), cmd)
+                })
+            })
+            .collect();
+        got.sort();
+        let mut want: Vec<(String, Option<String>, String)> = HOOK_EVENTS
+            .iter()
+            .map(|(e, m)| (e.to_string(), m.map(str::to_string), PLUGIN_RELAY_COMMAND.to_string()))
+            .collect();
+        want.sort();
+        assert_eq!(got, want);
+    }
 
     fn ev(line: &str) -> HookEvent {
         serde_json::from_str(line).unwrap()

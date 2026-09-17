@@ -26,17 +26,22 @@ export default function Settings({ onClose }: { onClose: () => void }) {
   // build someone is actually running when they report a problem.
   const [version, setVersion] = useState<string | null>(null);
   const latest = useUpdateAvailable();
-  // Truth lives in ~/.claude/settings.json, so probe rather than mirror in config.
-  const [hooksOn, setHooksOn] = useState<boolean | null>(null);
-  const [hooksError, setHooksError] = useState<string | null>(null);
+  // The plugin's state lives in Claude Code, so ask it rather than mirror it.
+  const [statusPlugin, setStatusPlugin] = useState<boolean | null>(null);
+  const [statusPluginBusy, setStatusPluginBusy] = useState(false);
+  const [statusPluginError, setStatusPluginError] = useState<string | null>(null);
   useEffect(() => {
-    invoke<boolean>("hooks_installed").then(setHooksOn).catch(() => {});
+    invoke<boolean>("precise_status_enabled")
+      .then(setStatusPlugin)
+      .catch((e) => setStatusPluginError(String(e)));
   }, []);
-  const toggleHooks = (want: boolean) => {
-    setHooksError(null);
-    invoke(want ? "hooks_install" : "hooks_uninstall")
-      .then(() => setHooksOn(want))
-      .catch((e) => setHooksError(String(e)));
+  const toggleStatusPlugin = (want: boolean) => {
+    setStatusPluginError(null);
+    setStatusPluginBusy(true);
+    invoke(want ? "precise_status_enable" : "precise_status_disable")
+      .then(() => setStatusPlugin(want))
+      .catch((e) => setStatusPluginError(String(e)))
+      .finally(() => setStatusPluginBusy(false));
   };
   useEffect(() => {
     getVersion()
@@ -251,19 +256,19 @@ export default function Settings({ onClose }: { onClose: () => void }) {
           </div>
           <CheckRow
             label="Precise status via Claude Code hooks"
-            checked={hooksOn ?? false}
-            onChange={toggleHooks}
+            checked={statusPlugin ?? false}
+            disabled={statusPluginBusy || statusPlugin === null}
+            onChange={toggleStatusPlugin}
           />
           <div className="text-[10px] text-[var(--color-text-dim)] leading-relaxed">
-            Installs a small relay into <code>~/.claude/settings.json</code> so Claude itself
-            reports each session's state: a question or permission prompt shows as needing you
-            the moment it appears, and a finished turn within seconds. Without it, status is
-            inferred from session files and terminal output. Applies to sessions started after
-            toggling; your existing hooks are left untouched (a one-time backup is kept as{" "}
-            <code>settings.json.ccm-backup</code>).
+            Adds the <code>ccm-status</code> plugin to Claude Code so Claude itself reports each
+            session's state: a question or permission prompt shows as needing you the moment it
+            appears, and a finished turn within seconds. Without it, status is inferred from session
+            files and terminal output. Applies to sessions started after the change; remove it here or
+            with <code>/plugin</code> in Claude Code.
           </div>
-          {hooksError && (
-            <div className="text-[10px] text-[var(--color-error)]">{hooksError}</div>
+          {statusPluginError && (
+            <div className="text-[10px] text-[var(--color-error)]">{statusPluginError}</div>
           )}
         </Section>
 
@@ -344,16 +349,23 @@ function Toggle2({
 function CheckRow({
   label,
   checked,
+  disabled,
   onChange,
 }: {
   label: string;
   checked: boolean;
+  disabled?: boolean;
   onChange: (v: boolean) => void;
 }) {
   return (
     <label className="flex items-center justify-between text-xs cursor-pointer text-[var(--color-text)]">
       <span>{label}</span>
-      <input type="checkbox" checked={checked} onChange={(e) => onChange(e.target.checked)} />
+      <input
+        type="checkbox"
+        checked={checked}
+        disabled={disabled}
+        onChange={(e) => onChange(e.target.checked)}
+      />
     </label>
   );
 }
