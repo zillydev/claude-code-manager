@@ -21,12 +21,15 @@ export default function TerminalView({
   active,
   cwd,
   onStatus,
+  onTakeOver,
 }: {
   sessionId: string;
   filePath: string;
   active: boolean;
   cwd?: string;
   onStatus?: (s: "live" | "exited" | "busy") => void;
+  /** Stop this session's terminal wherever it runs, so this window can take it. */
+  onTakeOver?: () => void;
 }) {
   const hostRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<Terminal | null>(null);
@@ -287,14 +290,24 @@ export default function TerminalView({
       {blocked && (
         <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 px-6 text-center text-[var(--color-text-dim)]">
           <span className="text-sm">This session is already open in another window.</span>
-          {blocked.owner && (
+          <div className="flex items-center gap-2">
+            {blocked.owner && (
+              <button
+                onClick={() => invoke("focus_window", { label: blocked.owner }).catch(() => {})}
+                className="px-3 py-1 rounded bg-[var(--color-accent)] text-white text-xs"
+              >
+                Switch to it
+              </button>
+            )}
+            {/* Closing its terminal frees the session; the `terminal-released` listener above retakes it here. */}
             <button
-              onClick={() => invoke("focus_window", { label: blocked.owner }).catch(() => {})}
-              className="px-3 py-1 rounded bg-[var(--color-accent)] text-white text-xs"
+              onClick={() => onTakeOver?.()}
+              title="Stop it in that window and run it here"
+              className="px-3 py-1 rounded border border-[var(--color-border)] text-xs hover:text-[var(--color-text)] hover:border-[var(--color-accent)]"
             >
-              Switch to it
+              Open here instead
             </button>
-          )}
+          </div>
         </div>
       )}
       {exited && (

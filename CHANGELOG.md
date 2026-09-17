@@ -6,6 +6,10 @@ What changed in each release, written for people using the app. Build-time detai
 
 ## Unreleased
 
+**Added**
+
+- **Take a session's terminal from another window.** A session whose terminal runs in another window used to offer only "Switch to it". It now also offers **Open here instead**, which stops it there and starts it in this window. While Claude is working in it, the same dialog as ⌘W asks first; the other window is left showing `[process exited]` with Restart.
+
 **Fixed**
 
 - **A question you chatted about instead of answering says so.** Picking "Chat about this" on one of Claude's questions left its card looking unanswered, since Claude Code records it as a declined question rather than an answer; the card now ends with "Chat about this". A question dismissed with Esc reads "Dismissed without an answer".

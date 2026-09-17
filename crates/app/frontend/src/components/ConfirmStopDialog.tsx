@@ -3,15 +3,16 @@ import { useBackdropDismiss } from "../hooks/useBackdropDismiss";
 import type { SessionSummary } from "../types";
 import { useSessionMeta } from "../hooks/useSessionMeta";
 import { sessionTitle } from "../lib/sessionMeta";
+import { stopWording, type StopKind } from "../lib/stopPrompt";
 
-/** Asks before a window close or a quit stops sessions Claude is still working in. */
+/** Asks before a window close, a quit, or taking a terminal stops sessions Claude is still working in. */
 export default function ConfirmStopDialog({
   kind,
   sessions,
   onCancel,
   onConfirm,
 }: {
-  kind: "close" | "quit" | "terminal";
+  kind: StopKind;
   sessions: SessionSummary[];
   onCancel: () => void;
   onConfirm: () => void;
@@ -26,6 +27,7 @@ export default function ConfirmStopDialog({
   }, [onCancel]);
 
   const n = sessions.length;
+  const { action, confirm } = stopWording(kind);
   const backdrop = useBackdropDismiss(onCancel);
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" {...backdrop}>
@@ -44,8 +46,7 @@ export default function ConfirmStopDialog({
           ))}
         </ul>
         <div className="text-xs text-[var(--color-text-dim)]">
-          {kind === "close" ? "Closing this window" : kind === "quit" ? "Quitting" : "Closing its terminal"} stops{" "}
-          {n === 1 ? "it" : "them"} mid-turn. The
+          {action} stops {n === 1 ? "it" : "them"} mid-turn. The
           session can be resumed, but the work in progress is lost.
         </div>
         <div className="flex justify-end gap-2">
@@ -58,7 +59,7 @@ export default function ConfirmStopDialog({
             Cancel
           </button>
           <button onClick={onConfirm} className="text-xs px-3 py-1 rounded bg-[var(--color-error)] text-white">
-            {kind === "quit" ? "Quit anyway" : "Close anyway"}
+            {confirm}
           </button>
         </div>
       </div>

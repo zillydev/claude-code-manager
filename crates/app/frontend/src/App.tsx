@@ -215,6 +215,19 @@ export default function App() {
     if (target) invoke("terminal_close", { sessionId: target.sessionId }).catch(() => {});
   }, [target]);
 
+  // "Open here instead" on a session another window runs: stopping its terminal frees the session, and
+  // that window's pane retakes it on the `terminal-released` broadcast. Asks first only while Claude works
+  // there, the one case the Open tab's ✕ asks about too.
+  const [takeOver, setTakeOver] = useState<SessionSummary | null>(null);
+  const requestTakeOver = useCallback(
+    (sessionId: string) => {
+      const [working] = workingSessions([sessionId], sessions, activity, Math.floor(Date.now() / 1000));
+      if (working) setTakeOver(working);
+      else invoke("terminal_close", { sessionId }).catch(() => {});
+    },
+    [sessions, activity],
+  );
+
   // Create a new session in `cwd`: a fresh `claude --session-id` in the terminal.
   // Returns the new session's id so the caller can attach metadata to it (the
   // sidebar tags it with any active tag filter).
@@ -630,6 +643,7 @@ export default function App() {
                   cwd={target?.cwd}
                   tabActive={activeTab === "terminal"}
                   onStatus={onTerminalStatus}
+                  onTakeOver={requestTakeOver}
                 />
               </div>
             </div>
@@ -648,6 +662,17 @@ export default function App() {
         />
       )}
       {settingsOpen && <Settings onClose={() => setSettingsOpen(false)} />}
+      {takeOver && (
+        <ConfirmStopDialog
+          kind="takeover"
+          sessions={[takeOver]}
+          onCancel={() => setTakeOver(null)}
+          onConfirm={() => {
+            invoke("terminal_close", { sessionId: takeOver.id }).catch(() => {});
+            setTakeOver(null);
+          }}
+        />
+      )}
       {stopPrompt && (
         <ConfirmStopDialog
           kind={stopPrompt.kind}
