@@ -1,7 +1,10 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { Command, CornerDownLeft } from "lucide-react";
 import { useSessionMeta } from "../hooks/useSessionMeta";
+import { isSaveShortcut } from "../lib/saveShortcut";
+import { focusAtEnd } from "../lib/focusAtEnd";
 
-/** Edit a session's free-text note. Save persists (empty clears); Esc/backdrop
+/** Edit a session's free-text note. Save (or ⌘↵) persists (empty clears); Esc/backdrop
  *  cancels without saving. */
 export default function NoteEditor({
   sessionId,
@@ -14,19 +17,31 @@ export default function NoteEditor({
 }) {
   const { meta, setNote } = useSessionMeta();
   const [draft, setDraft] = useState(meta.sessions[sessionId]?.note ?? "");
-
+  // Opens ready to add to the note: autoFocus alone leaves the caret at the start.
+  const textRef = useRef<HTMLTextAreaElement>(null);
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
+    if (textRef.current) focusAtEnd(textRef.current);
+  }, []);
 
   const save = () => {
     setNote(sessionId, draft);
     onClose();
   };
+  // The listener reads the latest draft through this, so it isn't re-attached on every keystroke.
+  const saveRef = useRef(save);
+  saveRef.current = save;
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+      else if (isSaveShortcut(e)) {
+        e.preventDefault(); // no newline in the draft
+        saveRef.current();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
 
   return (
     <div
@@ -49,7 +64,7 @@ export default function NoteEditor({
           </button>
         </div>
         <textarea
-          autoFocus
+          ref={textRef}
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
           rows={5}
@@ -65,9 +80,15 @@ export default function NoteEditor({
           </button>
           <button
             onClick={save}
-            className="text-xs px-3 py-1 rounded bg-[var(--color-accent)] text-white"
+            title="Save (⌘↵)"
+            className="inline-flex items-center gap-1.5 text-xs px-3 py-1 rounded bg-[var(--color-accent)] text-white"
           >
             Save
+            {/* Icons, not ⌘↵ text: the two glyphs come from different fonts and don't share a baseline. */}
+            <span className="inline-flex items-center opacity-70" aria-hidden>
+              <Command size={11} strokeWidth={2} />
+              <CornerDownLeft size={11} strokeWidth={2} />
+            </span>
           </button>
         </div>
       </div>
