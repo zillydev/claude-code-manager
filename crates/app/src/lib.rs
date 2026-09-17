@@ -304,7 +304,7 @@ pub fn run() {
                 session_link::forget_window(win.app_handle(), win.label());
                 if let Some(state) = win.try_state::<Mutex<commands::WatcherState>>() {
                     if let Ok(mut guard) = state.lock() {
-                        guard.watchers.remove(win.label());
+                        guard.forget_window(win.label());
                     }
                 }
                 if let Some(ts) = win.try_state::<Mutex<terminal::TerminalState>>() {

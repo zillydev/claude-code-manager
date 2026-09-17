@@ -18,28 +18,33 @@ pub struct ParseOutcome {
 
 /// Read a jsonl file from the start, parsing every line. Unparseable lines
 /// are counted but otherwise ignored — we never abort on a single bad line.
+///
+/// `bytes_read` covers exactly what was parsed, measured while reading: lines appended during the parse are
+/// included once, and a half-written last line is left for [`parse_tail`] rather than skipped or read twice.
 pub fn parse_file(path: &Path) -> Result<ParseOutcome> {
-    let file = File::open(path)?;
-    let bytes_read = file.metadata().map(|m| m.len()).unwrap_or(0);
-    let reader = BufReader::new(file);
+    let mut reader = BufReader::new(File::open(path)?);
     let mut events = Vec::new();
     let mut parse_errors = 0;
+    let mut bytes_read = 0u64;
+    let mut buf = Vec::new();
 
-    for line in reader.lines() {
-        let line = match line {
-            Ok(l) => l,
-            Err(_) => {
-                parse_errors += 1;
-                continue;
+    loop {
+        buf.clear();
+        let n = reader.read_until(b'\n', &mut buf)?;
+        if n == 0 {
+            break;
+        }
+        let line = String::from_utf8_lossy(&buf);
+        let line = line.trim();
+        if !line.is_empty() {
+            match serde_json::from_str::<Event>(line) {
+                Ok(ev) => events.push(ev),
+                // A last line with no newline yet is still being written: leave it unconsumed.
+                Err(_) if !buf.ends_with(b"\n") => break,
+                Err(_) => parse_errors += 1,
             }
-        };
-        if line.trim().is_empty() {
-            continue;
         }
-        match serde_json::from_str::<Event>(&line) {
-            Ok(ev) => events.push(ev),
-            Err(_) => parse_errors += 1,
-        }
+        bytes_read += n as u64;
     }
 
     Ok(ParseOutcome {
@@ -141,6 +146,44 @@ mod tests {
         p.push(format!("claude-code-manager-test-{}-{}.jsonl", name, std::process::id()));
         let _ = std::fs::remove_file(&p);
         TempPath(p)
+    }
+
+    #[test]
+    fn a_half_written_last_line_is_left_for_the_tail() {
+        let p = tmp("half-written");
+        let first = r#"{"type":"user","uuid":"00000000-0000-0000-0000-000000000001","message":{"role":"user","content":"one"}}"#;
+        let mut f = File::create(&p.0).unwrap();
+        writeln!(f, "{first}").unwrap();
+        write!(f, r#"{{"type":"user","uuid":"00000000-0000-0000-0000-000000000002","message":{{"role":"#).unwrap();
+        drop(f);
+
+        let opened = parse_file(&p.0).unwrap();
+        assert_eq!(opened.events.len(), 1);
+        assert_eq!(opened.bytes_read, first.len() as u64 + 1, "only whole lines are consumed");
+
+        let mut f = std::fs::OpenOptions::new().append(true).open(&p.0).unwrap();
+        writeln!(f, r#""user","content":"two"}}}}"#).unwrap();
+        drop(f);
+        let tail = parse_tail(&p.0, opened.bytes_read).unwrap();
+        assert_eq!(tail.events.len(), 1, "the finished line arrives once, via the tail");
+    }
+
+    #[test]
+    fn a_whole_last_line_without_a_newline_is_parsed_once() {
+        let p = tmp("no-trailing-newline");
+        let mut f = File::create(&p.0).unwrap();
+        write!(f, r#"{{"type":"user","uuid":"00000000-0000-0000-0000-000000000001","message":{{"role":"user","content":"one"}}}}"#).unwrap();
+        drop(f);
+
+        let opened = parse_file(&p.0).unwrap();
+        assert_eq!(opened.events.len(), 1);
+
+        let mut f = std::fs::OpenOptions::new().append(true).open(&p.0).unwrap();
+        writeln!(f).unwrap();
+        writeln!(f, r#"{{"type":"user","uuid":"00000000-0000-0000-0000-000000000002","message":{{"role":"user","content":"two"}}}}"#).unwrap();
+        drop(f);
+        let tail = parse_tail(&p.0, opened.bytes_read).unwrap();
+        assert_eq!(tail.events.len(), 1, "the first line isn't sent again");
     }
 
     #[test]

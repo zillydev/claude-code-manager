@@ -4,6 +4,12 @@ What changed in each release, written for people using the app. Build-time detai
 
 > **Maintenance:** add entries under **Unreleased** on the feature branch, alongside the `FEATURES.md` update. At release time that heading becomes the version. `release.yml` publishes the section matching the tag and fails if it finds none, so a release can't ship without notes.
 
+## Unreleased
+
+**Fixed**
+
+- **Messages no longer appear twice.** Clicking another session while a large one was still loading left the window listening to the live tail twice, so from then on every new message showed up twice — in whichever session it displayed — until the app was restarted. And a message Claude wrote at the very moment a session opened could arrive twice too, or, if it was half-written, not at all. Now only the most recent open listens, and a session picks up exactly where its first read stopped.
+
 ## v0.1.3 — 2026-09-17
 
 **Added**

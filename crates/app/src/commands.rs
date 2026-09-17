@@ -26,6 +26,28 @@ use tauri::{AppHandle, Emitter, Manager};
 #[derive(Default)]
 pub struct WatcherState {
     pub watchers: HashMap<String, watcher::FileWatcher>,
+    /// Per window, the number of its newest open or stop.
+    opens: HashMap<String, u64>,
+}
+
+impl WatcherState {
+    /// Starts an open (or a stop) in `label`, superseding any still in flight; returns its number.
+    pub fn begin(&mut self, label: &str) -> u64 {
+        let n = self.opens.entry(label.to_string()).or_insert(0);
+        *n += 1;
+        *n
+    }
+
+    /// Whether open `seq` is still the window's newest: a superseded one must not install its watcher.
+    pub fn is_latest(&self, label: &str, seq: u64) -> bool {
+        self.opens.get(label) == Some(&seq)
+    }
+
+    /// Drops a closed window's watcher and makes any open still in flight stale.
+    pub fn forget_window(&mut self, label: &str) {
+        self.watchers.remove(label);
+        self.opens.remove(label);
+    }
 }
 
 
@@ -164,6 +186,13 @@ pub async fn open_session(
     window: tauri::WebviewWindow,
     app: AppHandle,
 ) -> Result<RenderedSession, String> {
+    // Numbered before parsing, so an open that starts later supersedes this one however long the parse takes.
+    let label = window.label().to_string();
+    let seq = app
+        .state::<Mutex<WatcherState>>()
+        .lock()
+        .map_err(|e| e.to_string())?
+        .begin(&label);
     // Parsing+rendering the file can be large (tens of MB) — do it off the main
     // thread so opening a big session doesn't freeze the window. The watcher
     // setup below stays on the command thread (it touches Tauri state).
@@ -187,12 +216,15 @@ pub async fn open_session(
         .await
         .map_err(|e| e.to_string())??;
 
-    let label = window.label().to_string();
-    crate::session_link::record_open(&app, &label, &rendered.id);
-
     // Start file watcher for live tail, scoped to THIS window.
     let state = app.state::<Mutex<WatcherState>>();
     let mut guard = state.lock().map_err(|e| e.to_string())?;
+
+    // A newer open (or a stop) started while this one parsed: it owns the window's watcher and open session.
+    if !guard.is_latest(&label, seq) {
+        return Ok(rendered);
+    }
+    crate::session_link::record_open(&app, &label, &rendered.id);
 
     // Drop any previous watcher for this window only.
     guard.watchers.remove(&label);
@@ -230,6 +262,7 @@ pub async fn open_session(
 pub fn stop_watching(window: tauri::WebviewWindow, app: AppHandle) -> Result<(), String> {
     let state = app.state::<Mutex<WatcherState>>();
     let mut guard = state.lock().map_err(|e| e.to_string())?;
+    guard.begin(window.label());
     guard.watchers.remove(window.label());
     crate::session_link::clear_open(&app, window.label());
     Ok(())
@@ -702,4 +735,43 @@ pub fn focus_window(label: String, app: AppHandle) -> Result<(), String> {
         w.set_focus().map_err(|e| e.to_string())?;
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::WatcherState;
+
+    #[test]
+    fn a_later_open_supersedes_an_earlier_one() {
+        let mut s = WatcherState::default();
+        let first = s.begin("main");
+        let second = s.begin("main");
+        assert!(!s.is_latest("main", first), "the slower, older open installs nothing");
+        assert!(s.is_latest("main", second));
+    }
+
+    #[test]
+    fn a_stop_supersedes_an_open_in_flight() {
+        let mut s = WatcherState::default();
+        let open = s.begin("main");
+        s.begin("main"); // stop_watching
+        assert!(!s.is_latest("main", open));
+    }
+
+    #[test]
+    fn windows_sequence_their_opens_independently() {
+        let mut s = WatcherState::default();
+        let a = s.begin("a");
+        let b = s.begin("b");
+        assert!(s.is_latest("a", a));
+        assert!(s.is_latest("b", b));
+    }
+
+    #[test]
+    fn an_open_finishing_after_its_window_closed_is_stale() {
+        let mut s = WatcherState::default();
+        let open = s.begin("main");
+        s.forget_window("main");
+        assert!(!s.is_latest("main", open));
+    }
 }
