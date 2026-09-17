@@ -21,3 +21,10 @@ export function openSessions(sessions: SessionSummary[], activity: Map<string, L
   rows.sort((a, b) => Number(b.working) - Number(a.working) || b.updated - a.updated);
   return rows.map(({ session, working, owner }) => ({ session, working, owner }));
 }
+
+/** The Open tab's badge: how many sessions are open and whether Claude is working in any; null when none are. */
+export function openBadge(rows: OpenSession[]): { label: string; count: number; working: boolean } | null {
+  if (rows.length === 0) return null;
+  const count = rows.length;
+  return { label: count > 99 ? "99+" : String(count), count, working: rows.some((r) => r.working) };
+}

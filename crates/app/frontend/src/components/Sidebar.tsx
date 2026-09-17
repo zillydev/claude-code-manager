@@ -39,6 +39,8 @@ import { sessionUpdatedAt } from "../lib/sessions";
 import { deriveStatus, showsUnread } from "../lib/sessionStatus";
 import { statusInputs } from "../lib/closeGuard";
 import { sessionLink } from "../lib/sessionLink";
+import { openBadge } from "../lib/openSessions";
+import { useOpenSessions } from "../hooks/useOpenSessions";
 import type { LiveActivity } from "../hooks/useActivity";
 
 interface Props {
@@ -228,6 +230,8 @@ export default function Sidebar({
   };
 
   const now = Math.floor(Date.now() / 1000);
+  const open = useOpenSessions(sessions, activity, now);
+  const badge = openBadge(open.rows);
 
   const filtered = useMemo(() => {
     return sessions.filter((s) => {
@@ -311,14 +315,25 @@ export default function Sidebar({
           <button
             key={t}
             onClick={() => onTabChange(t)}
-            title={title}
-            className={`flex-1 flex items-center justify-center px-2 py-1.5 rounded ${
+            title={t === "open" && badge ? openTabTitle(badge.count, open.rows.filter((r) => r.working).length) : title}
+            className={`relative flex-1 flex items-center justify-center px-2 py-1.5 rounded ${
               tab === t
                 ? "bg-[var(--color-surface-hover)] text-[var(--color-accent)]"
                 : "text-[var(--color-text-dim)] hover:text-[var(--color-text)] hover:bg-[var(--color-surface-hover)]"
             }`}
           >
             <Icon size={15} strokeWidth={1.75} />
+            {t === "open" && badge && (
+              <span
+                className={`absolute top-0.5 left-1/2 ml-1.5 min-w-3.5 h-3.5 px-1 rounded-full text-[9px] leading-3.5 font-semibold tabular-nums text-center ${
+                  badge.working
+                    ? "bg-green-500 text-white"
+                    : "bg-[var(--color-border)] text-[var(--color-text)]"
+                }`}
+              >
+                {badge.label}
+              </span>
+            )}
           </button>
         ))}
       </div>
@@ -853,7 +868,7 @@ export default function Sidebar({
         className="flex flex-col flex-1 min-h-0"
         style={{ display: tab === "open" ? undefined : "none" }}
       >
-        <OpenSessionsPane sessions={sessions} activity={activity} now={now} onOpen={(s) => onSelect(s)} />
+        <OpenSessionsPane rows={open.rows} onClose={open.close} onOpen={(s) => onSelect(s)} />
       </div>
       <PreciseStatusNote onOpenSettings={onOpenSettings} />
       <UpdateNote />
@@ -878,4 +893,10 @@ function compactTokens(n: number): string {
 
 function shortenPath(p: string): string {
   return p.replace(/^\/Users\/[^/]+/, "~");
+}
+
+/** The Open tab's tooltip with its numbers. */
+function openTabTitle(count: number, working: number): string {
+  const sessions = `${count} session${count === 1 ? "" : "s"} running in a terminal`;
+  return `Open (⌘4) — ${sessions}${working > 0 ? `, Claude working in ${working}` : ""}`;
 }

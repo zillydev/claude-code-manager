@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { openSessions } from "./openSessions";
+import { openBadge, openSessions, type OpenSession } from "./openSessions";
 import type { LiveActivity } from "../hooks/useActivity";
 import type { SessionSummary } from "../types";
 
@@ -40,5 +40,26 @@ describe("openSessions", () => {
       ["idle-new", false, "main"],
       ["idle-old", false, "win-1"],
     ]);
+  });
+});
+
+describe("openBadge", () => {
+  const row = (id: string, working: boolean): OpenSession => ({ session: session(id, NOW), working, owner: "main" });
+
+  it("shows nothing when no terminal is open", () => {
+    expect(openBadge([])).toBeNull();
+  });
+
+  it("counts open sessions and stays neutral while all are idle", () => {
+    expect(openBadge([row("a", false), row("b", false)])).toEqual({ label: "2", count: 2, working: false });
+  });
+
+  it("turns working when Claude works in any of them", () => {
+    expect(openBadge([row("a", false), row("b", true)])).toEqual({ label: "2", count: 2, working: true });
+  });
+
+  it("caps the label at 99+", () => {
+    const many = Array.from({ length: 120 }, (_, i) => row(`s${i}`, false));
+    expect(openBadge(many)).toEqual({ label: "99+", count: 120, working: false });
   });
 });

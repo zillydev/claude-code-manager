@@ -1,51 +1,28 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { X } from "lucide-react";
 import type { SessionSummary } from "../types";
-import type { LiveActivity } from "../hooks/useActivity";
 import { useSessionMeta } from "../hooks/useSessionMeta";
 import { sessionTitle } from "../lib/sessionMeta";
-import { openSessions } from "../lib/openSessions";
+import type { OpenSession } from "../lib/openSessions";
 import ConfirmStopDialog from "./ConfirmStopDialog";
 
 /** The Open tab: every session whose `claude` runs in a terminal, in any window, each closable. */
 export default function OpenSessionsPane({
-  sessions,
-  activity,
-  now,
+  rows,
+  onClose,
   onOpen,
 }: {
-  sessions: SessionSummary[];
-  activity: Map<string, LiveActivity>;
-  now: number;
+  rows: OpenSession[];
+  onClose: (id: string) => void;
   onOpen: (s: SessionSummary) => void;
 }) {
   const { meta } = useSessionMeta();
   const here = getCurrentWebviewWindow().label;
-  // Closed here but still hosted in the last poll (every 3 s): hidden rather than lingering.
-  const [closing, setClosing] = useState<ReadonlySet<string>>(new Set());
   const [confirm, setConfirm] = useState<SessionSummary | null>(null);
-
-  useEffect(() => {
-    setClosing((prev) => {
-      const still = [...prev].filter((id) => activity.get(id)?.hosted);
-      return still.length === prev.size ? prev : new Set(still);
-    });
-  }, [activity]);
-
-  const rows = openSessions(sessions, activity, now).filter((r) => !closing.has(r.session.id));
   const idle = rows.filter((r) => !r.working);
-  const close = (id: string) => {
-    setClosing((prev) => new Set(prev).add(id));
-    invoke("terminal_close", { sessionId: id }).catch(() =>
-      setClosing((prev) => {
-        const next = new Set(prev);
-        next.delete(id);
-        return next;
-      }),
-    );
-  };
+  const close = onClose;
 
   return (
     <div className="flex flex-col flex-1 min-h-0">
