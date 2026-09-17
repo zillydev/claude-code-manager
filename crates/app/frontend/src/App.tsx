@@ -14,6 +14,7 @@ import ConfirmStopDialog from "./components/ConfirmStopDialog";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { workingSessions } from "./lib/closeGuard";
 import { missingNotice, resolveLink } from "./lib/sessionLink";
+import { tabOnOpen, type SessionTab } from "./lib/sessionTab";
 import type { SessionSummary } from "./types";
 import { ChevronsRight } from "lucide-react";
 import { usePersistentState } from "./hooks/usePersistentState";
@@ -35,7 +36,7 @@ export default function App() {
   const { config, setConfig, loaded: configLoaded } = useConfig();
   const collapsed = config.ui.sidebarCollapsed;
   const [sidebarWidth, setSidebarWidth] = useState(config.ui.sidebarWidth);
-  const [activeTab, setActiveTab] = useState<"manager" | "terminal">("manager");
+  const [activeTab, setActiveTab] = useState<SessionTab>("manager");
   const [settingsOpen, setSettingsOpen] = useState(false);
   // Obsidian-style sidebar tabs. Tab state lives here (single writer) because
   // the ⌘F/⌘⇧F shortcuts and the find prefill flow through App.
@@ -89,6 +90,12 @@ export default function App() {
      *  with. Set only by "Show this branch"; opening any session clears it. */
     branchUuid?: string;
   } | null>(null);
+  // The tab each session was last showing in this window, so switching back returns to it.
+  const lastTab = useRef(new Map<string, SessionTab>());
+  const targetId = target?.sessionId;
+  useEffect(() => {
+    if (targetId) lastTab.current.set(targetId, activeTab);
+  }, [targetId, activeTab]);
 
   // Live per-session activity (epoch s of last real turn) for the sidebar
   // running dot, and the per-session last-viewed times that drive "unread".
@@ -147,12 +154,10 @@ export default function App() {
   const openSession = useCallback(
     (s: { id: string; file_path: string; project_label: string }, scrollToMessage?: string, term?: string) => {
       setTarget((prev) => {
-        // Opening a DIFFERENT session from the Terminal tab: land in Manager
-        // unless that session already has a live terminal. Staying on Terminal
-        // would spawn a fresh `claude --resume` for a session the user only
-        // meant to read — an expensive, unasked-for side effect.
-        if (prev?.sessionId !== s.id && terminalStatusRef.current[s.id] !== "live") {
-          setActiveTab("manager");
+        // A different session returns to the tab it was left on, but never to a Terminal that would spawn a fresh
+        // `claude --resume` the user didn't ask for.
+        if (prev?.sessionId !== s.id) {
+          setActiveTab((cur) => tabOnOpen(lastTab.current.get(s.id), cur, terminalStatusRef.current[s.id] === "live"));
         }
         return {
           sessionId: s.id,
