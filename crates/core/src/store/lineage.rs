@@ -4,6 +4,7 @@
 //! uuid overlap is the reliable lineage signal — Claude Code does not always
 //! write an explicit `forkedFrom`.
 
+use std::borrow::Borrow;
 use std::collections::{HashMap, HashSet};
 
 use uuid::Uuid;
@@ -32,16 +33,16 @@ pub struct SessionUuids {
 /// The `A.head != S.head` guard is what makes direction unambiguous and
 /// cycle-free: if two sessions merely share the same starting message (siblings
 /// or exact dupes) neither is treated as the other's ancestor.
-pub fn copy_lineage(sessions: &[SessionUuids]) -> HashMap<Uuid, (Uuid, usize)> {
+pub fn copy_lineage<S: Borrow<SessionUuids>>(sessions: &[S]) -> HashMap<Uuid, (Uuid, usize)> {
     let mut out = HashMap::new();
-    for s in sessions {
+    for s in sessions.iter().map(Borrow::borrow) {
         if s.forked {
             continue;
         }
         let Some(head) = s.head else { continue };
         // best = (overlap, ancestor_uuid_len, ancestor_id)
         let mut best: Option<(usize, usize, Uuid)> = None;
-        for a in sessions {
+        for a in sessions.iter().map(Borrow::borrow) {
             if a.id == s.id {
                 continue;
             }

@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
 import TerminalView from "./TerminalView";
+import { keptTerminals, type TerminalStatus } from "../lib/terminalViews";
 
-/** Keeps one mounted xterm per session opened, so each session's live terminal
- *  and scrollback persist across tab/session switches. Shows the active one. */
+/** Keeps a mounted xterm for the current session and for every session whose `claude` still runs, so live
+ *  terminals and their scrollback persist across tab/session switches. Shows the active one. */
 export default function TerminalPane({
   sessionId,
   filePath,
@@ -14,16 +15,27 @@ export default function TerminalPane({
   filePath: string | null;
   cwd?: string;
   tabActive: boolean;
-  onStatus?: (sessionId: string, s: "live" | "exited" | "busy") => void;
+  onStatus?: (sessionId: string, s: TerminalStatus) => void;
 }) {
   // sessionId -> { filePath, cwd? } for every session a terminal was opened for.
   const [opened, setOpened] = useState<Record<string, { filePath: string; cwd?: string }>>({});
+  const [status, setStatus] = useState<Record<string, TerminalStatus>>({});
 
   useEffect(() => {
     if (sessionId && filePath) {
       setOpened((m) => (m[sessionId] ? m : { ...m, [sessionId]: { filePath, cwd } }));
     }
   }, [sessionId, filePath, cwd]);
+
+  // Leaving a session unmounts its terminal unless claude still runs there; an xterm per browsed session added up.
+  useEffect(() => {
+    setOpened((m) => keptTerminals(m, sessionId, status));
+  }, [sessionId, status]);
+
+  const reportStatus = (sid: string, s: TerminalStatus) => {
+    setStatus((m) => (m[sid] === s ? m : { ...m, [sid]: s }));
+    onStatus?.(sid, s);
+  };
 
   if (!sessionId) {
     return (
@@ -47,7 +59,7 @@ export default function TerminalPane({
           filePath={v.filePath}
           cwd={v.cwd}
           active={tabActive && sid === sessionId}
-          onStatus={onStatus ? (s) => onStatus(sid, s) : undefined}
+          onStatus={(s) => reportStatus(sid, s)}
         />
       ))}
     </div>

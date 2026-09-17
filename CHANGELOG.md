@@ -13,6 +13,7 @@ What changed in each release, written for people using the app. Build-time detai
 
 **Changed**
 
+- **Uses less memory.** Keeping the sessions list current while Claude is working no longer copies every session's cached details each time a session file changes, and a window no longer keeps a terminal alive for every session you've looked at, only for the one you're on and those where Claude is still running.
 - **The Open tab's icon shows how many sessions are open.** A small count on its icon says how many sessions have Claude running in a terminal, turning green while Claude is working in any of them, so you can see it without switching tabs. The tooltip spells out both numbers.
 - **Precise session status is on by default, as a Claude Code plugin.** Claude reports each session's state itself — a question or permission prompt shows as needing you the moment it appears — through a small `ccm-status` plugin the app adds to Claude Code, and a note in the sidebar says so. Turn it off in Settings or with `/plugin`, and it stays off. If you had switched it on before, its hooks move out of `~/.claude/settings.json` into the plugin. It needs Apple's command line tools, and uninstalling the app leaves nothing behind that errors.
 

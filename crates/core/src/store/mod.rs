@@ -5,7 +5,7 @@ pub mod watcher;
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::{Mutex, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::SystemTime;
 
 use anyhow::{Context, Result};
@@ -38,7 +38,6 @@ pub struct ToolCount {
 /// (seconds for hundreds of files) just to pick up the one that changed. Holds
 /// the BASE summary (before the per-directory copy-lineage stamp) + the lineage
 /// uuids, both of which depend only on the file's own contents.
-#[derive(Clone)]
 struct CachedFile {
     mtime: SystemTime,
     summary: SessionSummary,
@@ -46,8 +45,9 @@ struct CachedFile {
     tools: HashMap<String, usize>,
 }
 
-fn discover_cache() -> &'static Mutex<HashMap<PathBuf, CachedFile>> {
-    static C: OnceLock<Mutex<HashMap<PathBuf, CachedFile>>> = OnceLock::new();
+/// Shared rather than copied on a hit: a poll would otherwise duplicate every session's uuid set.
+fn discover_cache() -> &'static Mutex<HashMap<PathBuf, Arc<CachedFile>>> {
+    static C: OnceLock<Mutex<HashMap<PathBuf, Arc<CachedFile>>>> = OnceLock::new();
     C.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
@@ -97,7 +97,7 @@ pub fn discover(root: &Path) -> Result<Discovery> {
         // Accumulate this directory's sessions so we can resolve copy-lineage
         // (which needs every session's uuids) before pushing them.
         let mut dir_summaries: Vec<SessionSummary> = Vec::new();
-        let mut dir_uuids: Vec<lineage::SessionUuids> = Vec::new();
+        let mut dir_files: Vec<Arc<CachedFile>> = Vec::new();
 
         for child in inner {
             let child = match child {
@@ -129,8 +129,8 @@ pub fn discover(root: &Path) -> Result<Discovery> {
                 .get(&child_path)
                 .filter(|c| c.mtime == mtime)
                 .cloned();
-            let (summary, su, tools) = match cached {
-                Some(c) => (c.summary, c.uuids, c.tools),
+            let file = match cached {
+                Some(c) => c,
                 None => match parse_file(&child_path) {
                     Ok(ParseOutcome { events, .. }) => {
                         let project_label = events
@@ -147,11 +147,9 @@ pub fn discover(root: &Path) -> Result<Discovery> {
                         };
                         // Counted here, from the parse discovery already does, so tool: autocomplete costs no extra reading.
                         let tools = crate::session::summary::tool_call_counts(&events);
-                        discover_cache().lock().unwrap().insert(
-                            child_path.clone(),
-                            CachedFile { mtime, summary: summary.clone(), uuids: su.clone(), tools: tools.clone() },
-                        );
-                        (summary, su, tools)
+                        let file = Arc::new(CachedFile { mtime, summary, uuids: su, tools });
+                        discover_cache().lock().unwrap().insert(child_path.clone(), file.clone());
+                        file
                     }
                     Err(e) => {
                         warnings.push(format!("parse {}: {}", child_path.display(), e));
@@ -159,17 +157,23 @@ pub fn discover(root: &Path) -> Result<Discovery> {
                     }
                 },
             };
-            for (name, n) in tools {
-                *tool_totals.entry(name).or_insert(0) += n;
+            for (name, n) in &file.tools {
+                match tool_totals.get_mut(name) {
+                    Some(total) => *total += n,
+                    None => {
+                        tool_totals.insert(name.clone(), *n);
+                    }
+                }
             }
-            dir_summaries.push(summary);
-            dir_uuids.push(su);
+            dir_summaries.push(file.summary.clone());
+            dir_files.push(file);
         }
 
         // Resolve copy-lineage within this directory and stamp the summaries.
         // `dir_summaries[i]` and `dir_uuids[i]` are the same session (pushed
         // together), so the descendant's head — its branch point in the ancestor
         // — is `dir_uuids[i].head`.
+        let dir_uuids: Vec<&lineage::SessionUuids> = dir_files.iter().map(|f| &f.uuids).collect();
         let links = lineage::copy_lineage(&dir_uuids);
         for (i, summary) in dir_summaries.iter_mut().enumerate() {
             if let Some((ancestor_id, overlap)) = links.get(&summary.id) {
@@ -1449,6 +1453,10 @@ mod tests {
         // B's branch point in A = B's head (its first message = the shared root).
         assert_eq!(b.copied_from_message.as_deref(), Some(shared), "B's branch point is its head");
         assert_eq!(a.copied_from_message, None);
+
+        let cached = discover(&tmp).unwrap();
+        let b = cached.sessions.iter().find(|s| s.id.to_string() == b_id).unwrap();
+        assert_eq!((b.copied_from.as_deref(), b.copied_overlap), (Some(a_id), Some(1)), "the same when served from the parse cache");
 
         fs::remove_dir_all(&tmp).ok();
     }
