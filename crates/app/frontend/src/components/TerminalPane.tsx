@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import TerminalView from "./TerminalView";
+import NewSessionButton from "./NewSessionButton";
 
 /** Keeps one mounted xterm per session opened, so each session's live terminal
  *  and scrollback persist across tab/session switches. Shows the active one. */
@@ -9,12 +10,14 @@ export default function TerminalPane({
   cwd,
   tabActive,
   onStatus,
+  onNewSession,
 }: {
   sessionId: string | null;
   filePath: string | null;
   cwd?: string;
   tabActive: boolean;
   onStatus?: (sessionId: string, s: "live" | "exited" | "busy") => void;
+  onNewSession: (cwd: string) => Promise<string>;
 }) {
   // sessionId -> { filePath, cwd? } for every session a terminal was opened for.
   const [opened, setOpened] = useState<Record<string, { filePath: string; cwd?: string }>>({});
@@ -27,8 +30,9 @@ export default function TerminalPane({
 
   if (!sessionId) {
     return (
-      <div className="flex items-center justify-center h-full text-[var(--color-text-dim)]">
-        Open or create a session to start its terminal.
+      <div className="flex flex-col items-center justify-center h-full gap-3 text-[var(--color-text-dim)]">
+        <span>Open a session, or start a new one here.</span>
+        <NewSessionButton onNewSession={onNewSession} label="+ New session" />
       </div>
     );
   }

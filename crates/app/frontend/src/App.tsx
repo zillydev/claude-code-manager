@@ -630,6 +630,7 @@ export default function App() {
                   cwd={target?.cwd}
                   tabActive={activeTab === "terminal"}
                   onStatus={onTerminalStatus}
+                  onNewSession={newSession}
                 />
               </div>
             </div>
