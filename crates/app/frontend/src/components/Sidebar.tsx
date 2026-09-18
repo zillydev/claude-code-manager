@@ -21,6 +21,7 @@ import NoteEditor from "./NoteEditor";
 import TagManager from "./TagManager";
 import GlobalFind from "./GlobalFind";
 import OpenSessionsPane from "./OpenSessionsPane";
+import NewSessionButton from "./NewSessionButton";
 import UpdateNote from "./UpdateNote";
 import BookmarkBrowser from "./BookmarkBrowser";
 import { useSessionMeta } from "../hooks/useSessionMeta";
@@ -105,9 +106,6 @@ export default function Sidebar({
   const [textFilter, setTextFilter] = useState("");
   // One project/directory filter: "" | "name:<basename>" | "dir:<cwd>".
   const [filter, setFilter] = useState<string>("");
-  const [newOpen, setNewOpen] = useState(false);
-  const [newPath, setNewPath] = useState("");
-  const [newErr, setNewErr] = useState<string | null>(null);
   const [dateRange, setDateRange] = useState<DateRange>("all");
   const [tagFilter, setTagFilter] = useState<Set<string>>(new Set());
   // Keep the filter inside the registry. A tag deleted or renamed in Manage
@@ -138,7 +136,6 @@ export default function Sidebar({
   const [sortField, setSortField] = useState<SortField>("updated");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
   const [deletingId, setDeletingId] = useState<string | null>(null);
-  const [creating, setCreating] = useState(false);
   const [hoveredId, setHoveredId] = useState<string | null>(null);
 
   // Fork lineage: look up a session by id, and find children forked from a source.
@@ -205,25 +202,12 @@ export default function Sidebar({
     return null;
   }, [filter, groups]);
 
-  const createSession = async (cwd: string) => {
-    const c = cwd.trim();
-    if (!c) return;
-    setCreating(true);
-    try {
-      const id = await onNewSession(c);
-      // Inherit the active tag filter. Without this a session created while
-      // filtering is instantly invisible — it carries no tags, so it can't match
-      // the filter you're looking at. Safe before claude writes the file: the
-      // meta store is keyed by session id, separate from the `.jsonl`.
-      if (tagFilter.size > 0) setSessionTags(id, [...tagFilter]);
-      setNewOpen(false);
-      setNewPath("");
-      setNewErr(null);
-    } catch (e) {
-      setNewErr(String(e));
-    } finally {
-      setCreating(false);
-    }
+  // Inherit the active tag filter onto a freshly created session. Without this a
+  // session created while filtering is instantly invisible — it carries no tags,
+  // so it can't match the filter you're looking at. Safe before claude writes the
+  // file: the meta store is keyed by session id, separate from the `.jsonl`.
+  const inheritTagFilter = (id: string) => {
+    if (tagFilter.size > 0) setSessionTags(id, [...tagFilter]);
   };
 
   const now = Math.floor(Date.now() / 1000);
@@ -367,48 +351,11 @@ export default function Sidebar({
 
         {/* Filters row */}
         <div className="relative flex gap-1.5 flex-wrap items-center">
-          <button
-            onClick={() => setNewOpen((o) => !o)}
-            className="text-xs px-2 py-1 rounded bg-[var(--color-accent)] text-white"
-            title="New session"
-          >
-            + New
-          </button>
-          {newOpen && (
-            <div className="absolute top-full left-0 right-0 mt-1 z-30 p-2 rounded border border-[var(--color-border)] bg-[var(--color-surface)] shadow-lg space-y-2">
-              {selectedCwd && (
-                <button
-                  onClick={() => createSession(selectedCwd)}
-                  disabled={creating}
-                  className="w-full text-left text-xs px-2 py-1 rounded bg-[var(--color-bg)] border border-[var(--color-border)] hover:border-[var(--color-accent)] truncate disabled:opacity-50"
-                  title={selectedCwd}
-                >
-                  New in {shortenPath(selectedCwd)}
-                </button>
-              )}
-              <div className="flex gap-1">
-                <input
-                  type="text"
-                  value={newPath}
-                  onChange={(e) => setNewPath(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") createSession(newPath);
-                  }}
-                  placeholder="paste a directory path…"
-                  className="flex-1 bg-[var(--color-bg)] text-[var(--color-text)] text-xs px-2 py-1 rounded border border-[var(--color-border)] outline-none focus:border-[var(--color-accent)]"
-                />
-                <button
-                  onClick={() => createSession(newPath)}
-                  disabled={!newPath.trim() || creating}
-                  className="text-xs px-2 py-1 rounded bg-[var(--color-accent)] text-white disabled:opacity-40 inline-flex items-center gap-1.5"
-                >
-                  {creating && <Spinner />}
-                  Create
-                </button>
-              </div>
-              {newErr && <div className="text-[var(--color-error)] text-[10px]">{newErr}</div>}
-            </div>
-          )}
+          <NewSessionButton
+            onNewSession={onNewSession}
+            selectedCwd={selectedCwd}
+            onCreated={inheritTagFilter}
+          />
           <SessionFilters
             groups={groups}
             project={filter}
@@ -852,7 +799,13 @@ export default function Sidebar({
         className="flex flex-col flex-1 min-h-0"
         style={{ display: tab === "open" ? undefined : "none" }}
       >
-        <OpenSessionsPane sessions={sessions} activity={activity} now={now} onOpen={(s) => onSelect(s)} />
+        <OpenSessionsPane
+          sessions={sessions}
+          activity={activity}
+          now={now}
+          onOpen={(s) => onSelect(s)}
+          onNewSession={onNewSession}
+        />
       </div>
       <UpdateNote />
     </aside>

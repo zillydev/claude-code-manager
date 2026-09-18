@@ -8,6 +8,7 @@ import { useSessionMeta } from "../hooks/useSessionMeta";
 import { sessionTitle } from "../lib/sessionMeta";
 import { openSessions } from "../lib/openSessions";
 import ConfirmStopDialog from "./ConfirmStopDialog";
+import NewSessionButton from "./NewSessionButton";
 
 /** The Open tab: every session whose `claude` runs in a terminal, in any window, each closable. */
 export default function OpenSessionsPane({
@@ -15,11 +16,13 @@ export default function OpenSessionsPane({
   activity,
   now,
   onOpen,
+  onNewSession,
 }: {
   sessions: SessionSummary[];
   activity: Map<string, LiveActivity>;
   now: number;
   onOpen: (s: SessionSummary) => void;
+  onNewSession: (cwd: string) => Promise<string>;
 }) {
   const { meta } = useSessionMeta();
   const here = getCurrentWebviewWindow().label;
@@ -51,14 +54,17 @@ export default function OpenSessionsPane({
     <div className="flex flex-col flex-1 min-h-0">
       <div className="flex items-center justify-between px-3 py-2 border-b border-[var(--color-border)] text-xs">
         <span className="text-[var(--color-text-dim)]">{rows.length} open</span>
-        <button
-          disabled={idle.length === 0}
-          onClick={() => idle.forEach((r) => close(r.session.id))}
-          title="Close every terminal Claude isn't working in"
-          className="px-2 py-0.5 rounded border border-[var(--color-border)] text-[var(--color-text-dim)] hover:text-[var(--color-text)] hover:border-[var(--color-accent)] disabled:opacity-40 disabled:pointer-events-none"
-        >
-          Close idle
-        </button>
+        <div className="flex items-center gap-1.5">
+          <button
+            disabled={idle.length === 0}
+            onClick={() => idle.forEach((r) => close(r.session.id))}
+            title="Close every terminal Claude isn't working in"
+            className="px-2 py-0.5 rounded border border-[var(--color-border)] text-[var(--color-text-dim)] hover:text-[var(--color-text)] hover:border-[var(--color-accent)] disabled:opacity-40 disabled:pointer-events-none"
+          >
+            Close idle
+          </button>
+          <NewSessionButton onNewSession={onNewSession} align="right" />
+        </div>
       </div>
       {rows.length === 0 ? (
         <div className="p-4 text-xs text-[var(--color-text-dim)]">No Claude terminals are open.</div>
