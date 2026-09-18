@@ -1,4 +1,4 @@
-import type { RenderedSession, RenderedTurn } from "../types";
+import type { LiveStats, RenderedSession, RenderedTurn } from "../types";
 import type { ToolResultUpdate } from "./toolResults";
 
 type Unlisten = () => void;
@@ -14,6 +14,7 @@ export interface LoaderSink {
   appended: (turns: RenderedTurn[]) => void;
   toolResults: (updates: ToolResultUpdate[]) => void;
   retitled: (title: string) => void;
+  stats: (update: LiveStats) => void;
 }
 
 /** Opens sessions in one window and subscribes to the live tail of the one it shows. Opens are numbered: one
@@ -49,6 +50,7 @@ export function createTranscriptLoader(deps: LoaderDeps, sink: LoaderSink) {
       ["session-updated", sink.appended],
       ["session-tool-results", sink.toolResults],
       ["session-title", sink.retitled],
+      ["session-stats", sink.stats],
     ];
     for (const [event, handler] of subscriptions) {
       offs.push(await deps.listen(event, handler as (payload: unknown) => void));

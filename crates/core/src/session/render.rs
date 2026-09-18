@@ -18,7 +18,7 @@ pub struct RenderedSession {
     pub turns: Vec<RenderedTurn>,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct SessionStats {
     pub cwd: Option<String>,
     pub git_branch: Option<String>,
@@ -29,15 +29,18 @@ pub struct SessionStats {
     /// Current context-window size: the last real assistant turn's full request
     /// input (input + cache_creation + cache_read). Matches Claude Code's TUI.
     pub context_tokens: u64,
+    /// The span `duration_secs` measures, kept so appended lines can widen it.
+    #[serde(skip)]
+    span: Option<(DateTime<Utc>, DateTime<Utc>)>,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct ModelUsage {
     pub model: String,
     pub turn_count: u32,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct TokenBreakdown {
     pub input: u64,
     pub output: u64,
@@ -624,84 +627,90 @@ pub fn render_session(session: &Session) -> RenderedSession {
 }
 
 pub fn compute_stats(path: &[&Event]) -> SessionStats {
-    let mut cwd: Option<String> = None;
-    let mut git_branch: Option<String> = None;
-    let mut first_ts: Option<DateTime<Utc>> = None;
-    let mut last_ts: Option<DateTime<Utc>> = None;
-    let mut model_counts: HashMap<String, u32> = HashMap::new();
-    let mut context_tokens: u64 = 0;
-    let mut tokens = TokenBreakdown {
-        input: 0,
-        output: 0,
-        cache_creation: 0,
-        cache_read: 0,
-    };
+    let mut stats = SessionStats::empty();
+    stats.fold(path);
+    stats
+}
 
-    for ev in path {
-        if let Some(ts) = ev.timestamp() {
-            if first_ts.is_none() || ts < first_ts.unwrap() {
-                first_ts = Some(ts);
-            }
-            if last_ts.is_none() || ts > last_ts.unwrap() {
-                last_ts = Some(ts);
-            }
-        }
+/// `stats` once `appended` — lines just written to the end of the file — has landed. Appends extend the
+/// active path, except a null-parent message, which is a new tree (an auto-compaction) the stats restart at.
+pub fn extend_stats(stats: &mut SessionStats, appended: &[Event]) {
+    let restart = appended.iter().rposition(|e| e.uuid().is_some() && e.parent_uuid().is_none());
+    if restart.is_some() {
+        *stats = SessionStats::empty();
+    }
+    let path: Vec<&Event> = appended[restart.unwrap_or(0)..]
+        .iter()
+        .filter(|e| e.uuid().is_some() && !e.is_sidechain())
+        .collect();
+    stats.fold(&path);
+}
 
-        if cwd.is_none() {
-            if let Some(c) = ev.cwd() {
-                cwd = Some(c.to_string());
-            }
-        }
-        if git_branch.is_none() {
-            if let Some(b) = ev.git_branch() {
-                if !b.is_empty() && b != "HEAD" {
-                    git_branch = Some(b.to_string());
-                }
-            }
-        }
-
-        if let Event::Assistant(a) = ev {
-            if let Some(model) = &a.message.model {
-                *model_counts.entry(model.clone()).or_insert(0) += 1;
-            }
-            if let Some(usage) = &a.message.usage {
-                tokens.input = tokens.input.saturating_add(usage.input_tokens);
-                tokens.output = tokens.output.saturating_add(usage.output_tokens);
-                tokens.cache_creation = tokens
-                    .cache_creation
-                    .saturating_add(usage.cache_creation_input_tokens);
-                tokens.cache_read = tokens
-                    .cache_read
-                    .saturating_add(usage.cache_read_input_tokens);
-                // Current context-window size = the last real turn's full input.
-                if a.message.model.as_deref() != Some("<synthetic>") {
-                    context_tokens = usage
-                        .input_tokens
-                        .saturating_add(usage.cache_creation_input_tokens)
-                        .saturating_add(usage.cache_read_input_tokens);
-                }
-            }
+impl SessionStats {
+    fn empty() -> Self {
+        SessionStats {
+            cwd: None,
+            git_branch: None,
+            duration_secs: None,
+            models: Vec::new(),
+            tokens: TokenBreakdown { input: 0, output: 0, cache_creation: 0, cache_read: 0 },
+            context_tokens: 0,
+            span: None,
         }
     }
 
-    let duration_secs = match (first_ts, last_ts) {
-        (Some(f), Some(l)) => Some((l - f).num_seconds()),
-        _ => None,
-    };
+    /// Adds `path` — events on the active branch, oldest first — to the totals.
+    fn fold(&mut self, path: &[&Event]) {
+        let mut model_counts: HashMap<String, u32> =
+            self.models.drain(..).map(|m| (m.model, m.turn_count)).collect();
+        for ev in path {
+            if let Some(ts) = ev.timestamp() {
+                self.span = Some(match self.span {
+                    None => (ts, ts),
+                    Some((first, last)) => (first.min(ts), last.max(ts)),
+                });
+            }
 
-    let mut models: Vec<ModelUsage> = model_counts
-        .into_iter()
-        .map(|(model, turn_count)| ModelUsage { model, turn_count })
-        .collect();
-    models.sort_by_key(|m| std::cmp::Reverse(m.turn_count));
+            if self.cwd.is_none() {
+                if let Some(c) = ev.cwd() {
+                    self.cwd = Some(c.to_string());
+                }
+            }
+            if self.git_branch.is_none() {
+                if let Some(b) = ev.git_branch() {
+                    if !b.is_empty() && b != "HEAD" {
+                        self.git_branch = Some(b.to_string());
+                    }
+                }
+            }
 
-    SessionStats {
-        cwd,
-        git_branch,
-        duration_secs,
-        models,
-        tokens,
-        context_tokens,
+            if let Event::Assistant(a) = ev {
+                if let Some(model) = &a.message.model {
+                    *model_counts.entry(model.clone()).or_insert(0) += 1;
+                }
+                if let Some(usage) = &a.message.usage {
+                    let t = &mut self.tokens;
+                    t.input = t.input.saturating_add(usage.input_tokens);
+                    t.output = t.output.saturating_add(usage.output_tokens);
+                    t.cache_creation = t.cache_creation.saturating_add(usage.cache_creation_input_tokens);
+                    t.cache_read = t.cache_read.saturating_add(usage.cache_read_input_tokens);
+                    // Current context-window size = the last real turn's full input.
+                    if a.message.model.as_deref() != Some("<synthetic>") {
+                        self.context_tokens = usage
+                            .input_tokens
+                            .saturating_add(usage.cache_creation_input_tokens)
+                            .saturating_add(usage.cache_read_input_tokens);
+                    }
+                }
+            }
+        }
+
+        self.duration_secs = self.span.map(|(first, last)| (last - first).num_seconds());
+        self.models = model_counts
+            .into_iter()
+            .map(|(model, turn_count)| ModelUsage { model, turn_count })
+            .collect();
+        self.models.sort_by_key(|m| std::cmp::Reverse(m.turn_count));
     }
 }
 
@@ -1500,5 +1509,63 @@ mod render_tests {
 
         // Text explicitly tagged `thinking` is reasoning, not a summary.
         assert!(matches!(mk("raw reasoning", Some(thinking_sig)), RenderedBlock::Thinking { .. }));
+    }
+}
+
+#[cfg(test)]
+mod stats_tests {
+    use super::*;
+
+    fn line(json: &str) -> Event {
+        serde_json::from_str(json).unwrap()
+    }
+
+    fn user(uuid: u8, parent: Option<u8>, at: &str) -> Event {
+        let parent = parent.map_or("null".to_string(), |p| format!(r#""00000000-0000-0000-0000-0000000000{p:02x}""#));
+        line(&format!(
+            r#"{{"type":"user","uuid":"00000000-0000-0000-0000-0000000000{uuid:02x}","parentUuid":{parent},"timestamp":"2026-09-18T{at}Z","cwd":"/tmp/proj","gitBranch":"main","message":{{"role":"user","content":"go"}}}}"#
+        ))
+    }
+
+    fn assistant(uuid: u8, parent: u8, at: &str, input: u64, output: u64, cache_read: u64) -> Event {
+        line(&format!(
+            r#"{{"type":"assistant","uuid":"00000000-0000-0000-0000-0000000000{uuid:02x}","parentUuid":"00000000-0000-0000-0000-0000000000{parent:02x}","timestamp":"2026-09-18T{at}Z","message":{{"role":"assistant","model":"claude-opus-5","content":[{{"type":"text","text":"ok"}}],"usage":{{"input_tokens":{input},"output_tokens":{output},"cache_creation_input_tokens":100,"cache_read_input_tokens":{cache_read}}}}}}}"#
+        ))
+    }
+
+    fn refs(events: &[Event]) -> Vec<&Event> {
+        events.iter().collect()
+    }
+
+    #[test]
+    fn extending_with_appended_lines_matches_computing_over_the_whole_file() {
+        let all = vec![
+            user(1, None, "10:00:00"),
+            assistant(2, 1, "10:00:05", 10, 200, 0),
+            user(3, Some(2), "10:01:00"),
+            assistant(4, 3, "10:01:30", 5, 50, 900),
+        ];
+        let mut stats = compute_stats(&refs(&all[..2]));
+        extend_stats(&mut stats, &all[2..]);
+        assert_eq!(stats, compute_stats(&refs(&all)));
+        assert_eq!((stats.context_tokens, stats.duration_secs), (1005, Some(90)));
+    }
+
+    #[test]
+    fn a_compaction_in_the_appended_lines_restarts_the_stats_at_its_tree() {
+        let before = vec![user(1, None, "10:00:00"), assistant(2, 1, "10:00:05", 10, 200, 0)];
+        // An auto-compaction starts a fresh null-parent tree in the same file.
+        let after = vec![user(9, None, "10:30:00"), assistant(10, 9, "10:30:20", 7, 70, 3000)];
+        let mut stats = compute_stats(&refs(&before));
+        extend_stats(&mut stats, &after);
+        assert_eq!(stats, compute_stats(&refs(&after)));
+    }
+
+    #[test]
+    fn lines_outside_the_conversation_leave_the_stats_alone() {
+        let before = vec![user(1, None, "10:00:00"), assistant(2, 1, "10:00:05", 10, 200, 0)];
+        let mut stats = compute_stats(&refs(&before));
+        extend_stats(&mut stats, &[line(r#"{"type":"ai-title","aiTitle":"Continue"}"#)]);
+        assert_eq!(stats, compute_stats(&refs(&before)));
     }
 }

@@ -54,6 +54,12 @@ export interface SessionStats {
   context_tokens: number;
 }
 
+/** The open session's header figures, as the live tail keeps them current (`session-stats`). */
+export interface LiveStats {
+  stats: SessionStats;
+  event_count: number;
+}
+
 export interface ModelUsage {
   model: string;
   turn_count: number;

@@ -63,10 +63,7 @@ export function useTranscript() {
       },
       {
         loaded: setTranscript,
-        appended: (turns) =>
-          setTranscript((prev) =>
-            prev ? { ...prev, turns: [...prev.turns, ...turns], event_count: prev.event_count + turns.length } : prev,
-          ),
+        appended: (turns) => setTranscript((prev) => (prev ? { ...prev, turns: [...prev.turns, ...turns] } : prev)),
         // A slow tool's result lands in a later tail batch than its call; patch it in by tool_use_id.
         toolResults: (updates) =>
           setTranscript((prev) => {
@@ -76,6 +73,8 @@ export function useTranscript() {
           }),
         // A new prompt or /rename retitles the session while it is open.
         retitled: (title) => setTranscript((prev) => (prev && prev.title !== title ? { ...prev, title } : prev)),
+        // The header's tokens, duration and event count, recounted by the tail as the file grows.
+        stats: ({ stats, event_count }) => setTranscript((prev) => (prev ? { ...prev, stats, event_count } : prev)),
       },
     );
   }, []);

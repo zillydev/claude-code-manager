@@ -8,7 +8,9 @@ use claude_code_manager_core::session::clone::{clone_prefix, CloneOpts};
 use claude_code_manager_core::session::edit::CommitResult;
 use claude_code_manager_core::session::parse::parse_tail;
 use claude_code_manager_core::session::raw::{first_cwd, read_raw};
-use claude_code_manager_core::session::render::{render_session, RenderedSession, RenderedTurn};
+use claude_code_manager_core::session::render::{
+    extend_stats, render_session, RenderedSession, RenderedTurn, SessionStats,
+};
 use claude_code_manager_core::session::summary::{self, SessionSummary};
 use claude_code_manager_core::session::tree;
 use claude_code_manager_core::store;
@@ -246,8 +248,9 @@ pub async fn open_session(
             // Spawn a thread that reads from rx, debounces, tails the file,
             // renders new events, and emits them to the originating window.
             let app_clone = app.clone();
+            let seen = LiveStats { stats: rendered.stats.clone(), event_count: rendered.event_count };
             std::thread::spawn(move || {
-                tail_loop(rx, &fp, bytes_read, has_custom, app_clone, label);
+                tail_loop(rx, &fp, bytes_read, has_custom, seen, app_clone, label);
             });
         }
         Err(_) => {
@@ -268,11 +271,19 @@ pub fn stop_watching(window: tauri::WebviewWindow, app: AppHandle) -> Result<(),
     Ok(())
 }
 
+/// The open session's header figures, as the live tail keeps them current (`session-stats`).
+#[derive(Serialize)]
+struct LiveStats {
+    stats: SessionStats,
+    event_count: usize,
+}
+
 fn tail_loop(
     rx: std::sync::mpsc::Receiver<()>,
     file_path: &str,
     initial_offset: u64,
     mut has_custom: bool,
+    mut live: LiveStats,
     app: AppHandle,
     label: String,
 ) {
@@ -298,6 +309,11 @@ fn tail_loop(
             offset = outcome.bytes_read;
             continue;
         }
+
+        // The header's tokens, duration and event count grow with the file, as the sidebar's do.
+        extend_stats(&mut live.stats, &outcome.events);
+        live.event_count += outcome.events.len();
+        let _ = app.emit_to(label.as_str(), "session-stats", &live);
 
         // The open transcript's title follows new prompts and renames, as the sidebar's does.
         if let Some(title) = summary::title_after_append(has_custom, &outcome.events) {

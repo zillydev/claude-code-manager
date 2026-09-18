@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { createTranscriptLoader, type LoaderDeps } from "./transcriptLoader";
-import type { RenderedSession, RenderedTurn } from "../types";
+import type { LiveStats, RenderedSession, RenderedTurn } from "../types";
 
 function deferred<T>() {
   let resolve!: (v: T) => void;
@@ -40,14 +40,17 @@ function fakeWindow() {
 function recordingSink() {
   const loaded: string[] = [];
   const appended: RenderedTurn[][] = [];
+  const stats: LiveStats[] = [];
   return {
     loaded,
     appended,
+    stats,
     sink: {
       loaded: (s: RenderedSession) => loaded.push(s.id),
       appended: (t: RenderedTurn[]) => appended.push(t),
       toolResults: () => {},
       retitled: () => {},
+      stats: (u: LiveStats) => stats.push(u),
     },
   };
 }
@@ -64,6 +67,21 @@ describe("createTranscriptLoader", () => {
     w.emit("session-updated", [turn("hi")]);
     expect(r.loaded).toEqual(["A"]);
     expect(r.appended).toHaveLength(1);
+  });
+
+  it("keeps the header's figures current as the session grows, until closed", async () => {
+    const w = fakeWindow();
+    const r = recordingSink();
+    const loader = createTranscriptLoader(w.deps, r.sink);
+    const opening = loader.open("/a.jsonl", "p");
+    await settle();
+    w.opens[0].reply.resolve(session("A"));
+    await opening;
+    const update = { stats: { context_tokens: 143_147 }, event_count: 291 } as unknown as LiveStats;
+    w.emit("session-stats", update);
+    expect(r.stats).toEqual([update]);
+    await loader.close();
+    expect(w.subscribers("session-stats")).toBe(0);
   });
 
   it("keeps one subscription when a second open starts before the first finishes", async () => {
