@@ -8,6 +8,7 @@ What changed in each release, written for people using the app. Build-time detai
 
 **Added**
 
+- **Delete several sessions at once.** ⌘-click sessions in the sidebar to pick them along with the one that's open, or ⇧-click to pick a run of them from it, then Delete from the bar that appears at the bottom — or right-click one of them. A plain click still just opens a session. Once they're gone the list scrolls back to where you started picking, instead of leaving you where the last click was. Sessions with Claude running in a terminal have it closed first, and if Claude is in the middle of a reply you're asked before anything stops. This applies to deleting a single session too.
 - **Take a session's terminal from another window.** A session whose terminal runs in another window used to offer only "Switch to it". It now also offers **Open here instead**, which stops it there and starts it in this window. While Claude is working in it, the same dialog as ⌘W asks first; the other window is left showing `[process exited]` with Restart.
 
 **Fixed**

@@ -215,6 +215,35 @@ export default function App() {
     if (target) invoke("terminal_close", { sessionId: target.sessionId }).catch(() => {});
   }, [target]);
 
+  // Deleting a session whose claude still runs would leave it writing after the file moved, so its terminal
+  // closes first — after asking, the way ⌘W does, if Claude is mid-turn in any of them.
+  const [deletePrompt, setDeletePrompt] = useState<{ all: SessionSummary[]; working: SessionSummary[] } | null>(null);
+  const trashSessions = useCallback(
+    async (all: SessionSummary[]) => {
+      await Promise.all(
+        all.filter((s) => activity.get(s.id)?.hosted).map((s) => invoke("terminal_close", { sessionId: s.id }).catch(() => {})),
+      );
+      const results = await Promise.allSettled(all.map((s) => invoke("delete_session", { filePath: s.file_path })));
+      results.forEach((r, i) => r.status === "rejected" && console.error(`delete failed: ${all[i].file_path}`, r.reason));
+      if (all.some((s) => s.id === target?.sessionId)) setTarget(null);
+      refresh();
+    },
+    [activity, target, refresh],
+  );
+  const deleteSessions = useCallback(
+    async (all: SessionSummary[]) => {
+      const working = workingSessions(
+        all.map((s) => s.id),
+        sessions,
+        activity,
+        Math.floor(Date.now() / 1000),
+      );
+      if (working.length > 0) setDeletePrompt({ all, working });
+      else await trashSessions(all);
+    },
+    [sessions, activity, trashSessions],
+  );
+
   // "Open here instead" on a session another window runs: stopping its terminal frees the session, and
   // that window's pane retakes it on the `terminal-released` broadcast. Asks first only while Claude works
   // there, the one case the Open tab's ✕ asks about too.
@@ -491,15 +520,7 @@ export default function App() {
               lastViewed={lastViewed}
               onSelect={(s, messageUuid, term) => openSession(s, messageUuid, term)}
               onCollapse={() => setConfig({ ui: { sidebarCollapsed: true } })}
-              onDelete={async (s) => {
-                try {
-                  await invoke("delete_session", { filePath: s.file_path });
-                  if (target?.sessionId === s.id) setTarget(null);
-                  refresh();
-                } catch (e) {
-                  console.error("delete failed:", e);
-                }
-              }}
+              onDelete={deleteSessions}
               onNewSession={newSession}
               onViewTree={(s) => setLineageFor(s.id)}
               onOpenSettings={() => setSettingsOpen(true)}
@@ -662,6 +683,17 @@ export default function App() {
         />
       )}
       {settingsOpen && <Settings onClose={() => setSettingsOpen(false)} />}
+      {deletePrompt && (
+        <ConfirmStopDialog
+          kind="delete"
+          sessions={deletePrompt.working}
+          onCancel={() => setDeletePrompt(null)}
+          onConfirm={() => {
+            void trashSessions(deletePrompt.all);
+            setDeletePrompt(null);
+          }}
+        />
+      )}
       {takeOver && (
         <ConfirmStopDialog
           kind="takeover"

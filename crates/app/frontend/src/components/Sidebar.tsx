@@ -5,6 +5,7 @@ import {
   SquareTerminal,
   Bookmark,
   ChevronsLeft,
+  CircleCheck,
   Ellipsis,
   FolderOpen,
   Search,
@@ -41,6 +42,7 @@ import { statusInputs } from "../lib/closeGuard";
 import { sessionLink } from "../lib/sessionLink";
 import { openBadge } from "../lib/openSessions";
 import { useOpenSessions } from "../hooks/useOpenSessions";
+import { extendTo, nearestSurvivor, noSelection, pruneTo, toggleRow, type Selection } from "../lib/selection";
 import type { LiveActivity } from "../hooks/useActivity";
 
 interface Props {
@@ -54,7 +56,8 @@ interface Props {
   /** Open a session; with a message uuid, scrolled to + flashing that message. */
   onSelect: (s: SessionSummary, messageUuid?: string, term?: string) => void;
   onCollapse: () => void;
-  onDelete: (s: SessionSummary) => void | Promise<void>;
+  /** Deletes these sessions (one, from a row's menus, or a ⌘/⇧-click selection). */
+  onDelete: (sessions: SessionSummary[]) => void | Promise<void>;
   /** Creates the session and resolves with its new id (so we can tag it). */
   onNewSession: (cwd: string) => Promise<string>;
   onViewTree: (s: SessionSummary) => void;
@@ -141,6 +144,15 @@ export default function Sidebar({
   const [sortField, setSortField] = useState<SortField>("updated");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  // Rows picked with ⌘/⇧-click, for acting on several at once; the first click starts from the open session.
+  const [selection, setSelection] = useState<Selection>(noSelection);
+  // Two-step, like a row's Delete: the bar's first click arms it.
+  const [confirmBulk, setConfirmBulk] = useState(false);
+  const [bulkDeleting, setBulkDeleting] = useState(false);
+  // Where the pick began, and the order the list had when its rows were deleted: deleting a run you scrolled
+  // down to would otherwise leave the list wherever the last click was.
+  const pickStart = useRef<string | null>(null);
+  const scrollBackTo = useRef<{ before: string[]; startId: string } | null>(null);
   const [creating, setCreating] = useState(false);
   const [hoveredId, setHoveredId] = useState<string | null>(null);
 
@@ -286,6 +298,41 @@ export default function Sidebar({
     });
     return items;
   }, [filtered, sortField, sortDir, meta, activity]);
+
+  // ⇧-click ranges follow the list as shown; a filter that hides a picked row drops it from the selection.
+  const sortedIds = useMemo(() => sorted.map((s) => s.id), [sorted]);
+  // The pick starts from the open session only while it's in the list: a hidden one can't be deleted unseen.
+  const openShown = activeId !== null && sortedIds.includes(activeId) ? activeId : null;
+  useEffect(() => {
+    setSelection((sel) => pruneTo(sel, sortedIds));
+  }, [sortedIds]);
+  useEffect(() => {
+    setConfirmBulk(false);
+  }, [selection]);
+  // Runs on the first list the delete produced, so the rows are gone and the target is in the document.
+  useEffect(() => {
+    const back = scrollBackTo.current;
+    if (!back) return;
+    scrollBackTo.current = null;
+    const target = nearestSurvivor(back.before, back.startId, sortedIds);
+    if (target) {
+      listRef.current
+        ?.querySelector<HTMLElement>(`[data-session-id="${target}"]`)
+        ?.scrollIntoView({ block: "center" });
+    }
+  }, [sortedIds]);
+  const picks = sorted.filter((s) => selection.ids.has(s.id));
+  // No clearing afterwards: deleted rows leave the list and pruning drops them, while a cancelled
+  // "Claude is still working" prompt keeps the selection it was asked about.
+  const deletePicks = async () => {
+    if (pickStart.current) scrollBackTo.current = { before: sortedIds, startId: pickStart.current };
+    setBulkDeleting(true);
+    try {
+      await onDelete(picks);
+    } finally {
+      setBulkDeleting(false);
+    }
+  };
 
   const toggleSort = (field: SortField) => {
     if (sortField === field) {
@@ -466,7 +513,16 @@ export default function Sidebar({
       </div>
 
       {/* Session list */}
-      <div ref={listRef} className="flex-1 overflow-y-auto">
+      <div
+        ref={listRef}
+        className="flex-1 overflow-y-auto"
+        onKeyDown={(e) => {
+          if (e.key === "Escape" && selection.ids.size > 0) {
+            e.stopPropagation();
+            setSelection(noSelection);
+          }
+        }}
+      >
         {loading && sessions.length === 0 ? (
           <div className="p-4 flex items-center gap-2 text-[var(--color-text-dim)] text-sm">
             <Spinner /> Loading…
@@ -493,6 +549,7 @@ export default function Sidebar({
               inputs.hook,
             );
             const unread = showsUnread(status, s.id === activeId, windowFocused);
+            const picked = selection.ids.has(s.id);
             return (
             <div
               key={s.id}
@@ -520,15 +577,22 @@ export default function Sidebar({
               // also wins over :hover — the selection shouldn't wash out when
               // the pointer passes over it.
               style={
-                activeId === s.id
+                activeId === s.id || picked
                   ? {
-                      backgroundColor:
-                        "color-mix(in srgb, var(--color-accent) 16%, transparent)",
+                      backgroundColor: `color-mix(in srgb, var(--color-accent) ${activeId === s.id ? 16 : 9}%, transparent)`,
                     }
                   : undefined
               }
             >
-              {(status.running || unread) && (
+              {picked ? (
+                /* The running/unread dot's gutter: a selection is brief, and the dot is back once it ends. */
+                <CircleCheck
+                  size={12}
+                  strokeWidth={2.5}
+                  className="absolute left-0.5 top-2.5 text-[var(--color-accent)]"
+                  aria-label="Selected"
+                />
+              ) : (status.running || unread) && (
                 /* Sits in the row's reserved left gutter (pl-4 below), centred
                    on the first line: py-2 (8px) + half of a 16px line = 16px,
                    less half the dot. It used to float at left-1 over the
@@ -570,7 +634,19 @@ export default function Sidebar({
               ) : (
               /* Main clickable area */
               <button
-                onClick={() => onSelect(s)}
+                // ⇧-click would otherwise also select the page's text between the two rows.
+                onMouseDown={(e) => e.shiftKey && e.preventDefault()}
+                onClick={(e) => {
+                  if (e.metaKey || e.shiftKey) {
+                    if (selection.ids.size === 0) pickStart.current = openShown ?? s.id;
+                    setSelection((sel) =>
+                      e.metaKey ? toggleRow(sel, s.id, openShown) : extendTo(sel, s.id, sortedIds, openShown),
+                    );
+                  } else {
+                    setSelection(noSelection);
+                    onSelect(s);
+                  }
+                }}
                 className="flex-1 text-left pl-4 pr-3 py-2 min-w-0"
               >
                   <div className="flex items-center justify-between">
@@ -761,7 +837,7 @@ export default function Sidebar({
                           onConfirm={async () => {
                             setDeletingId(s.id);
                             try {
-                              await onDelete(s);
+                              await onDelete([s]);
                             } finally {
                               setDeletingId(null);
                             }
@@ -778,16 +854,44 @@ export default function Sidebar({
         )}
       </div>
 
-      {/* Footer */}
-      <div className="p-1.5 border-t border-[var(--color-border)] text-[10px] text-[var(--color-text-dim)] text-center">
-        {sorted.length}/{sessions.length} sessions
-      </div>
+      {/* Footer: the session count, or what's picked and what to do with it. */}
+      {picks.length > 0 ? (
+        <div className="px-2 py-1 border-t border-[var(--color-border)] flex items-center gap-2 text-xs">
+          <span className="text-[var(--color-text)]">{picks.length} selected</span>
+          <button
+            disabled={bulkDeleting}
+            onClick={() => {
+              if (!confirmBulk) setConfirmBulk(true);
+              else void deletePicks();
+            }}
+            className={`ml-auto flex items-center gap-1 px-2 py-0.5 rounded border border-[var(--color-error)] text-[var(--color-error)] hover:bg-[var(--color-error)] hover:text-white disabled:opacity-50 ${
+              confirmBulk ? "font-medium" : ""
+            }`}
+          >
+            {bulkDeleting && <Spinner />}
+            {confirmBulk ? `Delete ${picks.length}` : "Delete"}
+          </button>
+          <button
+            onClick={() => setSelection(noSelection)}
+            title="Clear the selection (Esc)"
+            className="px-2 py-0.5 rounded text-[var(--color-text-dim)] hover:text-[var(--color-text)]"
+          >
+            Clear
+          </button>
+        </div>
+      ) : (
+        <div className="p-1.5 border-t border-[var(--color-border)] text-[10px] text-[var(--color-text-dim)] text-center">
+          {sorted.length}/{sessions.length} sessions
+        </div>
+      )}
 
       {rowMenu.menu && (
         <ContextMenu x={rowMenu.menu.x} y={rowMenu.menu.y} onClose={rowMenu.close}>
           {(() => {
             const s = rowMenu.menu!.target;
             const entry = meta.sessions[s.id];
+            // Right-clicking one of several picked rows acts on all of them; any other row, on itself.
+            const many = picks.length > 1 && selection.ids.has(s.id);
             const item = (label: string, onClick: () => void) => (
               <button
                 role="menuitem"
@@ -802,13 +906,19 @@ export default function Sidebar({
             );
             return (
               <>
-                {item("Rename", () => {
-                  setDraftAlias(entry?.alias ?? "");
-                  setRenamingId(s.id);
-                })}
-                {item("Tags…", () => setTagsFor(s))}
-                {item("Note…", () => setNoteFor(s))}
-                {item("Copy link", () => copyLink(s.id))}
+                {many ? (
+                  item("Clear selection", () => setSelection(noSelection))
+                ) : (
+                  <>
+                    {item("Rename", () => {
+                      setDraftAlias(entry?.alias ?? "");
+                      setRenamingId(s.id);
+                    })}
+                    {item("Tags…", () => setTagsFor(s))}
+                    {item("Note…", () => setNoteFor(s))}
+                    {item("Copy link", () => copyLink(s.id))}
+                  </>
+                )}
                 {/* Two clicks, like the ⋯ menu: a context menu is easy to hit
                     by accident, and this deletes a session. */}
                 <button
@@ -821,10 +931,17 @@ export default function Sidebar({
                     }
                     rowMenu.close();
                     setConfirmDelete(false);
-                    void onDelete(s);
+                    if (many) void deletePicks();
+                    else void onDelete([s]);
                   }}
                 >
-                  {confirmDelete ? "Confirm delete" : "Delete"}
+                  {many
+                    ? confirmDelete
+                      ? `Confirm delete ${picks.length}`
+                      : `Delete ${picks.length} sessions`
+                    : confirmDelete
+                      ? "Confirm delete"
+                      : "Delete"}
                 </button>
               </>
             );

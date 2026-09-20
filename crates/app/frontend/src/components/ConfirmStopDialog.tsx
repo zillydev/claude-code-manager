@@ -27,7 +27,7 @@ export default function ConfirmStopDialog({
   }, [onCancel]);
 
   const n = sessions.length;
-  const { action, confirm } = stopWording(kind);
+  const { action, confirm, after } = stopWording(kind);
   const backdrop = useBackdropDismiss(onCancel);
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" {...backdrop}>
@@ -46,8 +46,7 @@ export default function ConfirmStopDialog({
           ))}
         </ul>
         <div className="text-xs text-[var(--color-text-dim)]">
-          {action} stops {n === 1 ? "it" : "them"} mid-turn. The
-          session can be resumed, but the work in progress is lost.
+          {action} stops {n === 1 ? "it" : "them"} mid-turn. {after}
         </div>
         <div className="flex justify-end gap-2">
           {/* Cancel takes focus, so a reflexive Enter can't stop the work. */}
