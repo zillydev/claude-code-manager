@@ -1,4 +1,16 @@
-import { useState, useRef, useEffect, useCallback, type ReactNode } from "react";
+import { useState, useRef, useEffect, useLayoutEffect, useCallback, type ReactNode } from "react";
+import { menuSide, type MenuSide } from "../lib/menuSide";
+
+/** What would cut the menu off: the nearest scrolling ancestor (the sessions list), else the window. */
+function clipperOf(el: HTMLElement | null): { top: number; bottom: number } {
+  for (let p = el?.parentElement; p; p = p.parentElement) {
+    if (getComputedStyle(p).overflowY !== "visible") {
+      const r = p.getBoundingClientRect();
+      return { top: r.top, bottom: r.bottom };
+    }
+  }
+  return { top: 0, bottom: window.innerHeight };
+}
 
 /** Shared styling for a button rendered as a Dropdown menu item. */
 export const menuItemClass =
@@ -32,6 +44,18 @@ export default function Dropdown({
 }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  // Which way this one opens, measured while it is on screen but before it is painted.
+  const [side, setSide] = useState<MenuSide | null>(null);
+  useLayoutEffect(() => {
+    if (!open || !triggerRef.current || !menuRef.current) {
+      setSide(null);
+      return;
+    }
+    const trigger = triggerRef.current.getBoundingClientRect();
+    setSide(menuSide(trigger, menuRef.current.scrollHeight, clipperOf(triggerRef.current)));
+  }, [open]);
   const close = useCallback(() => setOpen(false), []);
   const onOpenChangeRef = useRef(onOpenChange);
   onOpenChangeRef.current = onOpenChange;
@@ -60,6 +84,7 @@ export default function Dropdown({
     // (the filters row), not this wrapper.
     <div className={fullWidth ? "static" : "relative"} ref={ref}>
       <button
+        ref={triggerRef}
         type="button"
         onClick={(e) => {
           e.stopPropagation();
@@ -75,10 +100,12 @@ export default function Dropdown({
       </button>
       {open && (
         <div
+          ref={menuRef}
           role="menu"
-          className={`absolute top-full mt-1 z-30 rounded border border-[var(--color-border)] bg-[var(--color-surface)] py-1 shadow-lg ${
-            fullWidth ? "left-0 right-0" : `${align === "right" ? "right-0" : "left-0"} min-w-32`
-          }`}
+          style={side?.maxHeight != null ? { maxHeight: side.maxHeight, overflowY: "auto" } : undefined}
+          className={`absolute z-30 rounded border border-[var(--color-border)] bg-[var(--color-surface)] py-1 shadow-lg ${
+            side?.up ? "bottom-full mb-1" : "top-full mt-1"
+          } ${fullWidth ? "left-0 right-0" : `${align === "right" ? "right-0" : "left-0"} min-w-32`}`}
         >
           {children(close)}
         </div>

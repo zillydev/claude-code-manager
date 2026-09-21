@@ -13,6 +13,7 @@ What changed in each release, written for people using the app. Build-time detai
 
 **Fixed**
 
+- **Row menus open upward when there's no room below.** The ⋯ menu on a session near the bottom of the sidebar was cut off by the list's edge, so reaching Delete meant scrolling first. Menus now open on whichever side has room, and one too tall for either scrolls instead of being clipped.
 - **An open session's token counts and duration keep up with it.** The context size, lifetime tokens, duration and event count above a transcript were worked out once, when you opened the session, and never again — so a session opened seconds after it started read "0 tokens" for as long as you watched it, while the sidebar showed the real number. They now grow as Claude writes, and start over after an auto-compaction, as they do when you reopen the session.
 - **The project filter's group heading sits over its own projects.** Picking one of several projects sharing a name moved its heading to the top of the menu, where it sat over "All projects" and everything alphabetically before the group. The heading now stays with the directories it names, and a rule closes the group where it ends, so the projects after it read as their own.
 - **A question you chatted about instead of answering says so.** Picking "Chat about this" on one of Claude's questions left its card looking unanswered, since Claude Code records it as a declined question rather than an answer; the card now ends with "Chat about this". A question dismissed with Esc reads "Dismissed without an answer".
