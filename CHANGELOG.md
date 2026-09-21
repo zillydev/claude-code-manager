@@ -4,7 +4,7 @@ What changed in each release, written for people using the app. Build-time detai
 
 > **Maintenance:** add entries under **Unreleased** on the feature branch, alongside the `FEATURES.md` update. At release time that heading becomes the version. `release.yml` publishes the section matching the tag and fails if it finds none, so a release can't ship without notes.
 
-## Unreleased
+## v0.1.4 — 2026-09-21
 
 **Added**
 

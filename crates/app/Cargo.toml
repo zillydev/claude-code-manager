@@ -1,6 +1,6 @@
 [package]
 name = "claude-code-manager-app"
-version = "0.1.3"
+version = "0.1.4"
 edition = "2021"
 description = "Tauri desktop app for browsing, editing, and resuming Claude Code sessions."
 license = "MIT"
