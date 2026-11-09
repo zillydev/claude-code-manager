@@ -108,38 +108,54 @@ pub fn desired_state(input: Inputs<'_>) -> StatusFile {
             .get(id.as_str())
             .and_then(|a| a.hook.as_ref())
             .filter(|h| h.since >= last_event_at || (h.phase == "running" && !awaiting));
-        // Without hooks, a hosted session's terminal is the authority: claude's
-        // TUI talks while working and falls silent when it waits. The
-        // file-mtime backstop stays for sessions ccm cannot see into at all.
-        let running = match hook {
-            // Unhosted: no PTY to prove liveness, so decay like the mtime guess —
-            // from the last sign of life, hook or file line.
-            Some(h) => {
-                h.phase == "running"
-                    && (hosted.is_some()
-                        || input.now - h.since.max(last_event_at) < RUNNING_STALE_SECS)
-            }
+        // Claude's own report from ccm's terminal states what everything below
+        // infers; `idle` leaves the file's verdict on its last turn standing.
+        let program = live
+            .get(id.as_str())
+            .and_then(|a| a.program.as_ref())
+            .filter(|_| hosted.is_some());
+        let (running, waiting_since) = match program {
+            Some(p) => (
+                p.state == "working",
+                matches!(p.state.as_str(), "blocked" | "done" | "error").then_some(p.since),
+            ),
             None => {
-                !awaiting
-                    && if hosted.is_some() {
-                        busy
-                    } else {
-                        input.now - last_event_at < RUNNING_STALE_SECS
+                // Without hooks, a hosted session's terminal is the authority: claude's
+                // TUI talks while working and falls silent when it waits. The
+                // file-mtime backstop stays for sessions ccm cannot see into at all.
+                let running = match hook {
+                    // Unhosted: no PTY to prove liveness, so decay like the mtime guess —
+                    // from the last sign of life, hook or file line.
+                    Some(h) => {
+                        h.phase == "running"
+                            && (hosted.is_some()
+                                || input.now - h.since.max(last_event_at) < RUNNING_STALE_SECS)
                     }
+                    None => {
+                        !awaiting
+                            && if hosted.is_some() {
+                                busy
+                            } else {
+                                input.now - last_event_at < RUNNING_STALE_SECS
+                            }
+                    }
+                };
+                // Something is waiting on the user that the file cannot show — a
+                // question, a permission prompt, a plan. Hooks date it exactly; the
+                // quiet-terminal inference dates it by when the talking stopped. Either
+                // way it reads as unread from that moment, because the file's last
+                // event is your own prompt, which you have by definition already seen.
+                let waiting_since = match hook {
+                    Some(h) if h.phase != "running" => Some(h.since),
+                    Some(_) => None,
+                    None => (hosted.is_some() && !busy && !awaiting).then_some(busy_at),
+                };
+                (running, waiting_since)
             }
-        };
-        // Something is waiting on the user that the file cannot show — a
-        // question, a permission prompt, a plan. Hooks date it exactly; the
-        // quiet-terminal inference dates it by when the talking stopped. Either
-        // way it reads as unread from that moment, because the file's last
-        // event is your own prompt, which you have by definition already seen.
-        let waiting_since = match hook {
-            Some(h) if h.phase != "running" => Some(h.since),
-            Some(_) => None,
-            None => (hosted.is_some() && !busy && !awaiting).then_some(busy_at),
         };
         let attention_at = waiting_since.unwrap_or(last_event_at);
-        let unread = (awaiting || waiting_since.is_some())
+        let unread = !running
+            && (awaiting || waiting_since.is_some())
             && input.last_viewed.get(&id).is_some_and(|v| attention_at > *v);
 
         if !running && !unread && hosted.is_none() {
@@ -228,6 +244,7 @@ mod tests {
     use super::*;
     use std::time::{Duration, UNIX_EPOCH};
     use uuid::Uuid;
+    use crate::program_status::ProgramStatus;
 
     const NOW: i64 = 1_800_000_000;
     const A: &str = "00000000-0000-0000-0000-00000000000a";
@@ -265,6 +282,7 @@ mod tests {
             busy_at: 0,
             hook: None,
             interrupt_at: 0,
+            program: None,
         }
     }
     /// Hosted with a talking terminal — claude is actually working.
@@ -279,6 +297,7 @@ mod tests {
             busy_at: last,
             hook: None,
             interrupt_at: 0,
+            program: None,
         }
     }
     /// Hosted but silent since `quiet_at` — parked on a question, or just sitting.
@@ -293,6 +312,7 @@ mod tests {
             busy_at: quiet_at,
             hook: None,
             interrupt_at: 0,
+            program: None,
         }
     }
 
@@ -331,6 +351,44 @@ mod tests {
         let mut later = busy_act(A, NOW - 30);
         later.interrupt_at = NOW - 59;
         assert_eq!(state(later, NOW - 100), "running", "the Esc is older than the file — inference decides");
+    }
+
+    #[test]
+    fn claudes_own_report_outranks_the_terminal_guess() {
+        let sessions = vec![summary(A, "reported", NOW - 60, false)];
+        let hosted = BTreeMap::from([(A.to_string(), Some(1))]);
+        let state = |a: SessionActivity, viewed: i64| {
+            desired_state(Inputs {
+                activity: &[a],
+                sessions: &sessions,
+                hosted: &hosted,
+                last_viewed: &BTreeMap::from([(A.to_string(), viewed)]),
+                now: NOW,
+            })
+            .sessions[A]
+                .state
+                .clone()
+        };
+        let report = |a: SessionActivity, state: &str, since: i64| SessionActivity {
+            program: Some(ProgramStatus { state: state.into(), kind: None, msg: None, since }),
+            ..a
+        };
+        // A long silent tool call: the terminal is quiet, claude says working.
+        assert_eq!(state(report(quiet_act(A, NOW - 60, NOW - 50), "working", NOW - 60), NOW - 100), "running");
+        // A spinner repaint is loud, but claude says it is waiting on you.
+        assert_eq!(state(report(busy_act(A, NOW - 60), "blocked", NOW - 10), NOW - 100), "unread");
+        assert_eq!(state(report(busy_act(A, NOW - 60), "blocked", NOW - 10), NOW - 10), "idle", "seen");
+        // Esc: nothing new to read, whatever the terminal did.
+        assert_eq!(state(report(busy_act(A, NOW - 60), "idle", NOW - 5), NOW - 100), "idle");
+        // Unhosted sessions can't have one; a stale report is ignored.
+        let unhosted = desired_state(Inputs {
+            activity: &[report(act(A, NOW - 60, false), "working", NOW - 60)],
+            sessions: &sessions,
+            hosted: &BTreeMap::new(),
+            last_viewed: &BTreeMap::new(),
+            now: NOW + 600,
+        });
+        assert!(unhosted.sessions.is_empty(), "falls back to the mtime decay");
     }
 
     #[test]

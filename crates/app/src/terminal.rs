@@ -1,13 +1,15 @@
 use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::sync::atomic::{AtomicI64, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::sync::OnceLock;
 
 use base64::Engine;
 use portable_pty::{native_pty_system, Child, CommandBuilder, MasterPty, PtySize};
 use serde_json::json;
 use tauri::{AppHandle, Emitter, Manager};
+
+use crate::program_status::{self, Osc, ProgramStatus};
 
 /// Where a session's `claude` will be started from: the program to run and the
 /// PATH to run it with.
@@ -199,7 +201,8 @@ pub fn open_decision(existing_owner: Option<&str>, requester: &str) -> OpenDecis
 /// label that owns it (one PTY per session, app-wide).
 pub struct PtyHandle {
     master: Box<dyn MasterPty + Send>,
-    writer: Box<dyn Write + Send>,
+    /// Shared with the reader, which answers claude's terminal probes on it.
+    writer: Arc<Mutex<Box<dyn Write + Send>>>,
     child: Box<dyn Child + Send + Sync>,
     owner: String,
     /// Epoch seconds claude last produced output that was its own doing (a
@@ -212,6 +215,8 @@ pub struct PtyHandle {
     /// Code defines as "stop". Esc before the first token leaves no trace in
     /// the session file and fires no hook; this is the only witness.
     last_interrupt: Arc<AtomicI64>,
+    /// Claude's own state report (`OSC 7501`), once it has sent one.
+    program: Arc<Mutex<Option<ProgramStatus>>>,
 }
 
 /// One session ccm is running, for the poller.
@@ -222,6 +227,8 @@ pub struct Hosted {
     pub last_busy_at: i64,
     /// Epoch seconds of the user's last interrupt keystroke (0 if none).
     pub last_interrupt_at: i64,
+    /// What claude last said it is doing, when its version reports it.
+    pub program: Option<ProgramStatus>,
 }
 
 /// How long after claude's last burst of output we still call the session busy.
@@ -330,6 +337,7 @@ impl TerminalState {
                 owner: h.owner.clone(),
                 last_busy_at: h.last_busy.load(Ordering::Relaxed),
                 last_interrupt_at: h.last_interrupt.load(Ordering::Relaxed),
+                program: h.program.lock().ok().and_then(|p| p.clone()),
             })
             .collect()
     }
@@ -342,8 +350,9 @@ impl TerminalState {
             if is_interrupt_keystroke(data) {
                 h.last_interrupt.store(now_secs(), Ordering::Relaxed);
             }
-            h.writer.write_all(data)?;
-            h.writer.flush()?;
+            let mut w = h.writer.lock().map_err(|e| std::io::Error::other(e.to_string()))?;
+            w.write_all(data)?;
+            w.flush()?;
         }
         Ok(())
     }
@@ -425,6 +434,7 @@ pub fn spawn_terminal(
     let mut reader =
         pair.master.try_clone_reader().map_err(|e| std::io::Error::other(e.to_string()))?;
     let writer = pair.master.take_writer().map_err(|e| std::io::Error::other(e.to_string()))?;
+    let writer = Arc::new(Mutex::new(writer));
 
     let owner = label.clone();
     let cleanup_id = session_id.clone();
@@ -436,9 +446,13 @@ pub fn spawn_terminal(
     let last_interrupt = Arc::new(AtomicI64::new(0));
     let stamp = Arc::clone(&last_busy);
     let input_at = Arc::clone(&last_input);
+    let program = Arc::new(Mutex::new(None));
+    let reported = Arc::clone(&program);
+    let replies = Arc::clone(&writer);
     std::thread::spawn(move || {
         let mut buf = [0u8; 8192];
         let mut window = BusyWindow::new(now_secs());
+        let mut scanner = program_status::Scanner::default();
         loop {
             match reader.read(&mut buf) {
                 Ok(0) | Err(_) => break,
@@ -446,6 +460,21 @@ pub fn spawn_terminal(
                     let now = now_secs();
                     if window.feed(now, n, input_at.load(Ordering::Relaxed)) {
                         stamp.store(now, Ordering::Relaxed);
+                    }
+                    for osc in scanner.feed(&buf[..n]) {
+                        match osc {
+                            Osc::Probe => {
+                                if let Ok(mut w) = replies.lock() {
+                                    let _ = w.write_all(program_status::PROBE_REPLY);
+                                    let _ = w.flush();
+                                }
+                            }
+                            Osc::Report(r) => {
+                                if let Ok(mut p) = reported.lock() {
+                                    program_status::apply(&mut p, &r, now);
+                                }
+                            }
+                        }
                     }
                     let data = base64::engine::general_purpose::STANDARD.encode(&buf[..n]);
                     let _ = app.emit_to(
@@ -475,7 +504,16 @@ pub fn spawn_terminal(
         let _ = app.emit("terminal-released", json!({ "sessionId": session_id }));
     });
 
-    Ok(PtyHandle { master: pair.master, writer, child, owner, last_busy, last_input, last_interrupt })
+    Ok(PtyHandle {
+        master: pair.master,
+        writer,
+        child,
+        owner,
+        last_busy,
+        last_input,
+        last_interrupt,
+        program,
+    })
 }
 
 #[cfg(test)]

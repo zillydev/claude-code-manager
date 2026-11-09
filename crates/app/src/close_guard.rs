@@ -62,7 +62,7 @@ mod tests {
     use super::*;
 
     fn hosted(id: &str, owner: &str) -> Hosted {
-        Hosted { session_id: id.into(), owner: owner.into(), last_busy_at: 0, last_interrupt_at: 0 }
+        Hosted { session_id: id.into(), owner: owner.into(), last_busy_at: 0, last_interrupt_at: 0, program: None }
     }
 
     #[test]

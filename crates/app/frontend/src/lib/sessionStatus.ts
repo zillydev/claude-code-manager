@@ -11,6 +11,17 @@ export type HookPhase = {
 } | null;
 
 /**
+ * Claude Code's own report from ccm's terminal (`OSC 7501`, Claude Code ≥ 2.1.295).
+ * `since` is when it entered `state`; `kind`/`msg` say what a `blocked` waits on.
+ */
+export type ProgramStatus = {
+  state: "working" | "blocked" | "done" | "idle" | "error";
+  kind: string | null;
+  msg: string | null;
+  since: number;
+};
+
+/**
  * What ccm's own terminal knows about a session, or null when ccm isn't running
  * it (then only the session file's mtime is available to guess from).
  */
@@ -22,6 +33,8 @@ export type TerminalState = {
   busyAt: number;
   /** Epoch s of the user's last Esc / Ctrl-C in this terminal (0 if none). */
   interruptAt: number;
+  /** Claude's own report, when its version sends one — then the rest is moot. */
+  program?: ProgramStatus | null;
 } | null;
 
 /**
@@ -75,6 +88,17 @@ export function deriveStatus(
   hook: HookPhase = null,
 ): SessionStatus {
   if (lastEventAt == null) return { running: false, unread: false };
+  // Claude saying what it is doing outranks everything below, which only infers
+  // it. `idle` (Esc, a fresh start) leaves the file's verdict on its last turn.
+  const program = terminal?.program;
+  if (program) {
+    const running = program.state === "working";
+    const waitingSince = running || program.state === "idle" ? null : program.since;
+    return {
+      running,
+      unread: waitingSince != null ? waitingSince > lastViewed : !running && awaitingInput && lastEventAt > lastViewed,
+    };
+  }
   // An Esc / Ctrl-C in ccm's own terminal ends the turn as surely as the file's
   // interrupt marker — and Esc before the first token writes no marker and
   // fires no hook, so the keystroke is the only witness.

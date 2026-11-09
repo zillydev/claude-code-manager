@@ -7,6 +7,7 @@ mod dock_name;
 mod hooks;
 mod plugin;
 mod precise_status;
+mod program_status;
 mod session_link;
 mod session_meta;
 mod shared;
@@ -192,6 +193,11 @@ pub fn run() {
                         .iter()
                         .map(|h| (h.session_id.as_str(), h.last_interrupt_at))
                         .collect();
+                    let program_of: std::collections::BTreeMap<&str, &program_status::ProgramStatus> =
+                        hosted_now
+                            .iter()
+                            .filter_map(|h| Some((h.session_id.as_str(), h.program.as_ref()?)))
+                            .collect();
                     let busy_ids: std::collections::BTreeSet<&str> = hosted_now
                         .iter()
                         .filter(|h| now - h.last_busy_at < terminal::BUSY_QUIET_SECS)
@@ -208,6 +214,7 @@ pub fn run() {
                         a.busy_at = busy_at.get(a.id.as_str()).copied().unwrap_or(0);
                         a.hook = hook_state.get(&a.id).cloned();
                         a.interrupt_at = interrupt_at.get(a.id.as_str()).copied().unwrap_or(0);
+                        a.program = program_of.get(a.id.as_str()).map(|p| (*p).clone());
                     }
                     let have: std::collections::BTreeSet<String> =
                         outcome.activity.iter().map(|a| a.id.clone()).collect();
@@ -247,6 +254,7 @@ pub fn run() {
                                     .get(&s.id.to_string().as_str())
                                     .copied()
                                     .unwrap_or(0),
+                                program: program_of.get(&s.id.to_string().as_str()).map(|p| (*p).clone()),
                             });
                         }
                     }

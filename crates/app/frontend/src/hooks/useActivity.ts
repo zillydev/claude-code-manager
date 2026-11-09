@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import type { ProgramStatus } from "../lib/sessionStatus";
 
 type Activity = {
   id: string;
@@ -16,6 +17,7 @@ type Activity = {
   hook: { phase: "running" | "attention" | "awaiting"; since: number } | null;
   /** Epoch s of the user's last Esc / Ctrl-C in this session's terminal. */
   interrupt_at: number;
+  program?: ProgramStatus | null;
 };
 export type LiveActivity = {
   at: number;
@@ -27,6 +29,8 @@ export type LiveActivity = {
   /** Claude's own phase from the opt-in hook relay, when installed. */
   hook: { phase: "running" | "attention" | "awaiting"; since: number } | null;
   interruptAt: number;
+  /** Claude's own state report from ccm's terminal, when hosted and supported. */
+  program: ProgramStatus | null;
 };
 
 const toMap = (rows: Activity[]): Map<string, LiveActivity> =>
@@ -42,6 +46,7 @@ const toMap = (rows: Activity[]): Map<string, LiveActivity> =>
         busyAt: r.busy_at,
         hook: r.hook ?? null,
         interruptAt: r.interrupt_at ?? 0,
+        program: r.program ?? null,
       },
     ]),
   );

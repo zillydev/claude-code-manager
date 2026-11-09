@@ -356,6 +356,7 @@ export default function App() {
       live?.hosted && !live.busy ? live.busyAt : 0,
       live?.hook && live.hook.phase !== "running" ? live.hook.since : 0,
       live?.hosted ? live.interruptAt : 0, // you pressed it, in this window
+      live?.program && live.program.state !== "working" ? live.program.since : 0,
     );
     if (!seen) return;
     setLastViewed((m) => (seen > (m[target.sessionId] ?? 0) ? { ...m, [target.sessionId]: seen } : m));

@@ -593,6 +593,10 @@ pub struct SessionActivity {
     /// only after it is answered, leaving your own prompt as the last event.
     #[serde(default)]
     pub busy_at: i64,
+    /// Claude's own state report from this session's terminal (`OSC 7501`);
+    /// when present it outranks `busy`, `interrupt_at` and `hook`.
+    #[serde(default)]
+    pub program: Option<crate::program_status::ProgramStatus>,
 }
 
 /// The sidebar "running"/"unread" signal, served from the `Shared` cache that

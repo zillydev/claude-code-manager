@@ -11,7 +11,7 @@ export function statusInputs(
   return {
     lastEventAt: act?.at ?? s.last_event_at?.secs_since_epoch ?? null,
     awaiting: act?.awaiting ?? s.awaiting_input,
-    terminal: act?.hosted ? { busy: act.busy, busyAt: act.busyAt, interruptAt: act.interruptAt } : null,
+    terminal: act?.hosted ? { busy: act.busy, busyAt: act.busyAt, interruptAt: act.interruptAt, program: act.program } : null,
     hook: act?.hook ?? null,
   };
 }

@@ -158,3 +158,32 @@ describe("an Esc in ccm's own terminal", () => {
     expect(deriveStatus(1080, false, 900, 1085, { busy: true, busyAt: 1084, interruptAt: 1050 }, null).running).toBe(true);
   });
 });
+
+describe("claude's own report (OSC 7501)", () => {
+  const report = (state: "working" | "blocked" | "done" | "idle" | "error", since: number) => ({
+    busy: state !== "working", // the opposite of what the byte guess would say
+    busyAt: 1001,
+    interruptAt: 0,
+    program: { state, kind: null, msg: null, since },
+  });
+  it("working is running through any silence, and never unread", () => {
+    expect(deriveStatus(1000, false, 0, 9000, report("working", 1000))).toEqual({ running: true, unread: false });
+    // Even when the file still ends on an older finished turn.
+    expect(deriveStatus(1000, true, 0, 1001, report("working", 1001)).running).toBe(true);
+  });
+  it("blocked, done and error are your turn from the moment claude entered them", () => {
+    for (const s of ["blocked", "done", "error"] as const) {
+      expect(deriveStatus(1000, false, 1005, 1100, report(s, 1010))).toEqual({ running: false, unread: true });
+      expect(deriveStatus(1000, false, 1010, 1100, report(s, 1010)).unread).toBe(false);
+    }
+  });
+  it("idle leaves the file's verdict on the last turn standing", () => {
+    // Resumed on an unread reply: still unread. An Esc on a seen session: nothing new.
+    expect(deriveStatus(1000, true, 900, 1100, report("idle", 1050))).toEqual({ running: false, unread: true });
+    expect(deriveStatus(1000, false, 1000, 1100, report("idle", 1050))).toEqual({ running: false, unread: false });
+  });
+  it("outranks a hook that missed the interrupt", () => {
+    const h = { phase: "running" as const, since: 1000 };
+    expect(deriveStatus(1000, false, 1000, 1010, report("idle", 1005), h).running).toBe(false);
+  });
+});

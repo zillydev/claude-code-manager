@@ -13,7 +13,7 @@ const session = (id: string, updated: number) =>
     awaiting_input: false,
   }) as SessionSummary;
 const act = (over: Partial<LiveActivity>): LiveActivity => ({
-  at: NOW - 60, awaiting: false, hosted: true, owner: "main", busy: false, busyAt: NOW - 60, hook: null, interruptAt: 0, ...over,
+  at: NOW - 60, awaiting: false, hosted: true, owner: "main", busy: false, busyAt: NOW - 60, hook: null, interruptAt: 0, program: null, ...over,
 });
 
 describe("openSessions", () => {
