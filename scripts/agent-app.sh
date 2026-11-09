@@ -105,7 +105,13 @@ start() {
     yabai -m rule --add label=ccm-agent title='^CCM Agent$' manage=off >/dev/null 2>&1 || true
   fi
 
-  CM_AGENT=1 CM_AGENT_URL="http://localhost:$port" CLAUDE_CODE_MANAGER_CONFIG_DIR="$CONFIG_DIR" \
+  # The app's terminals start claude, which would otherwise inherit the launching Claude Code
+  # session's markers: no transcript, that session's permission mode and messaging socket.
+  local scrub=() v
+  for v in $(compgen -e); do
+    if [[ "$v" == CLAUDE* ]]; then scrub+=(-u "$v"); fi
+  done
+  env "${scrub[@]}" CM_AGENT=1 CM_AGENT_URL="http://localhost:$port" CLAUDE_CODE_MANAGER_CONFIG_DIR="$CONFIG_DIR" \
     nohup "$APP_BIN" >"$STATE/app.log" 2>&1 &
   echo $! >"$STATE/app.pid"
 
