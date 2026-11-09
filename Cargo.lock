@@ -574,6 +574,7 @@ name = "claude-code-manager-app"
 version = "0.1.4"
 dependencies = [
  "base64 0.22.1",
+ "block2",
  "claude-code-manager-core",
  "core-foundation",
  "libc",

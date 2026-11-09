@@ -361,6 +361,7 @@ fn tail_loop(
 /// Move a session file to the app trash (recoverable). Returns Ok(()) on success.
 #[tauri::command]
 pub async fn delete_session(file_path: String) -> Result<(), String> {
+    crate::agent_bridge::refuse_in_agent("delete a session")?;
     tauri::async_runtime::spawn_blocking(move || -> Result<(), String> {
         let root = paths::default_claude_root().ok_or("could not locate ~/.claude")?;
         store::trash_session(&root, std::path::Path::new(&file_path)).map_err(|e| e.to_string())?;
@@ -387,6 +388,7 @@ pub async fn fork_session(
     fork_uuid: String,
     custom_title: Option<String>,
 ) -> Result<CommitResult, String> {
+    crate::agent_bridge::refuse_in_agent("fork a session")?;
     // read_raw + write on a potentially-large file — off the main thread.
     tauri::async_runtime::spawn_blocking(move || -> Result<CommitResult, String> {
         let root = paths::default_claude_root().ok_or("could not locate ~/.claude")?;

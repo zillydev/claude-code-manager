@@ -1,4 +1,4 @@
-.PHONY: dev build app install test print clean
+.PHONY: dev agent agent-stop build app install test print clean
 
 # Vite dev-server port for `make dev` (Tauri's devUrl is overridden to match).
 # Override e.g. `make dev PORT=3000`.
@@ -11,6 +11,14 @@ PORT ?= 5173
 # relaunches only on success, restoring windows and open sessions.
 dev:
 	PORT=$(PORT) scripts/dev.sh
+
+# Hidden copy of the app for a coding agent to drive with scripts/ui: never
+# activates, transparent, behind every window, own Vite and config dir.
+agent:
+	scripts/agent-app.sh start
+
+agent-stop:
+	scripts/agent-app.sh stop
 
 # Build everything (Rust workspace + frontend) — a compile/CI check, no bundle.
 build:

@@ -137,6 +137,7 @@ pub async fn precise_status_enabled() -> Result<bool, String> {
 
 #[tauri::command]
 pub async fn precise_status_enable(app: AppHandle) -> Result<(), String> {
+    crate::agent_bridge::refuse_in_agent("install the status plugin")?;
     if !crate::plugin::developer_tools_present() {
         return Err(
             "Needs Apple's command line tools: run `xcode-select --install`, then try again."
@@ -157,6 +158,7 @@ pub async fn precise_status_enable(app: AppHandle) -> Result<(), String> {
 
 #[tauri::command]
 pub async fn precise_status_disable() -> Result<(), String> {
+    crate::agent_bridge::refuse_in_agent("uninstall the status plugin")?;
     tauri::async_runtime::spawn_blocking(|| {
         crate::plugin::uninstall()?;
         if crate::hooks::legacy_installed() {

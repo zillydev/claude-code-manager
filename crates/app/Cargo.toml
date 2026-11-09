@@ -41,6 +41,8 @@ libc = "0.2"
 core-foundation = "0.10"
 # window ids for the published status file (see src/win_id.rs)
 objc2 = "0.6"
+# completion handlers for the agent bridge's WebKit calls (see src/agent_bridge.rs); already in the tree via wry
+block2 = "0.6"
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }

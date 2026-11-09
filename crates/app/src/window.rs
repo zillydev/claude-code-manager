@@ -27,12 +27,15 @@ pub fn spawn_window(app: &AppHandle) {
 
 /// Open a window with an explicit label, position and inner size (logical px).
 pub fn build_window(app: &AppHandle, label: &str, position: (f64, f64), size: (f64, f64)) {
+    let agent = crate::agent_bridge::enabled();
     if let Err(e) = WebviewWindowBuilder::new(app, label, WebviewUrl::App("index.html".into()))
         .title("Claude Code Manager")
         .inner_size(size.0, size.1)
         .min_inner_size(800.0, 600.0)
         .position(position.0, position.1)
         .resizable(true)
+        .visible(!agent)
+        .focused(!agent)
         .build()
     {
         eprintln!("failed to open new window: {e}");

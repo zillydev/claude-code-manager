@@ -1,3 +1,4 @@
+mod agent_bridge;
 mod close_guard;
 mod commands;
 mod config;
@@ -94,7 +95,16 @@ fn build_menu(handle: &tauri::AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
 }
 
 pub fn run() {
-    tauri::Builder::default()
+    let agent = agent_bridge::enabled();
+    let mut context = tauri::generate_context!();
+    if agent {
+        agent_bridge::prepare(&mut context);
+    }
+    let mut builder = tauri::Builder::default();
+    if agent {
+        builder = builder.plugin(agent_bridge::plugin());
+    }
+    builder
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_deep_link::init())
         .manage(Mutex::new(session_link::LinkState::default()))
@@ -103,7 +113,10 @@ pub fn run() {
         .manage(shared::Shared::new())
         .manage(dev_reload::DevReloadState::default())
         .manage(update_check::UpdateState::default())
-        .setup(|app| {
+        .setup(move |app| {
+            if agent {
+                agent_bridge::start(app);
+            }
             // Links arrive through the plugin; one that launched the app is also readable once here.
             let link_handle = app.handle().clone();
             app.deep_link().on_open_url(move |event| {
@@ -353,7 +366,7 @@ pub fn run() {
             dev_reload::dev_take_view,
             dev_reload::dev_set_view,
         ])
-        .build(tauri::generate_context!())
+        .build(context)
         .expect("error while building tauri application")
         .run(|app_handle, event| {
             // Backstop: when the app exits by any path Tauri runs its loop for

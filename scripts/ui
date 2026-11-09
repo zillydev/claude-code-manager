@@ -1,0 +1,232 @@
+#!/usr/bin/env python3
+"""Drive the hidden agent copy of the app started by scripts/agent-app.sh.
+
+Targets are a CSS selector, `text=Label` (the smallest visible element whose
+text is exactly Label, else contains it), or two numbers `X Y` in CSS px.
+
+  ui windows
+  ui snap [PATH] [--width PT]       PNG of the webview (default: <state>/snap-NNN.png)
+  ui eval EXPR | ui eval --body 'stmts; return x'
+  ui click TARGET [--double]        ui hover TARGET   (JS-synthesized: no CSS :hover)
+  ui type TEXT                      ui key [cmd+][shift+]KEY   (Enter, Escape, ArrowDown, k, ...)
+  ui text [SELECTOR]                visible text, trimmed
+  ui find TARGET                    matches with their boxes
+  ui wait TARGET [--gone] [--timeout S]
+  ui logs [--clear]                 console errors/warnings and uncaught errors
+  ui resize W H
+"""
+import argparse
+import glob
+import hashlib
+import json
+import os
+import socket
+import sys
+import time
+
+ROOT = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
+STATE = "/tmp/ccm-agent-" + hashlib.sha1(ROOT.encode()).hexdigest()[:8]
+SOCK = os.environ.get("CM_AGENT_SOCK", os.path.join(STATE, "config", "agent.sock"))
+
+# Resolves a target to its element in the page; shared by click, hover, find, wait.
+FIND_JS = r"""
+const target = %s;
+const visible = (el) => {
+  const r = el.getBoundingClientRect();
+  const s = getComputedStyle(el);
+  return r.width > 0 && r.height > 0 && s.visibility !== "hidden" && s.display !== "none";
+};
+let els;
+if (target.startsWith("text=")) {
+  const want = target.slice(5).trim();
+  const all = [...document.querySelectorAll("body *")].filter(visible);
+  const text = (el) => (el.innerText || "").trim();
+  const exact = all.filter((el) => text(el) === want);
+  const pool = exact.length ? exact : all.filter((el) => text(el).includes(want));
+  // innermost first: drop any element that contains another match
+  els = pool.filter((el) => !pool.some((o) => o !== el && el.contains(o)));
+} else {
+  els = [...document.querySelectorAll(target)].filter(visible);
+}
+"""
+
+HOVER_JS = r"""
+const x = %f, y = %f;
+const el = document.elementFromPoint(x, y);
+if (!el) return null;
+const init = { bubbles: true, cancelable: true, clientX: x, clientY: y, view: window };
+for (const t of ["pointerover", "pointerenter", "mouseover", "mouseenter", "pointermove", "mousemove"]) {
+  const E = t.startsWith("pointer") ? PointerEvent : MouseEvent;
+  el.dispatchEvent(new E(t, { ...init, bubbles: !t.endsWith("enter") }));
+}
+return el.tagName;
+"""
+
+
+def next_snap():
+    """Numbered, so a screenshot survives the next one."""
+    return os.path.join(STATE, f"snap-{len(glob.glob(os.path.join(STATE, 'snap-*.png'))) + 1:03d}.png")
+
+
+def request(req, timeout=20):
+    s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    s.settimeout(timeout)
+    try:
+        s.connect(SOCK)
+    except OSError:
+        sys.exit(f"ui: no agent app at {SOCK} (start it: scripts/agent-app.sh start)")
+    s.sendall((json.dumps(req) + "\n").encode())
+    buf = b""
+    while not buf.endswith(b"\n"):
+        chunk = s.recv(65536)
+        if not chunk:
+            break
+        buf += chunk
+    s.close()
+    reply = json.loads(buf)
+    if not reply.get("ok"):
+        sys.exit(f"ui: {reply.get('error')}")
+    return reply
+
+
+def js(window, body):
+    return request({"cmd": "eval", "window": window, "js": body})["value"]
+
+
+def locate(window, target, scroll=True):
+    """CSS px centre of the target, scrolled into view first."""
+    body = FIND_JS % json.dumps(target) + (
+        """
+if (!els.length) return null;
+const el = els[0];
+%s
+const r = el.getBoundingClientRect();
+return { x: r.left + r.width / 2, y: r.top + r.height / 2, count: els.length };
+"""
+        % ('el.scrollIntoView({ block: "center", inline: "center" });' if scroll else "")
+    )
+    found = js(window, body)
+    if not found:
+        sys.exit(f"ui: nothing matches {target!r}")
+    return found["x"], found["y"]
+
+
+def point(window, args):
+    if len(args) == 2:
+        try:
+            return float(args[0]), float(args[1])
+        except ValueError:
+            pass
+    return locate(window, " ".join(args))
+
+
+def main():
+    p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    p.add_argument("-w", "--window", default="main")
+    sub = p.add_subparsers(dest="cmd", required=True)
+    sub.add_parser("windows")
+    sp = sub.add_parser("snap")
+    sp.add_argument("path", nargs="?")
+    sp.add_argument("--width", type=float)
+    sp = sub.add_parser("eval")
+    sp.add_argument("code")
+    sp.add_argument("--body", action="store_true")
+    sp = sub.add_parser("click")
+    sp.add_argument("target", nargs="+")
+    sp.add_argument("--double", action="store_true")
+    sp = sub.add_parser("hover")
+    sp.add_argument("target", nargs="+")
+    sp = sub.add_parser("type")
+    sp.add_argument("text")
+    sp = sub.add_parser("key")
+    sp.add_argument("combo")
+    sp = sub.add_parser("text")
+    sp.add_argument("selector", nargs="?", default="body")
+    sp.add_argument("--max", type=int, default=4000)
+    sp = sub.add_parser("find")
+    sp.add_argument("target", nargs="+")
+    sp = sub.add_parser("wait")
+    sp.add_argument("target", nargs="+")
+    sp.add_argument("--gone", action="store_true")
+    sp.add_argument("--timeout", type=float, default=10)
+    sp = sub.add_parser("logs")
+    sp.add_argument("--clear", action="store_true")
+    sub.add_parser("native")
+    sp = sub.add_parser("resize")
+    sp.add_argument("width", type=float)
+    sp.add_argument("height", type=float)
+    a = p.parse_args()
+    w = a.window
+
+    if a.cmd == "windows":
+        print(json.dumps(request({"cmd": "windows"})["windows"], indent=2))
+    elif a.cmd == "snap":
+        path = os.path.abspath(a.path or next_snap())
+        req = {"cmd": "snap", "window": w, "path": path}
+        if a.width:
+            req["width"] = a.width
+        r = request(req)
+        print(f"{r['path']} ({r['width']}x{r['height']})")
+    elif a.cmd == "eval":
+        body = a.code if a.body else f"return ({a.code}\n);"
+        v = js(w, body)
+        print(v if isinstance(v, str) else json.dumps(v, indent=2))
+    elif a.cmd in ("click", "hover"):
+        x, y = point(w, a.target)
+        req = {"cmd": a.cmd, "window": w, "x": x, "y": y}
+        if a.cmd == "click":
+            req["count"] = 2 if a.double else 1
+        request(req)
+        if a.cmd == "hover":
+            # WebKit drops native mouse moves in an inactive app: synthesize them so React's
+            # enter/over handlers run (CSS :hover still won't apply).
+            js(w, HOVER_JS % (x, y))
+        print(f"{a.cmd} {x:.0f},{y:.0f}")
+    elif a.cmd == "type":
+        request({"cmd": "type", "window": w, "text": a.text})
+    elif a.cmd == "key":
+        *mods, key = a.combo.split("+") if a.combo != "+" else ["+"]
+        request({"cmd": "key", "window": w, "key": key, "mods": mods})
+    elif a.cmd == "text":
+        t = js(w, f"const el = document.querySelector({json.dumps(a.selector)}); return el ? el.innerText : null;")
+        if t is None:
+            sys.exit(f"ui: nothing matches {a.selector!r}")
+        t = "\n".join(line for line in (l.rstrip() for l in t.splitlines()) if line)
+        print(t[: a.max] + (f"\n… cut at {a.max} of {len(t)} chars: pass a selector or --max" if len(t) > a.max else ""))
+    elif a.cmd == "find":
+        body = FIND_JS % json.dumps(" ".join(a.target)) + """
+return els.slice(0, 20).map((el) => {
+  const r = el.getBoundingClientRect();
+  return { tag: el.tagName.toLowerCase(), cls: (el.className && el.className.baseVal === undefined ? el.className : "").slice(0, 60),
+    x: Math.round(r.left), y: Math.round(r.top), w: Math.round(r.width), h: Math.round(r.height),
+    text: (el.innerText || "").trim().slice(0, 80) };
+});
+"""
+        print(json.dumps(js(w, body), indent=2))
+    elif a.cmd == "wait":
+        target = " ".join(a.target)
+        deadline = time.time() + a.timeout
+        while True:
+            n = js(w, FIND_JS % json.dumps(target) + "return els.length;")
+            if (n == 0) == a.gone:
+                print("ok")
+                return
+            if time.time() > deadline:
+                sys.exit(f"ui: timed out waiting for {target!r}{' to go' if a.gone else ''}")
+            time.sleep(0.2)
+    elif a.cmd == "logs":
+        entries = js(w, "const l = window.__cmAgentLog || []; const out = l.slice(); %s return out;" % ("l.length = 0;" if a.clear else ""))
+        for e in entries:
+            print(f"[{e['level']}] {e['text']}")
+        if not entries:
+            print("(no console errors or warnings)")
+    elif a.cmd == "native":
+        r = request({"cmd": "native", "window": w})
+        r.pop("ok")
+        print(json.dumps(r, indent=2))
+    elif a.cmd == "resize":
+        request({"cmd": "resize", "window": w, "width": a.width, "height": a.height})
+
+
+if __name__ == "__main__":
+    main()
