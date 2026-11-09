@@ -29,10 +29,10 @@ Features are now usually built by a Claude session in its own worktree, which al
 
 ## Decisions
 
-- **Sandbox location: one permanent folder, outside any worktree** (builder's call on the exact path; e.g. `~/.ccm-guided/`), holding two subfolders:
-  - a Claude Code config dir (used as `CLAUDE_CONFIG_DIR`), and
-  - an app config dir (used as `CLAUDE_CODE_MANAGER_CONFIG_DIR`).
-  It is permanent because macOS ties Claude Code's login (keychain) to the config-dir path: verified 2026-11-10 that `claude` with a fresh `CLAUDE_CONFIG_DIR` says "Not logged in · Please run /login". One fixed path means the user logs in once, ever, and every worktree's guided run shares that login.
+- **Sandbox location: `<app config dir>/guided/`**, following the app's existing convention for its own files (`config::resolve_dir`: `$XDG_CONFIG_HOME/claude-code-manager`, else `~/.config/claude-code-manager`). It is resolved from that normal rule, never from `CLAUDE_CODE_MANAGER_CONFIG_DIR`, which guided mode itself overrides. Two subfolders:
+  - `guided/claude/`, the sandbox Claude Code config dir (used as `CLAUDE_CONFIG_DIR`), and
+  - `guided/app/`, the sandbox app config dir (used as `CLAUDE_CODE_MANAGER_CONFIG_DIR`).
+  Deleting `guided/` removes guided mode entirely. It is permanent because macOS ties Claude Code's login (keychain) to the config-dir path: verified 2026-11-10 that `claude` with a fresh `CLAUDE_CONFIG_DIR` says "Not logged in · Please run /login". One fixed path means the user logs in once, ever, and every worktree's guided run shares that login.
 - **One guided test at a time** (user's answer: they never need to verify two features at once). The sandbox records which worktree's session prepared it; a second session's reset refuses and tells its user the sandbox is in use (and by which worktree) instead of wiping another walkthrough. There is a single guided bridge socket for the same reason. Releasing it: the owning session resets or explicitly releases it when the walkthrough ends (builder's call on the mechanism; a stale owner whose worktree no longer exists can be taken over).
 - **First run logs in.** If the sandbox `claude` isn't logged in, guided mode (or a setup command it points to) runs `claude` with the sandbox `CLAUDE_CONFIG_DIR` so the user can `/login` once.
 - **Reset is a deliberate step, never a launch side effect.** Launching guided mode never wipes anything, so quitting or Rebuild & Relaunch (⌘⇧R) mid-test resumes exactly where the user was. The sandbox is reset only when the feature's session prepares a test (at hand-off, or when it re-seeds after a fix and says so). Reset clears sessions, project data and app settings but must keep whatever holds the login — the builder must verify which files in a Claude Code config dir are login state (the keychain entry is keyed by path; `.claude.json` holds account info) so a reset never logs the user out.
@@ -51,7 +51,7 @@ Features are now usually built by a Claude session in its own worktree, which al
 
 ## Left to the builder
 
-Exact sandbox path, env var names for the bridge/ghost split, how `scripts/ui` selects the guided window, the prepare tooling's shape, and the make target name — within the decisions above.
+Env var names for the bridge/ghost split, how `scripts/ui` selects the guided window, the prepare tooling's shape, and the make target name — within the decisions above.
 
 ## Testing
 
