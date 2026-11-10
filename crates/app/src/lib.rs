@@ -1,5 +1,6 @@
 mod activity;
 mod agent_bridge;
+mod clipboard_image;
 mod close_guard;
 mod commands;
 mod config;
@@ -294,6 +295,7 @@ pub fn run() {
             commands::terminal_input,
             commands::terminal_resize,
             commands::terminal_close,
+            clipboard_image::copy_image_png,
             close_guard::confirm_close,
             close_guard::confirm_quit,
             session_link::link_listener_ready,

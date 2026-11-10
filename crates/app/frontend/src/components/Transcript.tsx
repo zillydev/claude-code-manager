@@ -4,6 +4,7 @@ import remarkGfm from "remark-gfm";
 import remarkBreaks from "remark-breaks";
 import rehypeHighlight from "rehype-highlight";
 import { openUrl } from "@tauri-apps/plugin-opener";
+import { invoke } from "@tauri-apps/api/core";
 import type {
   RenderedSession,
   RenderedTurn,
@@ -38,6 +39,10 @@ import { locateJump, turnUuids, type JumpTarget } from "../lib/jumpTarget";
 import { seedQuery } from "../lib/findHandoff";
 import { SessionHeading } from "./SessionHeading";
 import { effortSummary, shortModel, turnModelLabel } from "../lib/modelLabel";
+import { captureTurn } from "../lib/messageImage";
+
+/** Progress of "Copy as image" on one turn, shown in its action row. */
+type ImageCopy = { uuid: string; state: "busy" | "done" | "error"; error?: string };
 
 interface Props {
   session: RenderedSession;
@@ -194,6 +199,29 @@ export default function Transcript({
     const { id, toggleBookmark: tb } = tagSrcRef.current;
     tb(id, uuid);
   }, []);
+  const [imageCopy, setImageCopy] = useState<ImageCopy | null>(null);
+  const imageCopyTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  // One capture at a time: overlapping ones would race for the pasteboard and the shared status slot.
+  const imageCopyBusy = useRef(false);
+  const handleCopyImage = useCallback(async (uuid: string) => {
+    if (imageCopyBusy.current) return;
+    const node = turnsRef.current?.querySelector<HTMLElement>(`[data-msg-uuids~="${uuid}"]`);
+    if (!node) return;
+    imageCopyBusy.current = true;
+    clearTimeout(imageCopyTimer.current);
+    setImageCopy({ uuid, state: "busy" });
+    let next: ImageCopy;
+    try {
+      await invoke("copy_image_png", await captureTurn(node));
+      next = { uuid, state: "done" };
+    } catch (e) {
+      next = { uuid, state: "error", error: e instanceof Error ? e.message : String(e) };
+    }
+    imageCopyBusy.current = false;
+    setImageCopy(next);
+    imageCopyTimer.current = setTimeout(() => setImageCopy(null), 1500);
+  }, []);
+  useEffect(() => () => clearTimeout(imageCopyTimer.current), []);
   const inheritTags = useCallback((newId: string | undefined) => {
     const { meta: m, id, setSessionTags: set } = tagSrcRef.current;
     const tags = entryTags(m.sessions[id]);
@@ -556,6 +584,8 @@ export default function Transcript({
                   bookmarked={ownUuid !== null && bookmarkSet.has(ownUuid)}
                   onToggleBookmark={handleToggleBookmark}
                   forkPending={!!forkPending}
+                  imageCopy={imageCopy && imageCopy.uuid === ownUuid ? imageCopy : null}
+                  onCopyImage={handleCopyImage}
                   revealedKeys={find.revealedKeys}
                 />
               </div>
@@ -596,15 +626,16 @@ export default function Transcript({
         <ContextMenu x={turnMenu.menu.x} y={turnMenu.menu.y} onClose={turnMenu.close}>
           {(() => {
             const turn = turnMenu.menu!.target;
-            // Same two actions as the per-turn ⋯ menu, on the turns that have
+            // Same actions as the per-turn ⋯ menu, on the turns that have
             // a uuid to address (system lines and dividers have none).
             if (turn.type !== "user" && turn.type !== "assistant") {
               return <div className="px-3 py-1.5 text-[11px] text-[var(--color-text-dim)]">No actions</div>;
             }
-            const item = (label: string, onClick: () => void) => (
+            const item = (label: string, onClick: () => void, disabled = false) => (
               <button
                 role="menuitem"
                 className={menuItemClass}
+                disabled={disabled}
                 onClick={() => {
                   turnMenu.close();
                   onClick();
@@ -619,6 +650,7 @@ export default function Transcript({
                 {item(bookmarkSet.has(turn.uuid) ? "Remove bookmark" : "Bookmark", () =>
                   handleToggleBookmark(turn.uuid),
                 )}
+                {item("Copy as image", () => handleCopyImage(turn.uuid), imageCopy?.state === "busy")}
               </>
             );
           })()}
@@ -775,6 +807,8 @@ const Turn = memo(function Turn({
   bookmarked,
   onToggleBookmark,
   forkPending,
+  imageCopy,
+  onCopyImage,
   revealedKeys,
 }: {
   turn: RenderedTurn;
@@ -783,6 +817,8 @@ const Turn = memo(function Turn({
   bookmarked: boolean;
   onToggleBookmark: (uuid: string) => void;
   forkPending: boolean;
+  imageCopy: ImageCopy | null;
+  onCopyImage: (uuid: string) => void;
   /** Find's reveal-on-navigate set — `"ti:bi"` / `"ti:task"` keys, see revealKey(). */
   revealedKeys: ReadonlySet<string>;
 }) {
@@ -809,13 +845,15 @@ const Turn = memo(function Turn({
               onToggleBookmark={() => onToggleBookmark(turn.uuid)}
               messageId={turn.uuid}
               forkPending={forkPending}
+              imageCopy={imageCopy}
+              onCopyImage={() => onCopyImage(turn.uuid)}
             />
             <span className="text-xs text-[var(--color-text-dim)]" title={tsTitle}>
               {ts}
             </span>
             <span className="font-medium text-[var(--color-user)]">user</span>
             {bookmarked && (
-              <span className="text-[var(--color-accent)] text-xs" title="Bookmarked">⚑</span>
+              <span className="text-[var(--color-accent)] text-xs" title="Bookmarked" data-capture-skip>⚑</span>
             )}
           </div>
           <div className="max-w-[75%] min-w-0 flex flex-col items-end">
@@ -853,7 +891,7 @@ const Turn = memo(function Turn({
               </span>
             )}
             {bookmarked && (
-              <span className="text-[var(--color-accent)] text-xs" title="Bookmarked">⚑</span>
+              <span className="text-[var(--color-accent)] text-xs" title="Bookmarked" data-capture-skip>⚑</span>
             )}
             <TurnActions
               onFork={() => onFork(turn.fork_uuid)}
@@ -861,6 +899,8 @@ const Turn = memo(function Turn({
               onToggleBookmark={() => onToggleBookmark(turn.uuid)}
               messageId={turn.uuid}
               forkPending={forkPending}
+              imageCopy={imageCopy}
+              onCopyImage={() => onCopyImage(turn.uuid)}
             />
           </div>
           <div className="pl-4">
@@ -1011,17 +1051,21 @@ function TurnActions({
   onToggleBookmark,
   messageId,
   forkPending,
+  imageCopy,
+  onCopyImage,
 }: {
   onFork: () => void;
   bookmarked: boolean;
   onToggleBookmark: () => void;
   messageId: string;
   forkPending: boolean;
+  imageCopy: ImageCopy | null;
+  onCopyImage: () => void;
 }) {
   const [copied, setCopied] = useState(false);
   const btn =
     "inline-flex items-center text-[10px] px-1.5 py-0.5 rounded border border-[var(--color-border)] text-[var(--color-text-dim)] hover:border-[var(--color-accent)] hover:text-[var(--color-accent)] disabled:opacity-50";
-  const busy = forkPending;
+  const busy = forkPending || imageCopy?.state === "busy";
 
   return (
     // `invisible` alongside `opacity-0`: with opacity alone, WKWebView left the
@@ -1030,7 +1074,10 @@ function TurnActions({
     // Dropdown wraps it in a positioned div, which repaints). visibility is not
     // transitioned, so it flips at once and forces the region to invalidate;
     // the fade-in still animates. It also makes the hidden buttons unclickable.
-    <span className="invisible opacity-0 group-hover:visible group-hover:opacity-100 transition-opacity flex gap-2 ml-2 items-center">
+    <span
+      data-capture-skip
+      className={`${imageCopy ? "visible opacity-100" : "invisible opacity-0 group-hover:visible group-hover:opacity-100"} transition-opacity flex gap-2 ml-2 items-center`}
+    >
       {/* Fork / Bookmark live behind a ⋯ menu so they're not fat-fingered. Both
           resolve by uuid and work on any turn, including pre-compaction ones.
           (Edit / Delete were removed pending a reimplementation.) */}
@@ -1065,9 +1112,26 @@ function TurnActions({
             >
               {bookmarked ? "Remove bookmark" : "Bookmark"}
             </button>
+            <button
+              role="menuitem"
+              className={menuItemClass}
+              title="Copy this message to the clipboard as a PNG, as it is shown"
+              onClick={() => {
+                close();
+                onCopyImage();
+              }}
+            >
+              Copy as image
+            </button>
           </>
         )}
       </Dropdown>
+      {imageCopy?.state === "done" && <span className="text-[10px] text-[var(--color-text-dim)]">image copied ✓</span>}
+      {imageCopy?.state === "error" && (
+        <span className="text-[10px] text-[var(--color-error)]" title={imageCopy.error}>
+          copy failed
+        </span>
+      )}
       {messageId && (
         <button
           onClick={() => {
