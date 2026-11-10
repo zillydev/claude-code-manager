@@ -4,6 +4,7 @@
 import type { RenderedTurn, ToolCallResult } from "../types";
 import { makeSegId, type SegField } from "./segments";
 import { prettyResultText } from "./toolDisplay";
+import { ansiText } from "./ansi";
 import { diffText, toolDiff } from "./toolDiff";
 import { askLines, askText } from "./askQuestion";
 import { bashLines, bashText } from "./bashBody";
@@ -88,9 +89,9 @@ export function toolInputText(
   return JSON.stringify(input, null, 2);
 }
 
-/** The exact text ToolCall renders for a tool's result (MCP JSON prettified). */
+/** The exact text ToolCall renders for a tool's result (MCP JSON prettified, terminal escapes resolved). */
 export function toolResultText(result: ToolCallResult): string {
-  return prettyResultText(result.text);
+  return ansiText(prettyResultText(result.text));
 }
 
 /** Matches inside collapsed bodies, read from the model. `turns` must be the
@@ -105,7 +106,7 @@ export function modelMatches(turns: RenderedTurn[], find: (t: string) => Span[])
   };
   turns.forEach((turn, ti) => {
     if (turn.type === "task_notification") {
-      if (turn.result) push(ti, null, "task-result", turn.result);
+      if (turn.result) push(ti, null, "task-result", ansiText(turn.result));
     } else if (turn.type === "assistant") {
       turn.blocks.forEach((b, bi) => {
         if (b.type !== "tool_call") return;

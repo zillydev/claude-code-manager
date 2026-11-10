@@ -14,6 +14,7 @@ import type {
 } from "../types";
 import ToolCall from "./ToolCall";
 import { ImageStrip } from "./InlineImage";
+import { AnsiText } from "./AnsiText";
 import CustomScrollbar from "./CustomScrollbar";
 import ContextMenu, { useContextMenu } from "./ContextMenu";
 import FindBar from "./FindBar";
@@ -934,12 +935,12 @@ const Turn = memo(function Turn({
               >
                 {turn.stdout && (
                   <pre className="whitespace-pre-wrap wrap-anywhere text-[var(--color-text-dim)]">
-                    {turn.stdout}
+                    <AnsiText text={turn.stdout} />
                   </pre>
                 )}
                 {turn.stderr && (
                   <pre className="whitespace-pre-wrap wrap-anywhere text-[var(--color-error)]">
-                    {turn.stderr}
+                    <AnsiText text={turn.stderr} />
                   </pre>
                 )}
               </div>
@@ -1168,7 +1169,7 @@ const TaskNotificationBlock = memo(function TaskNotificationBlock({
         <span className="w-4 shrink-0 text-center">{open ? "▾" : "▸"}</span>
         <span className="shrink-0 mr-1.5">task · {status} ·</span>
         <span data-seg-id={makeSegId(turnIndex, null, "task-summary")} className="truncate min-w-0">
-          {summary}
+          <AnsiText text={summary} />
         </span>
       </button>
       {open && result && (
@@ -1177,7 +1178,7 @@ const TaskNotificationBlock = memo(function TaskNotificationBlock({
           className="ml-4 px-3 py-2 rounded text-xs whitespace-pre-wrap break-words overflow-hidden border-l-2 border-l-[var(--color-border)] bg-[var(--color-tool-result-bg)] text-[var(--color-text-dim)]"
           style={{ maxHeight: "400px", overflowY: "auto" }}
         >
-          {result}
+          <AnsiText text={result} />
         </pre>
       )}
     </div>

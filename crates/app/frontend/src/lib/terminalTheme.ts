@@ -53,6 +53,18 @@ const ANSI: Record<string, Record<string, string>> = {
   },
 };
 
+const SLOTS = [
+  "black", "red", "green", "yellow", "blue", "magenta", "cyan", "white",
+  "brightBlack", "brightRed", "brightGreen", "brightYellow",
+  "brightBlue", "brightMagenta", "brightCyan", "brightWhite",
+] as const;
+
+/** The 16 ANSI colours in SGR slot order, for transcript text that keeps a tool's terminal colours. */
+export function ansiPalette(theme: string): string[] {
+  const set = ANSI[resolveThemeKey(theme)];
+  return SLOTS.map((s) => set[s]);
+}
+
 /** `#rrggbb` → `rgba(r, g, b, a)`. xterm needs a real alpha for the selection
  *  layer, which is drawn OVER the glyphs — an opaque colour would hide them. */
 export function withAlpha(hex: string, alpha: number): string {

@@ -162,3 +162,29 @@ describe("ordering + keys", () => {
     expect(sameMatches(a, [])).toBe(false);
   });
 });
+
+describe("terminal output", () => {
+  const raw = "\x1b[2m Test Files \x1b[22m \x1b[1m\x1b[32m9 passed\x1b[39m\x1b[22m\x1b[90m (9)\x1b[39m";
+  const shown = " Test Files  9 passed (9)";
+
+  it("is searched as the text the transcript shows, escapes stripped", () => {
+    const ansiTurns: RenderedTurn[] = [
+      {
+        type: "assistant", timestamp: null, model: null, effort: null, uuid: "a1",
+        edit_index: 0, fork_index: 0, edit_uuid: "a1", fork_uuid: "a1", uuids: ["a1"], editable: true,
+        blocks: [
+          {
+            type: "tool_call", id: "t1", name: "Bash", input_summary: "npm test",
+            input_full: { command: "npm test" },
+            result: { text: raw, is_error: false },
+          },
+        ],
+      },
+      { type: "task_notification", timestamp: null, uuid: "n1", status: "done", summary: "s", result: raw },
+    ];
+    expect(toolResultText({ text: raw, is_error: false })).toBe(shown);
+    const ms = modelMatches(ansiTurns, find("passed (9)"));
+    expect(ms.map((m) => m.field)).toEqual(["tool-result", "task-result"]);
+    for (const m of ms) expect(shown.slice(m.start, m.end)).toBe("passed (9)");
+  });
+});

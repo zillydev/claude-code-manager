@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach, vi } from "vitest";
-import { terminalTheme, withAlpha } from "./terminalTheme";
+import { ansiPalette, terminalTheme, withAlpha } from "./terminalTheme";
 import { THEMES } from "./config";
 
 /** Force `prefers-color-scheme: dark` to a known value. These tests run under
@@ -74,5 +74,22 @@ describe("terminalTheme", () => {
     expect(terminalTheme("solarized-mango").background).toBe(
       THEMES["github-dark"]["--color-bg"],
     );
+  });
+});
+
+describe("ansiPalette", () => {
+  it("lists the terminal's 16 slots in SGR order, per theme", () => {
+    const slots = [
+      "black", "red", "green", "yellow", "blue", "magenta", "cyan", "white",
+      "brightBlack", "brightRed", "brightGreen", "brightYellow",
+      "brightBlue", "brightMagenta", "brightCyan", "brightWhite",
+    ] as const;
+    for (const key of ["github-dark", "light"]) {
+      const p = ansiPalette(key);
+      const t = terminalTheme(key) as Record<string, string>;
+      expect(p).toEqual(slots.map((s) => t[s]));
+    }
+    expect(ansiPalette("github-dark")[2]).toBe("#3fb950");
+    expect(ansiPalette("light")[2]).toBe("#116329");
   });
 });

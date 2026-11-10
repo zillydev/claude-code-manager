@@ -1,14 +1,15 @@
 import { useMemo, useState } from "react";
 import type { RenderedBlock, ToolCallResult } from "../types";
 import { makeSegId } from "../lib/segments";
-import { prettyToolName } from "../lib/toolDisplay";
-import { toolInputText, toolResultText } from "../lib/findMatches";
+import { prettyResultText, prettyToolName } from "../lib/toolDisplay";
+import { toolInputText } from "../lib/findMatches";
 import { diffSources, toolDiff, type DiffLine } from "../lib/toolDiff";
 import { highlightToLines, languageForPath, type Token } from "../lib/syntax";
 import { wordEmphasis } from "../lib/wordDiff";
 import { askLines, type AskLine } from "../lib/askQuestion";
 import { bashLines, type BashLine } from "../lib/bashBody";
 import { ImageStrip } from "./InlineImage";
+import { AnsiText } from "./AnsiText";
 import DiffRow from "./DiffRow";
 import { ChangesBadge, FileChangesBody } from "./FileChanges";
 
@@ -165,7 +166,7 @@ function ToolResult({ result, segId }: { result: ToolCallResult; segId: string }
       style={{ maxHeight: "400px", overflowY: "auto" }}
     >
       <pre data-seg-id={segId} className="whitespace-pre-wrap break-words overflow-hidden">
-        {toolResultText(result)}
+        <AnsiText text={prettyResultText(result.text)} />
       </pre>
       <ImageStrip images={result.images} label="tool result image" />
     </div>

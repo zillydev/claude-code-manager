@@ -84,6 +84,15 @@ describe("applyConfig", () => {
     expect(root.style.getPropertyValue("--font-mono")).toContain("Menlo");
   });
 
+  it("publishes the terminal's ANSI slots as --ansi-N, following the theme", () => {
+    const root = makeRoot();
+    applyConfig({ ...DEFAULT_CONFIG, theme: "github-dark" }, root as unknown as HTMLElement);
+    expect(root.style.getPropertyValue("--ansi-2")).toBe("#3fb950");
+    expect(root.style.getPropertyValue("--ansi-15")).toMatch(/^#[0-9a-f]{6}$/);
+    applyConfig({ ...DEFAULT_CONFIG, theme: "light" }, root as unknown as HTMLElement);
+    expect(root.style.getPropertyValue("--ansi-2")).toBe("#116329");
+  });
+
   it("falls back to github-dark for an unknown theme", () => {
     const root = makeRoot();
     applyConfig({ ...DEFAULT_CONFIG, theme: "nope" }, root as unknown as HTMLElement);

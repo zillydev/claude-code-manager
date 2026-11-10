@@ -61,6 +61,93 @@ pub fn bash_block(text: &str) -> Option<BashBlock> {
     })
 }
 
+/// Terminal output as the transcript shows it, unstyled: escapes dropped, a `\r`-redrawn line
+/// reduced to its last redraw. Mirrors the frontend's `ansiText` so search matches what is drawn.
+pub fn strip_ansi(s: &str) -> std::borrow::Cow<'_, str> {
+    if !s.contains(['\x1b', '\r']) {
+        return std::borrow::Cow::Borrowed(s);
+    }
+    let b = s.as_bytes();
+    let n = b.len();
+    let mut out = String::with_capacity(n);
+    let mut line_start = 0;
+    let mut pending_cr = false;
+    let mut i = 0;
+    while i < n {
+        match b[i] {
+            0x1b => i = escape_end(b, i),
+            b'\r' => {
+                pending_cr = true;
+                i += 1;
+            }
+            b'\n' => {
+                pending_cr = false;
+                out.push('\n');
+                line_start = out.len();
+                i += 1;
+            }
+            _ => {
+                if pending_cr {
+                    out.truncate(line_start);
+                    pending_cr = false;
+                }
+                // Copy up to the next control byte we act on; all are ASCII, so this stays on char boundaries.
+                let j = b[i..]
+                    .iter()
+                    .position(|&c| matches!(c, 0x1b | b'\r' | b'\n'))
+                    .map_or(n, |k| i + k);
+                out.push_str(&s[i..j]);
+                i = j;
+            }
+        }
+    }
+    std::borrow::Cow::Owned(out)
+}
+
+/// Index just past the escape sequence starting at `b[i]` (an ESC).
+fn escape_end(b: &[u8], i: usize) -> usize {
+    let n = b.len();
+    match b.get(i + 1) {
+        None => n,
+        Some(b'[') => {
+            let mut j = i + 2;
+            while j < n && (0x20..=0x3f).contains(&b[j]) {
+                j += 1;
+            }
+            match b.get(j) {
+                None => n,
+                Some(c) if (0x40..=0x7e).contains(c) => j + 1,
+                Some(_) => j,
+            }
+        }
+        Some(b']') => {
+            let mut j = i + 2;
+            while j < n {
+                if b[j] == 0x07 {
+                    return j + 1;
+                }
+                if b[j] == 0x1b && b.get(j + 1) == Some(&b'\\') {
+                    return j + 2;
+                }
+                j += 1;
+            }
+            n
+        }
+        Some(c) if (0x20..=0x2f).contains(c) => {
+            let mut j = i + 1;
+            while j < n && (0x20..=0x2f).contains(&b[j]) {
+                j += 1;
+            }
+            match b.get(j) {
+                Some(c) if c.is_ascii() => j + 1,
+                _ => j,
+            }
+        }
+        Some(c) if (0x30..=0x7e).contains(c) => i + 2,
+        Some(_) => i + 1,
+    }
+}
+
 const SKILL_PROMPT_PREFIX: &str = "Base directory for this skill:";
 
 /// If `text` is an injected skill prompt (an `isMeta` user message whose first
@@ -183,6 +270,26 @@ mod tests {
                 stderr: String::new(),
             })
         );
+    }
+
+    #[test]
+    fn strip_ansi_keeps_what_the_transcript_shows() {
+        // Same vectors as the frontend's ansi.test.ts, so search agrees with the renderer.
+        let vitest = "\x1b[2m Test Files \x1b[22m \x1b[1m\x1b[32m9 passed\x1b[39m\x1b[22m\x1b[90m (9)\x1b[39m";
+        assert_eq!(strip_ansi(vitest), " Test Files  9 passed (9)");
+        assert!(matches!(strip_ansi("plain\ntext"), std::borrow::Cow::Borrowed(_)));
+        assert_eq!(strip_ansi("a\x1b[2Kb\x1b[1Ac\x1b[Gd\x1b(Be\x1b7f\x1b8g\x1b[?25lh"), "abcdefgh");
+        assert_eq!(strip_ansi("see \x1b]8;;https://x\x07label\x1b]8;;\x07 here"), "see label here");
+        assert_eq!(strip_ansi("st \x1b]8;;https://x\x1b\\label\x1b]8;;\x1b\\"), "st label");
+        assert_eq!(strip_ansi("tail\x1b"), "tail");
+        assert_eq!(strip_ansi("cut\x1b[3"), "cut");
+        assert_eq!(strip_ansi("a\r\nb"), "a\nb");
+        assert_eq!(strip_ansi("10%\r50%\r100%\ndone"), "100%\ndone");
+        assert_eq!(strip_ansi("abc\r"), "abc");
+        assert_eq!(strip_ansi("abc\r\r\ndef"), "abc\ndef");
+        assert_eq!(strip_ansi("12345\rab"), "ab");
+        assert_eq!(strip_ansi("x\n\x1b[32m10%\r\x1b[1m100%\x1b[0m"), "x\n100%");
+        assert_eq!(strip_ansi("\x1b(é ok"), "é ok");
     }
 
     #[test]

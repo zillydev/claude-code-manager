@@ -2,6 +2,7 @@ pub mod lineage;
 pub mod paths;
 pub mod watcher;
 
+use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -12,6 +13,7 @@ use anyhow::{Context, Result};
 use chrono::Utc;
 use uuid::Uuid;
 
+use crate::session::display::strip_ansi;
 use crate::session::event::{Block, Event, MessageContent, UserBlock};
 use crate::session::parse::{last_activity, parse_file, ParseOutcome};
 use crate::session::summary::{summarize, SessionSummary};
@@ -383,7 +385,7 @@ fn turn_scan(events: &[Event], i: usize) -> TurnScan {
                 for b in &a.message.content {
                     match b {
                         Block::Text { text } if !text.trim().is_empty() => {
-                            scan.texts.push(text.clone());
+                            scan.texts.push(strip_ansi(text).into_owned());
                         }
                         Block::ToolUse { name, input, .. } => scan.tools.push(ToolPreview {
                             name: name.clone(),
@@ -447,14 +449,14 @@ fn preview_for_turn(events: &[Event], i: usize) -> Option<(String, Option<ToolPr
 fn preview_text(ev: &Event) -> Option<String> {
     match ev {
         Event::User(u) => match &u.message.content {
-            MessageContent::Text(t) => Some(t.clone()),
+            MessageContent::Text(t) => Some(strip_ansi(t).into_owned()),
             MessageContent::Blocks(bs) => bs.iter().find_map(|b| match b {
-                UserBlock::Text { text } => Some(text.clone()),
+                UserBlock::Text { text } => Some(strip_ansi(text).into_owned()),
                 _ => None,
             }),
         },
         Event::Assistant(a) => a.message.content.iter().find_map(|b| match b {
-            Block::Text { text } => Some(text.clone()),
+            Block::Text { text } => Some(strip_ansi(text).into_owned()),
             _ => None,
         }),
         _ => None,
@@ -794,16 +796,16 @@ fn message_hit(
         }
     }
     let content = v.pointer("/message/content")?;
-    let mut texts: Vec<&str> = Vec::new();
+    let mut texts: Vec<Cow<str>> = Vec::new();
     let mut calls: Vec<ToolPreview> = Vec::new();
     match content {
-        serde_json::Value::String(s) => texts.push(s),
+        serde_json::Value::String(s) => texts.push(strip_ansi(s)),
         serde_json::Value::Array(blocks) => {
             for b in blocks {
                 match b.get("type").and_then(|x| x.as_str()) {
                     Some("text") => {
                         if let Some(tx) = b.get("text").and_then(|x| x.as_str()) {
-                            texts.push(tx);
+                            texts.push(strip_ansi(tx));
                         }
                     }
                     Some("tool_use") => {
@@ -832,7 +834,7 @@ fn message_hit(
     // Join every text block: the excerpts and the ×N count cover the whole
     // message, not just the first matching block.
     let matched = if query_lower.is_empty() {
-        texts.first().map(|tx| (*tx).to_string())
+        texts.first().map(|tx| tx.to_string())
     } else if texts.iter().any(|tx| tx.to_lowercase().contains(query_lower)) {
         Some(texts.join("\n"))
     } else {
@@ -972,6 +974,44 @@ mod tests {
         let (snip, n) = snippet_excerpts(&"w".repeat(400), "");
         assert_eq!(n, 0);
         assert!(snip.ends_with('…') && snip.chars().count() <= 181);
+    }
+
+    #[test]
+    fn search_matches_and_quotes_terminal_output_without_its_escapes() {
+        let root = std::env::temp_dir().join(format!("cm-ansi-{}", std::process::id()));
+        fs::create_dir_all(&root).unwrap();
+        let sid = Uuid::parse_str("00000000-0000-0000-0000-00000000adad").unwrap();
+        let path = root.join(format!("{sid}.jsonl"));
+        let uuid = "00000000-0000-0000-0000-0000000000a1";
+        fs::write(
+            &path,
+            format!(
+                "{}\n",
+                format_args!(
+                    r#"{{"type":"user","uuid":"{uuid}","timestamp":"2026-08-01T10:00:00Z","message":{{"role":"user","content":"<bash-stdout>\u001b[32mok passed\u001b[39m</bash-stdout><bash-stderr></bash-stderr>"}}}}"#
+                ),
+            ),
+        )
+        .unwrap();
+        let files = [SearchFile { path: path.clone(), session_id: sid, only_uuids: None }];
+        let (hits, _) = search_messages(
+            &files,
+            &MessageFilters { text: "ok passed".into(), limit: 10, ..Default::default() },
+        );
+        assert_eq!(hits.len(), 1);
+        assert!(hits[0].snippet.contains("ok passed"));
+        assert!(!hits[0].snippet.contains('\u{1b}'), "{:?}", hits[0].snippet);
+
+        // The bookmarked path builds its snippet from the parsed turn instead.
+        let files = [SearchFile {
+            path,
+            session_id: sid,
+            only_uuids: Some(vec![Uuid::parse_str(uuid).unwrap()]),
+        }];
+        let (hits, _) = search_messages(&files, &MessageFilters { limit: 10, ..Default::default() });
+        assert_eq!(hits.len(), 1);
+        assert!(!hits[0].snippet.contains('\u{1b}'), "{:?}", hits[0].snippet);
+        fs::remove_dir_all(&root).ok();
     }
 
     #[test]
