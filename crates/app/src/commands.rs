@@ -10,7 +10,7 @@ use claude_code_manager_core::session::parse::parse_tail;
 use claude_code_manager_core::session::raw::{first_cwd, read_raw};
 use claude_code_manager_core::session::render::{
     extend_stats, render_appended, render_session, tool_result_updates, tree_messages,
-    RenderedSession, RenderedTurn, SessionStats,
+    RenderedImage, RenderedSession, RenderedTurn, SessionStats,
 };
 use claude_code_manager_core::session::summary::{self, SessionSummary};
 use claude_code_manager_core::session::tree;
@@ -509,6 +509,14 @@ pub fn terminal_open(
 #[tauri::command]
 pub fn path_exists(path: String) -> bool {
     std::path::Path::new(&path).is_file()
+}
+
+/// A local image the transcript names, as base64 for an inline preview.
+#[tauri::command]
+pub async fn read_image_file(path: String) -> Result<RenderedImage, String> {
+    tauri::async_runtime::spawn_blocking(move || claude_code_manager_core::image_file::read_image_file(&path))
+        .await
+        .map_err(|e| e.to_string())?
 }
 
 /// Load the user config (creating it with defaults on first run).

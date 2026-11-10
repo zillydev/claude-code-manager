@@ -356,6 +356,7 @@ pub fn run() {
             commands::delete_session,
             commands::new_session,
             commands::path_exists,
+            commands::read_image_file,
             commands::get_config,
             commands::set_config,
             commands::get_session_meta,

@@ -14,6 +14,7 @@ import type {
 } from "../types";
 import ToolCall from "./ToolCall";
 import { ImageStrip } from "./InlineImage";
+import { ImagePathContext, MD_IMAGE_COMPONENTS, mdUrlTransform, useImagePathCtx } from "./PathImage";
 import { AnsiText } from "./AnsiText";
 import CustomScrollbar from "./CustomScrollbar";
 import ContextMenu, { useContextMenu } from "./ContextMenu";
@@ -392,8 +393,10 @@ export default function Transcript({
   }, [session.id, findClose]);
 
   const { stats } = session;
+  const imageCtx = useImagePathCtx(session.id, session.turns, stats.cwd);
 
   return (
+    <ImagePathContext.Provider value={imageCtx}>
     <div className="relative flex flex-col h-full">
       {/* Header bar */}
       <div className="flex items-center gap-3 px-4 py-2.5 border-b border-[var(--color-border)] bg-[var(--color-surface)] shrink-0">
@@ -652,6 +655,7 @@ export default function Transcript({
         </div>
       )}
     </div>
+    </ImagePathContext.Provider>
   );
 }
 
@@ -1089,7 +1093,7 @@ function TurnActions({
 // a render. Memoizing on the source text means each block is parsed once and is
 // NOT re-parsed when the transcript re-renders for an unrelated reason (e.g. a
 // find keystroke). `MD_COMPONENTS` is module-level so its identity is stable.
-const MD_COMPONENTS = { a: ExternalLink };
+const MD_COMPONENTS = { a: ExternalLink, ...MD_IMAGE_COMPONENTS };
 // GFM adds tables, strikethrough, task lists, and autolinks (react-markdown is
 // CommonMark-only by default). Module-level for a stable identity (memoization).
 // remark-breaks: a single newline renders as a line break (chat convention —
@@ -1114,7 +1118,7 @@ function InsightBlock({ content }: { content: string }) {
         <span className="flex-1 border-t border-[var(--color-accent)] opacity-50" />
       </div>
       <div className="py-1">
-        <Markdown remarkPlugins={MD_REMARK} rehypePlugins={MD_REHYPE} components={MD_COMPONENTS}>{content}</Markdown>
+        <Markdown remarkPlugins={MD_REMARK} rehypePlugins={MD_REHYPE} components={MD_COMPONENTS} urlTransform={mdUrlTransform}>{content}</Markdown>
       </div>
       <div className="border-t border-[var(--color-accent)] opacity-50" />
     </div>
@@ -1125,7 +1129,7 @@ const MarkdownBlock = memo(function MarkdownBlock({ text }: { text: string }) {
   const segs = splitInsights(text);
   // Fast path: no insight block → one Markdown render (unchanged behavior).
   if (segs.length === 1 && segs[0].kind === "md") {
-    return <Markdown remarkPlugins={MD_REMARK} rehypePlugins={MD_REHYPE} components={MD_COMPONENTS}>{text}</Markdown>;
+    return <Markdown remarkPlugins={MD_REMARK} rehypePlugins={MD_REHYPE} components={MD_COMPONENTS} urlTransform={mdUrlTransform}>{text}</Markdown>;
   }
   return (
     <>
@@ -1133,7 +1137,7 @@ const MarkdownBlock = memo(function MarkdownBlock({ text }: { text: string }) {
         s.kind === "insight" ? (
           <InsightBlock key={i} content={s.content} />
         ) : (
-          <Markdown key={i} remarkPlugins={MD_REMARK} rehypePlugins={MD_REHYPE} components={MD_COMPONENTS}>
+          <Markdown key={i} remarkPlugins={MD_REMARK} rehypePlugins={MD_REHYPE} components={MD_COMPONENTS} urlTransform={mdUrlTransform}>
             {s.text}
           </Markdown>
         ),
