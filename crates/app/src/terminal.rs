@@ -297,12 +297,9 @@ pub fn now_secs() -> i64 {
 /// `claude` spawns its tools and MCP servers (bash, `npm exec …`, mcp servers)
 /// into ITS OWN process group — portable-pty `setsid`s the child, so the child
 /// is the group leader and every descendant shares its pgid. `Child::kill()`
-/// signals only the leader, orphaning that tree; the orphans keep the session's
-/// lock fd (inherited from claude) open until they each notice stdin EOF and
-/// exit a moment later. In that window a `claude --resume <same id>` — e.g. the
-/// Restart button right after a close — is refused: "Session ID is already in
-/// use." Killing the whole group drops the tree at once; `wait()` reaps the
-/// leader so it can't linger as a zombie either.
+/// signals only the leader, orphaning that tree until each notices stdin EOF.
+/// Killing the whole group drops the tree at once; `wait()` reaps the leader so
+/// it can't linger as a zombie either.
 fn kill_tree(child: &mut Box<dyn Child + Send + Sync>) {
     #[cfg(unix)]
     if let Some(pid) = child.process_id() {

@@ -463,11 +463,13 @@ pub fn terminal_open(
 ) -> Result<TerminalOpenResult, String> {
     let label = window.label().to_string();
     // Resolve cwd/fresh BEFORE locking (file read, no pool access).
-    // `new_cwd` Some → a brand-new session: spawn fresh (`--session-id`) in that
-    // dir. None → resume an existing session, cwd from its first cwd event.
-    let (cwd, fresh) = match new_cwd {
-        Some(c) => (c, true),
-        None => {
+    // `new_cwd` Some → a session created here, spawned in that dir. None → resume
+    // an existing session, cwd from its first cwd event.
+    let file_exists =
+        new_cwd.is_some() && session_file_exists(std::path::Path::new(&file_path), &session_id);
+    let (cwd, fresh) = match launch_plan(new_cwd, file_exists) {
+        (Some(c), fresh) => (c, fresh),
+        (None, _) => {
             let lines = read_raw(std::path::Path::new(&file_path)).map_err(|e| e.to_string())?;
             let cwd = first_cwd(&lines)
                 .ok_or("could not determine the session's working directory")?;
@@ -502,6 +504,26 @@ pub fn terminal_open(
             Ok(TerminalOpenResult { status: "started".into(), owner: None })
         }
     }
+}
+
+/// `(known cwd, fresh)` for a terminal spawn. Fresh (`--session-id`) only while
+/// claude has no file for the id: it refuses `--session-id` once one exists.
+fn launch_plan(new_cwd: Option<String>, file_exists: bool) -> (Option<String>, bool) {
+    let fresh = new_cwd.is_some() && !file_exists;
+    (new_cwd, fresh)
+}
+
+/// Whether claude has a `.jsonl` for this id in any project dir: claude names the
+/// dir from the realpath'd cwd and truncates long ones, so ours can differ.
+fn session_file_exists(file_path: &std::path::Path, session_id: &str) -> bool {
+    if file_path.is_file() {
+        return true;
+    }
+    let Some(projects) = file_path.parent().and_then(|d| d.parent()) else { return false };
+    let name = format!("{session_id}.jsonl");
+    std::fs::read_dir(projects)
+        .map(|dirs| dirs.flatten().any(|d| d.path().join(&name).is_file()))
+        .unwrap_or(false)
 }
 
 /// Cheap existence check — used to poll for a new session's file appearing
@@ -750,7 +772,59 @@ pub fn focus_window(label: String, app: AppHandle) -> Result<(), String> {
 
 #[cfg(test)]
 mod tests {
-    use super::WatcherState;
+    use super::{launch_plan, session_file_exists, WatcherState};
+    use std::path::{Path, PathBuf};
+
+    const ID: &str = "11111111-2222-4333-8444-555555555555";
+
+    fn projects(name: &str) -> PathBuf {
+        let p = std::env::temp_dir().join(format!("cm-launch-{}-{name}", std::process::id())).join("projects");
+        let _ = std::fs::remove_dir_all(&p);
+        std::fs::create_dir_all(p.join("-ours")).unwrap();
+        p
+    }
+
+    fn ours(projects: &Path) -> PathBuf {
+        projects.join("-ours").join(format!("{ID}.jsonl"))
+    }
+
+    #[test]
+    fn a_new_session_spawns_fresh_until_its_file_exists() {
+        assert_eq!(launch_plan(Some("/x".into()), false), (Some("/x".into()), true));
+    }
+
+    #[test]
+    fn a_restarted_new_session_resumes_once_its_file_exists() {
+        assert_eq!(launch_plan(Some("/x".into()), true), (Some("/x".into()), false));
+    }
+
+    #[test]
+    fn an_existing_session_always_resumes() {
+        assert_eq!(launch_plan(None, true), (None, false));
+        assert_eq!(launch_plan(None, false), (None, false));
+    }
+
+    #[test]
+    fn no_file_means_no_session_yet() {
+        let p = projects("none");
+        assert!(!session_file_exists(&ours(&p), ID));
+    }
+
+    #[test]
+    fn a_file_with_no_conversation_still_counts() {
+        // claude's `--session-id` check is a bare stat, so an empty file blocks it too.
+        let p = projects("empty");
+        std::fs::write(ours(&p), "").unwrap();
+        assert!(session_file_exists(&ours(&p), ID));
+    }
+
+    #[test]
+    fn a_file_claude_wrote_under_another_project_dir_counts() {
+        let p = projects("elsewhere");
+        std::fs::create_dir_all(p.join("-private-tmp-x")).unwrap();
+        std::fs::write(p.join("-private-tmp-x").join(format!("{ID}.jsonl")), "{}\n").unwrap();
+        assert!(session_file_exists(&ours(&p), ID));
+    }
 
     #[test]
     fn a_later_open_supersedes_an_earlier_one() {
