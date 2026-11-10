@@ -4,6 +4,7 @@ import { getVersion } from "@tauri-apps/api/app";
 import { invoke } from "@tauri-apps/api/core";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { useConfig } from "../hooks/useConfig";
+import { useWindowView } from "../hooks/useWindowView";
 import { THEME_LIST, UI_FONTS, MONO_FONTS } from "../lib/config";
 import { useSessions } from "../hooks/useSessions";
 import { useUpdateAvailable } from "../hooks/useUpdateAvailable";
@@ -13,12 +14,13 @@ import FilterMenu, { type MenuItem } from "./FilterMenu";
 import { ReleaseLink, UpgradeCommand } from "./UpdateNote";
 import { REPO_URL, releaseUrl } from "../lib/repo";
 
-/** Settings overlay: theme, typography, and behavior defaults. Every control
- *  applies live via setConfig (which persists + broadcasts to other windows). */
+/** Settings overlay: theme, typography, and behavior defaults. Controls apply live and
+ *  broadcast to other windows, except Compact and Details, which change only this window. */
 export default function Settings({ onClose }: { onClose: () => void }) {
   const { config, setConfig } = useConfig();
   const t = config.typography;
   const ui = config.ui;
+  const view = useWindowView();
   // The same session list the sidebar groups — served from the shared cache,
   // so opening Settings costs no extra scan.
   const { sessions } = useSessions();
@@ -225,13 +227,13 @@ export default function Settings({ onClose }: { onClose: () => void }) {
           </Row>
           <CheckRow
             label="Compact transcript"
-            checked={ui.compact}
-            onChange={(v) => setConfig({ ui: { compact: v } })}
+            checked={view.compact}
+            onChange={view.setCompact}
           />
           <CheckRow
             label="Show details panel"
-            checked={ui.detailsOpen}
-            onChange={(v) => setConfig({ ui: { detailsOpen: v } })}
+            checked={view.detailsOpen}
+            onChange={view.setDetailsOpen}
           />
           <CheckRow
             label="Start with sidebar collapsed"

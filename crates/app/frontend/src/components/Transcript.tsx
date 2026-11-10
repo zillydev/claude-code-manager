@@ -25,7 +25,7 @@ import Dropdown, { menuItemClass } from "./Dropdown";
 import { splitInsights } from "../lib/insights";
 import Spinner from "./Spinner";
 import { ArrowDown, ArrowUp, Ellipsis, GitFork } from "lucide-react";
-import { useConfig } from "../hooks/useConfig";
+import { useWindowView } from "../hooks/useWindowView";
 import { useSessionMeta } from "../hooks/useSessionMeta";
 import { entryTags } from "../lib/sessionMeta";
 import { makeSegId } from "../lib/segments";
@@ -75,10 +75,7 @@ export default function Transcript({
   onShowBranch,
   onExitBranch,
 }: Props) {
-  // compact / details are now config-backed (global + persisted), set-and-stick.
-  const { config, setConfig } = useConfig();
-  const compact = config.ui.compact;
-  const statsOpen = config.ui.detailsOpen;
+  const { compact, detailsOpen: statsOpen, setCompact, setDetailsOpen } = useWindowView();
   // Local alias/note for this session (claude-code-manager metadata, not the .jsonl).
   const { meta, setSessionTags, toggleBookmark } = useSessionMeta();
   const metaEntry = meta.sessions[session.id];
@@ -414,7 +411,7 @@ export default function Transcript({
             </button>
           )}
           <button
-            onClick={() => setConfig({ ui: { compact: !compact } })}
+            onClick={() => setCompact(!compact)}
             className={`text-xs px-2 py-1 rounded border ${
               compact
                 ? "border-[var(--color-accent)] text-[var(--color-accent)]"
@@ -424,7 +421,7 @@ export default function Transcript({
             {compact ? "Show all" : "Compact"}
           </button>
           <button
-            onClick={() => setConfig({ ui: { detailsOpen: !statsOpen } })}
+            onClick={() => setDetailsOpen(!statsOpen)}
             className={`text-xs px-2 py-1 rounded border ${
               statsOpen
                 ? "border-[var(--color-accent)] text-[var(--color-accent)]"
@@ -497,7 +494,7 @@ export default function Transcript({
             {jumpMiss === "compact-hidden" && (
               <button
                 onClick={() => {
-                  setConfig({ ui: { compact: false } });
+                  setCompact(false);
                   setRejump((r) => r + 1);
                 }}
                 className="px-2 py-1 rounded border border-[var(--color-border)] hover:border-[var(--color-accent)]"
