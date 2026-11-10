@@ -1,6 +1,5 @@
-import { useState } from "react";
+import { Fragment, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { X } from "lucide-react";
 import type { SessionSummary } from "../types";
 import { useSessionMeta } from "../hooks/useSessionMeta";
@@ -19,10 +18,10 @@ export default function OpenSessionsPane({
   onOpen: (s: SessionSummary) => void;
 }) {
   const { meta } = useSessionMeta();
-  const here = getCurrentWebviewWindow().label;
   const [confirm, setConfirm] = useState<SessionSummary | null>(null);
   const idle = rows.filter((r) => !r.working);
   const close = onClose;
+  const grouped = rows.some((r) => r.mine) && rows.some((r) => !r.mine);
 
   return (
     <div className="flex flex-col flex-1 min-h-0">
@@ -41,51 +40,57 @@ export default function OpenSessionsPane({
         <div className="p-4 text-xs text-[var(--color-text-dim)]">No Claude terminals are open.</div>
       ) : (
         <div className="flex-1 min-h-0 overflow-y-auto p-2 space-y-1">
-          {rows.map(({ session: s, working, owner }) => (
-            <div
-              key={s.id}
-              role="button"
-              onClick={() => onOpen(s)}
-              className="relative pl-4 pr-2 py-1.5 rounded border border-[var(--color-border)] bg-[var(--color-bg)] hover:border-[var(--color-accent)] cursor-pointer flex items-start gap-2"
-            >
-              {working && (
-                <span
-                  className="absolute left-1.5 top-3 h-1.5 w-1.5 rounded-full bg-green-500 animate-pulse"
-                  title="Claude is working"
-                />
-              )}
-              <div className="min-w-0 flex-1">
-                <div className="text-xs text-[var(--color-text)] truncate">{sessionTitle(meta, s.id, s.title)}</div>
-                <div className="text-[10px] text-[var(--color-text-dim)] truncate">
-                  {s.project_label} ·{" "}
-                  {owner == null || owner === here ? (
-                    "this window"
-                  ) : (
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        invoke("focus_window", { label: owner }).catch(() => {});
-                      }}
-                      className="underline hover:text-[var(--color-text)]"
-                      title="Bring that window forward"
-                    >
-                      other window
-                    </button>
-                  )}
+          {rows.map(({ session: s, working, owner, mine }, i) => (
+            <Fragment key={s.id}>
+              {grouped && (i === 0 || rows[i - 1].mine !== mine) && (
+                <div className={`px-1 ${i === 0 ? "" : "pt-2 "}text-[10px] uppercase tracking-wide text-[var(--color-text-dim)]`}>
+                  {mine ? "This window" : "Other windows"}
                 </div>
-              </div>
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  if (working) setConfirm(s);
-                  else close(s.id);
-                }}
-                title="Close its terminal"
-                className="shrink-0 mt-0.5 text-[var(--color-text-dim)] hover:text-[var(--color-error)]"
+              )}
+              <div
+                role="button"
+                onClick={() => onOpen(s)}
+                className="relative pl-4 pr-2 py-1.5 rounded border border-[var(--color-border)] bg-[var(--color-bg)] hover:border-[var(--color-accent)] cursor-pointer flex items-start gap-2"
               >
-                <X size={12} strokeWidth={2} />
-              </button>
-            </div>
+                {working && (
+                  <span
+                    className="absolute left-1.5 top-3 h-1.5 w-1.5 rounded-full bg-green-500 animate-pulse"
+                    title="Claude is working"
+                  />
+                )}
+                <div className="min-w-0 flex-1">
+                  <div className="text-xs text-[var(--color-text)] truncate">{sessionTitle(meta, s.id, s.title)}</div>
+                  <div className="text-[10px] text-[var(--color-text-dim)] truncate">
+                    {s.project_label} ·{" "}
+                    {mine ? (
+                      "this window"
+                    ) : (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          invoke("focus_window", { label: owner }).catch(() => {});
+                        }}
+                        className="underline hover:text-[var(--color-text)]"
+                        title="Bring that window forward"
+                      >
+                        other window
+                      </button>
+                    )}
+                  </div>
+                </div>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    if (working) setConfirm(s);
+                    else close(s.id);
+                  }}
+                  title="Close its terminal"
+                  className="shrink-0 mt-0.5 text-[var(--color-text-dim)] hover:text-[var(--color-error)]"
+                >
+                  <X size={12} strokeWidth={2} />
+                </button>
+              </div>
+            </Fragment>
           ))}
         </div>
       )}

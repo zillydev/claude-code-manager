@@ -26,25 +26,50 @@ describe("openSessions", () => {
   ]);
 
   it("lists only sessions with a live terminal", () => {
-    expect(openSessions(sessions, activity, NOW).map((o) => o.session.id)).not.toContain("closed");
+    expect(openSessions(sessions, activity, NOW, "main").map((o) => o.session.id)).not.toContain("closed");
   });
 
   it("puts sessions Claude is working in first, then the most recently updated", () => {
-    expect(openSessions(sessions, activity, NOW).map((o) => o.session.id)).toEqual(["working", "idle-new", "idle-old"]);
+    expect(openSessions(sessions, activity, NOW, "main").map((o) => o.session.id)).toEqual(["working", "idle-new", "idle-old"]);
   });
 
-  it("marks which are working and which window runs each", () => {
-    const rows = openSessions(sessions, activity, NOW);
-    expect(rows.map((o) => [o.session.id, o.working, o.owner])).toEqual([
-      ["working", true, "main"],
-      ["idle-new", false, "main"],
-      ["idle-old", false, "win-1"],
+  it("marks which are working, which window runs each and whether it is this one", () => {
+    const rows = openSessions(sessions, activity, NOW, "main");
+    expect(rows.map((o) => [o.session.id, o.working, o.owner, o.mine])).toEqual([
+      ["working", true, "main", true],
+      ["idle-new", false, "main", true],
+      ["idle-old", false, "win-1", false],
+    ]);
+  });
+
+  it("puts this window's sessions first, each group working first, then most recent", () => {
+    const ss = [session("a-idle", NOW - 5), session("a-work", NOW - 900), session("b-work", NOW - 1), session("b-idle", NOW - 400), session("a-old", NOW - 800)];
+    const acts = new Map<string, LiveActivity>([
+      ["a-idle", act({ at: NOW - 5, owner: "main" })],
+      ["a-work", act({ at: NOW - 900, owner: "main", busy: true })],
+      ["b-work", act({ at: NOW - 1, owner: "win-1", busy: true })],
+      ["b-idle", act({ at: NOW - 400, owner: "win-1" })],
+      ["a-old", act({ at: NOW - 800, owner: "main" })],
+    ]);
+    expect(openSessions(ss, acts, NOW, "main").map((o) => o.session.id)).toEqual(["a-work", "a-idle", "a-old", "b-work", "b-idle"]);
+    expect(openSessions(ss, acts, NOW, "win-1").map((o) => o.session.id)).toEqual(["b-work", "b-idle", "a-work", "a-idle", "a-old"]);
+  });
+
+  it("treats a session with no owner yet as this window's", () => {
+    const ss = [session("unowned", NOW - 600), session("other", NOW - 1)];
+    const acts = new Map<string, LiveActivity>([
+      ["unowned", act({ at: NOW - 600, owner: null })],
+      ["other", act({ at: NOW - 1, owner: "win-1" })],
+    ]);
+    expect(openSessions(ss, acts, NOW, "main").map((o) => [o.session.id, o.mine])).toEqual([
+      ["unowned", true],
+      ["other", false],
     ]);
   });
 });
 
 describe("openBadge", () => {
-  const row = (id: string, working: boolean): OpenSession => ({ session: session(id, NOW), working, owner: "main" });
+  const row = (id: string, working: boolean): OpenSession => ({ session: session(id, NOW), working, owner: "main", mine: true });
 
   it("shows nothing when no terminal is open", () => {
     expect(openBadge([])).toBeNull();

@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import type { LiveActivity } from "./useActivity";
 import type { SessionSummary } from "../types";
 import { openSessions, type OpenSession } from "../lib/openSessions";
@@ -20,7 +21,8 @@ export function useOpenSessions(
     });
   }, [activity]);
 
-  const rows = openSessions(sessions, activity, now).filter((r) => !closing.has(r.session.id));
+  const [here] = useState(() => getCurrentWebviewWindow().label);
+  const rows = openSessions(sessions, activity, now, here).filter((r) => !closing.has(r.session.id));
   const close = (id: string) => {
     setClosing((prev) => new Set(prev).add(id));
     invoke("terminal_close", { sessionId: id }).catch(() =>

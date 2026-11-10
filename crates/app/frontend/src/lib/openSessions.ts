@@ -4,11 +4,16 @@ import { statusInputs } from "./closeGuard";
 import { sessionUpdatedAt } from "./sessions";
 import { deriveStatus } from "./sessionStatus";
 
-/** A session whose `claude` runs in one of the app's terminals. */
-export type OpenSession = { session: SessionSummary; working: boolean; owner: string | null };
+/** A session whose `claude` runs in one of the app's terminals; `mine` when it runs in window `here`. */
+export type OpenSession = { session: SessionSummary; working: boolean; owner: string | null; mine: boolean };
 
-/** Every session with a live terminal, those Claude is working in first, then the most recently updated. */
-export function openSessions(sessions: SessionSummary[], activity: Map<string, LiveActivity>, now: number): OpenSession[] {
+/** Every session with a live terminal: window `here`'s first, then within each group those Claude is working in, then the most recently updated. */
+export function openSessions(
+  sessions: SessionSummary[],
+  activity: Map<string, LiveActivity>,
+  now: number,
+  here: string,
+): OpenSession[] {
   const rows: (OpenSession & { updated: number })[] = [];
   for (const s of sessions) {
     const act = activity.get(s.id);
@@ -16,10 +21,12 @@ export function openSessions(sessions: SessionSummary[], activity: Map<string, L
     const i = statusInputs(s, act);
     // lastViewed only decides the unread dot, never whether a session is running.
     const working = deriveStatus(i.lastEventAt, i.awaiting, 0, now, i.terminal, i.hook).running;
-    rows.push({ session: s, working, owner: act.owner, updated: sessionUpdatedAt(s, act.at) });
+    // An unstamped owner counts as here: an "other window" row needs a label to bring forward.
+    const mine = act.owner == null || act.owner === here;
+    rows.push({ session: s, working, owner: act.owner, mine, updated: sessionUpdatedAt(s, act.at) });
   }
-  rows.sort((a, b) => Number(b.working) - Number(a.working) || b.updated - a.updated);
-  return rows.map(({ session, working, owner }) => ({ session, working, owner }));
+  rows.sort((a, b) => Number(b.mine) - Number(a.mine) || Number(b.working) - Number(a.working) || b.updated - a.updated);
+  return rows.map(({ session, working, owner, mine }) => ({ session, working, owner, mine }));
 }
 
 /** The Open tab's badge: how many sessions are open and whether Claude is working in any; null when none are. */
