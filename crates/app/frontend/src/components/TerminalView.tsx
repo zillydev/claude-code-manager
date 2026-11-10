@@ -7,6 +7,7 @@ import Spinner from "./Spinner";
 import { useConfig } from "../hooks/useConfig";
 import { resolveFont } from "../lib/config";
 import { terminalTheme } from "../lib/terminalTheme";
+import { unlistenWhenRegistered } from "../lib/unlisten";
 
 function b64ToBytes(b64: string): Uint8Array {
   const s = atob(b64);
@@ -172,7 +173,7 @@ export default function TerminalView({
       );
       // Listeners are now live — let terminal_open proceed to spawn.
       listenersReadyResolve.current?.();
-      if (disposed) unsubs.forEach((u) => u());
+      if (disposed) unsubs.forEach((u) => void unlistenWhenRegistered(u));
       // NB: terminal_open is deferred to the activation effect below, so the PTY
       // is spawned only once the host is visible and correctly sized.
     })();
@@ -204,7 +205,7 @@ export default function TerminalView({
 
     return () => {
       disposed = true;
-      unsubs.forEach((u) => u());
+      unsubs.forEach((u) => void unlistenWhenRegistered(u));
       onData.dispose();
       ro.disconnect();
       clearTimeout(resizeTimer);
