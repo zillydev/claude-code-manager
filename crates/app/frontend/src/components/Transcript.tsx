@@ -40,7 +40,7 @@ import { ansiText } from "../lib/ansi";
 import { locateJump, turnKeys, turnUuids, type JumpTarget } from "../lib/jumpTarget";
 import { seedQuery } from "../lib/findHandoff";
 import { SessionHeading } from "./SessionHeading";
-import { effortSummary, shortModel, turnModelLabel } from "../lib/modelLabel";
+import { effortSummary, shortModel } from "../lib/modelLabel";
 import { captureTurn } from "../lib/messageImage";
 
 /** Progress of "Copy as image" on one turn, shown in its action row. */
@@ -914,7 +914,6 @@ const Turn = memo(function Turn({
             <span className="text-xs text-[var(--color-text-dim)]" title={tsTitle}>
               {ts}
             </span>
-            <span className="font-medium text-[var(--color-user)]">user</span>
             {bookmarked && (
               <span className="text-[var(--color-accent)] text-xs" title="Bookmarked" data-capture-skip>⚑</span>
             )}
@@ -938,21 +937,16 @@ const Turn = memo(function Turn({
       );
 
     case "assistant": {
-      const modelLabel = turnModelLabel(turn.model, turn.effort);
       return (
         <div className="group" data-msg-uuids={turn.uuids.join(" ")}>
-          <div className="flex items-baseline gap-2 mb-1">
-            <span className="text-xs tabular-nums text-[var(--color-text-dim)]" title={tsTitle}>
+          <div className="flex items-baseline gap-2 mb-1 pl-4 text-xs text-[var(--color-text-dim)]">
+            {turn.model && (
+              <span className="font-medium text-[var(--color-assistant)]">{shortModel(turn.model)}</span>
+            )}
+            {turn.effort && <span>{turn.effort}</span>}
+            <span className="tabular-nums" title={tsTitle}>
               {ts}
             </span>
-            <span className="font-medium text-[var(--color-assistant)]">
-              assistant
-            </span>
-            {modelLabel && (
-              <span className="text-xs text-[var(--color-text-dim)]">
-                {modelLabel}
-              </span>
-            )}
             {bookmarked && (
               <span className="text-[var(--color-accent)] text-xs" title="Bookmarked" data-capture-skip>⚑</span>
             )}

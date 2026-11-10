@@ -1,18 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { effortSummary, turnModelLabel } from "./modelLabel";
-
-describe("turnModelLabel", () => {
-  it("joins model and effort", () => {
-    expect(turnModelLabel("claude-opus-5-5", "high")).toBe("opus-5-5 · high");
-  });
-  it("shows the model alone for lines without effort", () => {
-    expect(turnModelLabel("claude-opus-4-7", null)).toBe("opus-4-7");
-  });
-  it("shows effort alone without a model, and nothing when neither is known", () => {
-    expect(turnModelLabel(null, "xhigh")).toBe("xhigh");
-    expect(turnModelLabel(null, null)).toBeNull();
-  });
-});
+import { effortSummary } from "./modelLabel";
 
 describe("effortSummary", () => {
   it("names a single effort that covers every turn without a count", () => {
