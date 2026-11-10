@@ -49,3 +49,5 @@
 - [x] different appearence modes, which specify how much detail is shown in chat. for example, show all tools full input and output, show only input/output, show truncated input/output. should be entirely customizable
 - [x] provide option to generate a screenshot of a message that can be copied to clipboard
 - [x] in the session header, a long session title squeezes the project name onto two lines (e.g. "status-" / "demo") instead of keeping it on one line and truncating the title
+- [x] reopening a session shows "(no result)" on all but the last of a set of parallel tool calls
+- [x] switching sessions very quickly logs an unhandled error and leaves a terminal event listener behind
