@@ -9,7 +9,8 @@ use claude_code_manager_core::session::edit::CommitResult;
 use claude_code_manager_core::session::parse::parse_tail;
 use claude_code_manager_core::session::raw::{first_cwd, read_raw};
 use claude_code_manager_core::session::render::{
-    extend_stats, render_session, RenderedSession, RenderedTurn, SessionStats,
+    extend_stats, render_appended, render_session, tool_result_updates, tree_messages,
+    RenderedSession, RenderedTurn, SessionStats,
 };
 use claude_code_manager_core::session::summary::{self, SessionSummary};
 use claude_code_manager_core::session::tree;
@@ -200,8 +201,8 @@ pub async fn open_session(
     // setup below stays on the command thread (it touches Tauri state).
     let fp_parse = file_path.clone();
     let branch = branch_uuid.clone();
-    let (rendered, bytes_read, has_custom) =
-        tauri::async_runtime::spawn_blocking(move || -> Result<(RenderedSession, u64, bool), String> {
+    let (rendered, from) =
+        tauri::async_runtime::spawn_blocking(move || -> Result<(RenderedSession, TailFrom), String> {
             let mut session = store::open_session(fp_parse.into(), project_label)
                 .map_err(|e| e.to_string())?;
             // An unparseable or absent uuid falls back to the live branch:
@@ -212,8 +213,12 @@ pub async fn open_session(
                 }
             }
             let rendered = render_session(&session);
-            let has_custom = summary::latest_custom_title(&session.events).is_some();
-            Ok((rendered, session.bytes_read, has_custom))
+            let from = TailFrom {
+                offset: session.bytes_read,
+                has_custom: summary::latest_custom_title(&session.events).is_some(),
+                tree_messages: tree_messages(&session, &rendered),
+            };
+            Ok((rendered, from))
         })
         .await
         .map_err(|e| e.to_string())??;
@@ -250,7 +255,7 @@ pub async fn open_session(
             let app_clone = app.clone();
             let seen = LiveStats { stats: rendered.stats.clone(), event_count: rendered.event_count };
             std::thread::spawn(move || {
-                tail_loop(rx, &fp, bytes_read, has_custom, seen, app_clone, label);
+                tail_loop(rx, &fp, from, seen, app_clone, label);
             });
         }
         Err(_) => {
@@ -278,17 +283,23 @@ struct LiveStats {
     event_count: usize,
 }
 
+/// What the opening render already covered, for the live tail to carry on from.
+struct TailFrom {
+    offset: u64,
+    has_custom: bool,
+    tree_messages: Option<usize>,
+}
+
 fn tail_loop(
     rx: std::sync::mpsc::Receiver<()>,
     file_path: &str,
-    initial_offset: u64,
-    mut has_custom: bool,
+    from: TailFrom,
     mut live: LiveStats,
     app: AppHandle,
     label: String,
 ) {
     let debounce = std::time::Duration::from_millis(80);
-    let mut offset = initial_offset;
+    let TailFrom { mut offset, mut has_custom, mut tree_messages } = from;
     let path = std::path::PathBuf::from(file_path);
 
     loop {
@@ -321,22 +332,7 @@ fn tail_loop(
             let _ = app.emit_to(label.as_str(), "session-title", &title);
         }
 
-        // Render the new events into turns. We build a mini Session from
-        // just the new events to get rendered turns — this avoids re-parsing
-        // the entire file. The tree resolution is trivial for append-only
-        // new events (they're all on the current path).
-        let leaf = tree::resolve_leaf(&outcome.events);
-        let mini = claude_code_manager_core::session::Session {
-            project_label: String::new(),
-            id: uuid::Uuid::nil(),
-            file_path: path.clone(),
-            events: outcome.events,
-            leaf,
-            mtime: std::time::SystemTime::now(),
-            bytes_read: outcome.bytes_read,
-        };
-        let rendered = render_session(&mini);
-        let new_turns: Vec<RenderedTurn> = rendered.turns;
+        let new_turns = render_appended(&outcome.events, &mut tree_messages);
 
         // Back-fill results for tool calls rendered in an EARLIER batch: a slow
         // tool's result arrives minutes after its call, in its own tail read, so
@@ -346,7 +342,7 @@ fn tail_loop(
         // frontend only patches calls still missing a result. Emitted even when
         // no turns rendered — a pure tool-result message is suppressed
         // machinery, producing exactly the turnless batch that needs this.
-        let updates = claude_code_manager_core::session::render::tool_result_updates(&mini.events);
+        let updates = tool_result_updates(&outcome.events);
         if !updates.is_empty() {
             let _ = app.emit_to(label.as_str(), "session-tool-results", &updates);
         }

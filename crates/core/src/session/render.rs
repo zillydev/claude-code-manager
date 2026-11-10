@@ -234,7 +234,14 @@ impl RenderedImage {
 /// Render one conversation path (a single tree's active path) into turns.
 /// `editable` marks whether these turns belong to the active segment.
 fn render_path_turns(path: &[&Event], editable: bool) -> Vec<RenderedTurn> {
-    let tool_results = collect_tool_results(path);
+    render_turns_with_results(path, editable, collect_tool_results(path))
+}
+
+fn render_turns_with_results(
+    path: &[&Event],
+    editable: bool,
+    tool_results: HashMap<String, ToolResultEntry>,
+) -> Vec<RenderedTurn> {
 
     // Track user events that are pure tool-result containers.
     let mut suppressed: std::collections::HashSet<usize> = std::collections::HashSet::new();
@@ -626,6 +633,90 @@ pub fn render_session(session: &Session) -> RenderedSession {
     }
 }
 
+/// Turns for lines just appended to a shown file; only a null-parent line starts a tree and gets a divider.
+/// `tree_messages` is the user/assistant turn count of the current tree (`None` before one), kept current.
+pub fn render_appended(appended: &[Event], tree_messages: &mut Option<usize>) -> Vec<RenderedTurn> {
+    let mut bounds: Vec<usize> = vec![0];
+    bounds.extend((1..appended.len()).filter(|&i| starts_tree(&appended[i])));
+    bounds.push(appended.len());
+
+    let mut turns = Vec::new();
+    let last = bounds.len() - 2;
+    for (k, w) in bounds.windows(2).enumerate() {
+        let piece = &appended[w[0]..w[1]];
+        if piece.first().is_some_and(starts_tree) {
+            if let Some(n) = *tree_messages {
+                turns.push(RenderedTurn::Compaction { messages_before: n });
+            }
+            *tree_messages = Some(0);
+        }
+        let Some(leaf) = appended_leaf(piece) else { continue };
+        let path = super::tree::current_path(piece, leaf);
+        // Results come from the whole piece: a parallel call's result is a sibling off the path.
+        let all: Vec<&Event> = piece.iter().collect();
+        let piece_turns = render_turns_with_results(&path, k == last, collect_tool_results(&all));
+        let n = piece_turns
+            .iter()
+            .filter(|t| matches!(t, RenderedTurn::User { .. } | RenderedTurn::Assistant { .. }))
+            .count();
+        *tree_messages = Some(tree_messages.unwrap_or(0) + n);
+        turns.extend(piece_turns);
+    }
+    turns
+}
+
+/// The `tree_messages` that [`render_appended`] starts from once `session` has rendered as `rendered`.
+pub fn tree_messages(session: &Session, rendered: &RenderedSession) -> Option<usize> {
+    session.events.iter().any(|e| e.uuid().is_some()).then(|| {
+        rendered
+            .turns
+            .iter()
+            .rev()
+            .take_while(|t| !matches!(t, RenderedTurn::Compaction { .. }))
+            .filter(|t| matches!(t, RenderedTurn::User { .. } | RenderedTurn::Assistant { .. }))
+            .count()
+    })
+}
+
+/// A line that begins a new conversation tree, as an auto-compaction writes.
+fn starts_tree(e: &Event) -> bool {
+    e.uuid().is_some() && e.parent_uuid().is_none()
+}
+
+/// The tip of the path `piece` extends: its last childless line that is not a pure tool result, since parallel
+/// calls' results are siblings off the path; with only results childless, the one with the longest path here.
+fn appended_leaf(piece: &[Event]) -> Option<uuid::Uuid> {
+    let parents: std::collections::HashSet<uuid::Uuid> =
+        piece.iter().filter(|e| e.uuid().is_some()).filter_map(|e| e.parent_uuid()).collect();
+    let childless: Vec<(uuid::Uuid, &Event)> = piece
+        .iter()
+        .filter_map(|e| e.uuid().map(|u| (u, e)))
+        .filter(|(u, _)| !parents.contains(u))
+        .collect();
+    childless
+        .iter()
+        .rev()
+        .find(|(_, e)| !is_tool_results_only(e))
+        .map(|(u, _)| *u)
+        .or_else(|| {
+            // max_by_key keeps the last of equals, so a tie goes to the later result.
+            childless.iter().max_by_key(|(u, _)| super::tree::current_path(piece, *u).len()).map(|(u, _)| *u)
+        })
+        .or_else(|| super::tree::resolve_leaf(piece))
+}
+
+fn is_tool_results_only(e: &Event) -> bool {
+    match e {
+        Event::User(u) => match &u.message.content {
+            MessageContent::Blocks(b) => {
+                !b.is_empty() && b.iter().all(|b| matches!(b, UserBlock::ToolResult { .. }))
+            }
+            _ => false,
+        },
+        _ => false,
+    }
+}
+
 pub fn compute_stats(path: &[&Event]) -> SessionStats {
     let mut stats = SessionStats::empty();
     stats.fold(path);
@@ -635,7 +726,7 @@ pub fn compute_stats(path: &[&Event]) -> SessionStats {
 /// `stats` once `appended` — lines just written to the end of the file — has landed. Appends extend the
 /// active path, except a null-parent message, which is a new tree (an auto-compaction) the stats restart at.
 pub fn extend_stats(stats: &mut SessionStats, appended: &[Event]) {
-    let restart = appended.iter().rposition(|e| e.uuid().is_some() && e.parent_uuid().is_none());
+    let restart = appended.iter().rposition(starts_tree);
     if restart.is_some() {
         *stats = SessionStats::empty();
     }
@@ -1509,6 +1600,207 @@ mod render_tests {
 
         // Text explicitly tagged `thinking` is reasoning, not a summary.
         assert!(matches!(mk("raw reasoning", Some(thinking_sig)), RenderedBlock::Thinking { .. }));
+    }
+
+    fn attach(uuid: &str, parent: Option<&str>) -> Event {
+        let parent = parent.map_or("null".to_string(), |p| format!("\"{p}\""));
+        serde_json::from_str(&format!(
+            r#"{{"type":"attachment","uuid":"{uuid}","parentUuid":{parent},"attachment":{{"type":"environment"}}}}"#
+        ))
+        .unwrap()
+    }
+
+    fn dividers(turns: &[RenderedTurn]) -> Vec<usize> {
+        turns
+            .iter()
+            .filter_map(|t| match t {
+                RenderedTurn::Compaction { messages_before } => Some(*messages_before),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// Tool calls in render order, each with whether it carries its result.
+    fn tool_calls(turns: &[RenderedTurn]) -> Vec<(String, bool)> {
+        turns
+            .iter()
+            .filter_map(|t| match t {
+                RenderedTurn::Assistant { blocks, .. } => Some(blocks),
+                _ => None,
+            })
+            .flatten()
+            .filter_map(|b| match b {
+                RenderedBlock::ToolCall { id, result, .. } => Some((id.clone(), result.is_some())),
+                _ => None,
+            })
+            .collect()
+    }
+
+    // Two parallel tool_use lines written in an earlier tail batch.
+    const CALL_A: &str = "00000000-0000-0000-0000-00000000ca11";
+    const CALL_B: &str = "00000000-0000-0000-0000-00000000ca12";
+    const CALL_C: &str = "00000000-0000-0000-0000-00000000ca13";
+
+    #[test]
+    fn appended_parallel_tool_results_get_no_divider() {
+        let (ra, rb) = ("00000000-0000-0000-0000-0000000000f1", "00000000-0000-0000-0000-0000000000f2");
+        let (env, text) = ("00000000-0000-0000-0000-0000000000f3", "00000000-0000-0000-0000-0000000000f4");
+        // Each result's parent is its own call, so the batch has two out-of-batch parents.
+        let batch = vec![
+            trev(ra, Some(CALL_A), "toolu_a", "out a", false),
+            trev(rb, Some(CALL_B), "toolu_b", "out b", false),
+            attach(env, Some(rb)),
+            aev(text, Some(env), "Confirmed one thing"),
+        ];
+        // A stand-alone render of the slice sees two roots: the spurious divider.
+        assert_eq!(dividers(&render_session(&sess(batch.clone())).turns), vec![0]);
+
+        let mut tree = Some(5);
+        let turns = render_appended(&batch, &mut tree);
+        assert_eq!(dividers(&turns), Vec::<usize>::new());
+        assert!(matches!(&turns[..], [RenderedTurn::Assistant { .. }]));
+        assert_eq!(tree, Some(6));
+    }
+
+    #[test]
+    fn appended_three_parallel_results_get_no_divider() {
+        let r: Vec<String> = (1..=3).map(|i| format!("00000000-0000-0000-0000-0000000000e{i}")).collect();
+        let text = "00000000-0000-0000-0000-0000000000e9";
+        let batch = vec![
+            trev(&r[0], Some(CALL_A), "toolu_a", "a", false),
+            trev(&r[1], Some(CALL_B), "toolu_b", "b", false),
+            trev(&r[2], Some(CALL_C), "toolu_c", "c", false),
+            aev(text, Some(&r[2]), "Possible finding"),
+        ];
+        let mut tree = Some(2);
+        let turns = render_appended(&batch, &mut tree);
+        assert_eq!(dividers(&turns), Vec::<usize>::new());
+        assert_eq!(tree, Some(3));
+    }
+
+    #[test]
+    fn appended_compaction_root_opening_a_batch_gets_a_divider() {
+        let (s, a) = ("00000000-0000-0000-0000-0000000000d1", "00000000-0000-0000-0000-0000000000d2");
+        let mut tree = Some(7);
+        let turns = render_appended(&[uev(s, None, "summary"), aev(a, Some(s), "resumed")], &mut tree);
+        assert!(matches!(turns.first(), Some(RenderedTurn::Compaction { messages_before: 7 })));
+        assert_eq!(dividers(&turns), vec![7]);
+        assert_eq!(tree, Some(2));
+    }
+
+    #[test]
+    fn appended_compaction_root_mid_batch_counts_the_whole_tree_above() {
+        let (a, s, b) = (
+            "00000000-0000-0000-0000-0000000000d3",
+            "00000000-0000-0000-0000-0000000000d4",
+            "00000000-0000-0000-0000-0000000000d5",
+        );
+        let mut tree = Some(3);
+        let turns =
+            render_appended(&[aev(a, Some(CALL_A), "last words"), uev(s, None, "summary"), aev(b, Some(s), "go")], &mut tree);
+        assert!(matches!(
+            &turns[..],
+            [
+                RenderedTurn::Assistant { .. },
+                RenderedTurn::Compaction { messages_before: 4 },
+                RenderedTurn::User { .. },
+                RenderedTurn::Assistant { .. },
+            ]
+        ));
+        assert_eq!(tree, Some(2));
+    }
+
+    #[test]
+    fn first_tree_of_an_empty_file_gets_no_divider() {
+        let (u, a) = ("00000000-0000-0000-0000-0000000000d6", "00000000-0000-0000-0000-0000000000d7");
+        let mut tree = None;
+        let turns = render_appended(&[uev(u, None, "hello"), aev(a, Some(u), "hi")], &mut tree);
+        assert_eq!(dividers(&turns), Vec::<usize>::new());
+        assert_eq!(turns.len(), 2);
+        assert_eq!(tree, Some(2));
+    }
+
+    #[test]
+    fn trailing_sibling_result_does_not_hide_a_parallel_call() {
+        let ra = "00000000-0000-0000-0000-0000000000c9";
+        // Call B's parent is call A; A's result (also A's child) is written after B.
+        let batch = vec![
+            atool(CALL_A, Some("00000000-0000-0000-0000-0000000000c0"), "toolu_a"),
+            atool(CALL_B, Some(CALL_A), "toolu_b"),
+            trev(ra, Some(CALL_A), "toolu_a", "out a", false),
+        ];
+        let turns = render_appended(&batch, &mut Some(0));
+        assert_eq!(tool_calls(&turns), vec![("toolu_a".into(), true), ("toolu_b".into(), false)]);
+
+        // The same when both calls' parent was written in an earlier batch.
+        let batch = vec![
+            atool(CALL_B, Some(CALL_A), "toolu_b"),
+            trev(ra, Some(CALL_A), "toolu_a", "out a", false),
+        ];
+        let turns = render_appended(&batch, &mut Some(0));
+        assert_eq!(tool_calls(&turns), vec![("toolu_b".into(), false)]);
+    }
+
+    #[test]
+    fn earlier_calls_result_does_not_hide_a_third_parallel_call() {
+        let (call_b, ra, rb, rc) = (
+            "00000000-0000-0000-0000-0000000000c1",
+            "00000000-0000-0000-0000-0000000000c2",
+            "00000000-0000-0000-0000-0000000000c3",
+            "00000000-0000-0000-0000-0000000000c4",
+        );
+        // A and B were written in an earlier batch, so each parent has one child here.
+        let batch = vec![atool(CALL_C, Some(call_b), "toolu_c"), trev(ra, Some(CALL_A), "toolu_a", "out a", false)];
+        let turns = render_appended(&batch, &mut Some(0));
+        assert_eq!(tool_calls(&turns), vec![("toolu_c".into(), false)]);
+
+        // Only results are childless: the one continuing an in-batch call still carries it.
+        let batch = vec![
+            atool(CALL_C, Some(call_b), "toolu_c"),
+            trev(rc, Some(CALL_C), "toolu_c", "out c", false),
+            trev(ra, Some(CALL_A), "toolu_a", "out a", false),
+        ];
+        let turns = render_appended(&batch, &mut Some(0));
+        assert_eq!(tool_calls(&turns), vec![("toolu_c".into(), true)]);
+
+        // Two in-batch calls whose results land in reverse order.
+        let batch = vec![
+            atool(call_b, Some(CALL_A), "toolu_b"),
+            atool(CALL_C, Some(call_b), "toolu_c"),
+            trev(rc, Some(CALL_C), "toolu_c", "out c", false),
+            trev(rb, Some(call_b), "toolu_b", "out b", false),
+        ];
+        let turns = render_appended(&batch, &mut Some(0));
+        assert_eq!(tool_calls(&turns), vec![("toolu_b".into(), true), ("toolu_c".into(), true)]);
+    }
+
+    #[test]
+    fn tree_messages_counts_the_active_tree_only() {
+        let (a, b, c) = (
+            "00000000-0000-0000-0000-0000000000a1",
+            "00000000-0000-0000-0000-0000000000b2",
+            "00000000-0000-0000-0000-0000000000c3",
+        );
+        let s = sess(vec![uev(a, None, "old"), aev(b, Some(a), "old"), uev(c, None, "new")]);
+        assert_eq!(tree_messages(&s, &render_session(&s)), Some(1));
+        let empty = sess(vec![]);
+        assert_eq!(tree_messages(&empty, &render_session(&empty)), None);
+    }
+
+    #[test]
+    fn appended_plain_chain_matches_render_session() {
+        let (t, r, a) = (
+            "00000000-0000-0000-0000-0000000000b7",
+            "00000000-0000-0000-0000-0000000000b8",
+            "00000000-0000-0000-0000-0000000000b9",
+        );
+        let batch = vec![
+            atool(t, Some(CALL_A), "toolu_t"),
+            trev(r, Some(t), "toolu_t", "ok", false),
+            aev(a, Some(r), "done"),
+        ];
+        let json = |turns: &[RenderedTurn]| serde_json::to_value(turns).unwrap();
+        assert_eq!(json(&render_appended(&batch, &mut Some(1))), json(&render_session(&sess(batch)).turns));
     }
 }
 
