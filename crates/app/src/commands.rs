@@ -623,6 +623,8 @@ pub struct SessionActivity {
     /// when present it outranks `busy`, `interrupt_at` and `hook`.
     #[serde(default)]
     pub program: Option<crate::program_status::ProgramStatus>,
+    /// Set while the session runs in a terminal but has no conversation yet.
+    pub pending: Option<crate::activity::PendingSession>,
 }
 
 /// The sidebar "running"/"unread" signal, served from the `Shared` cache that

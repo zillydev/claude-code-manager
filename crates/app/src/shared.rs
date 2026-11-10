@@ -106,6 +106,7 @@ impl Shared {
                 hook: None,
                 interrupt_at: 0,
                 program: None,
+                pending: None,
             })
             .collect();
         self.data.lock().unwrap().activity = activity.clone();

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { openBadge, openSessions, type OpenSession } from "./openSessions";
+import { heldPending, openBadge, openSessions, type OpenSession } from "./openSessions";
 import type { LiveActivity } from "../hooks/useActivity";
 import type { SessionSummary } from "../types";
 
@@ -13,7 +13,7 @@ const session = (id: string, updated: number) =>
     awaiting_input: false,
   }) as SessionSummary;
 const act = (over: Partial<LiveActivity>): LiveActivity => ({
-  at: NOW - 60, awaiting: false, hosted: true, owner: "main", busy: false, busyAt: NOW - 60, hook: null, interruptAt: 0, program: null, ...over,
+  at: NOW - 60, awaiting: false, hosted: true, owner: "main", busy: false, busyAt: NOW - 60, hook: null, interruptAt: 0, program: null, pending: null, ...over,
 });
 
 describe("openSessions", () => {
@@ -68,8 +68,54 @@ describe("openSessions", () => {
   });
 });
 
+describe("sessions with no conversation yet", () => {
+  const fresh = { cwd: "/x/mono", filePath: "/p/fresh.jsonl", projectLabel: "mono" };
+  const pendingAct = (over: Partial<LiveActivity> = {}) => act({ at: NOW - 5, awaiting: true, pending: fresh, ...over });
+
+  it("lists a hosted session that has no file yet", () => {
+    const rows = openSessions([], new Map([["fresh", pendingAct()]]), NOW, "main");
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ pending: true, working: false, mine: true });
+    expect(rows[0].session).toMatchObject({ id: "fresh", title: "New session", project_label: "mono", file_path: "/p/fresh.jsonl", cwd: "/x/mono" });
+  });
+
+  it("yields to its discovered summary", () => {
+    const rows = openSessions([session("fresh", NOW - 5)], new Map([["fresh", pendingAct()]]), NOW, "main");
+    expect(rows.map((r) => [r.session.id, r.pending, r.session.title])).toEqual([["fresh", false, "fresh"]]);
+  });
+
+  it("is not listed once its terminal closes", () => {
+    expect(openSessions([], new Map([["fresh", pendingAct({ hosted: false })]]), NOW, "main")).toEqual([]);
+  });
+
+  it("sorts by spawn time among idle rows", () => {
+    const acts = new Map([["fresh", pendingAct()], ["idle-new", act({ at: NOW - 10 })]]);
+    expect(openSessions([session("idle-new", NOW - 10)], acts, NOW, "main").map((r) => r.session.id)).toEqual(["fresh", "idle-new"]);
+  });
+
+  it("counts toward the badge", () => {
+    expect(openBadge(openSessions([], new Map([["fresh", pendingAct()]]), NOW, "main"))?.count).toBe(1);
+  });
+
+  it("keeps its row when the poll that drops `pending` beats the refetched session list", () => {
+    const first = heldPending(new Map(), [], new Map([["fresh", pendingAct()]]));
+    // The file now exists: the next poll's row is the scanned one, but `sessions` hasn't caught up.
+    const scanned = new Map([["fresh", act({ at: NOW - 1 })]]);
+    const held = heldPending(first, [], scanned);
+    expect(openSessions([], scanned, NOW, "main", held).map((r) => [r.session.id, r.pending])).toEqual([["fresh", true]]);
+    // Once the summary arrives, the placeholder is released.
+    expect(heldPending(held, [session("fresh", NOW - 1)], scanned).size).toBe(0);
+  });
+
+  it("drops a held placeholder whose terminal closed", () => {
+    const first = heldPending(new Map(), [], new Map([["fresh", pendingAct()]]));
+    expect(heldPending(first, [], new Map([["fresh", act({ hosted: false })]])).size).toBe(0);
+    expect(heldPending(first, [], new Map()).size).toBe(0);
+  });
+});
+
 describe("openBadge", () => {
-  const row = (id: string, working: boolean): OpenSession => ({ session: session(id, NOW), working, owner: "main", mine: true });
+  const row = (id: string, working: boolean): OpenSession => ({ session: session(id, NOW), working, owner: "main", mine: true, pending: false });
 
   it("shows nothing when no terminal is open", () => {
     expect(openBadge([])).toBeNull();

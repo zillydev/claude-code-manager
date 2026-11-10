@@ -15,7 +15,8 @@ export default function OpenSessionsPane({
 }: {
   rows: OpenSession[];
   onClose: (id: string) => void;
-  onOpen: (s: SessionSummary) => void;
+  /** `newCwd` is set for a session claude hasn't written yet, which the terminal must start in that dir. */
+  onOpen: (s: SessionSummary, newCwd?: string) => void;
 }) {
   const { meta } = useSessionMeta();
   const [confirm, setConfirm] = useState<SessionSummary | null>(null);
@@ -40,7 +41,7 @@ export default function OpenSessionsPane({
         <div className="p-4 text-xs text-[var(--color-text-dim)]">No Claude terminals are open.</div>
       ) : (
         <div className="flex-1 min-h-0 overflow-y-auto p-2 space-y-1">
-          {rows.map(({ session: s, working, owner, mine }, i) => (
+          {rows.map(({ session: s, working, owner, mine, pending }, i) => (
             <Fragment key={s.id}>
               {grouped && (i === 0 || rows[i - 1].mine !== mine) && (
                 <div className={`px-1 ${i === 0 ? "" : "pt-2 "}text-[10px] uppercase tracking-wide text-[var(--color-text-dim)]`}>
@@ -49,7 +50,7 @@ export default function OpenSessionsPane({
               )}
               <div
                 role="button"
-                onClick={() => onOpen(s)}
+                onClick={() => onOpen(s, pending ? s.cwd ?? undefined : undefined)}
                 className="relative pl-4 pr-2 py-1.5 rounded border border-[var(--color-border)] bg-[var(--color-bg)] hover:border-[var(--color-accent)] cursor-pointer flex items-start gap-2"
               >
                 {working && (
@@ -59,7 +60,11 @@ export default function OpenSessionsPane({
                   />
                 )}
                 <div className="min-w-0 flex-1">
-                  <div className="text-xs text-[var(--color-text)] truncate">{sessionTitle(meta, s.id, s.title)}</div>
+                  {pending && !meta.sessions[s.id]?.alias?.trim() ? (
+                    <div className="text-xs italic text-[var(--color-text-dim)] truncate">{s.title}</div>
+                  ) : (
+                    <div className="text-xs text-[var(--color-text)] truncate">{sessionTitle(meta, s.id, s.title)}</div>
+                  )}
                   <div className="text-[10px] text-[var(--color-text-dim)] truncate">
                     {s.project_label} ·{" "}
                     {mine ? (

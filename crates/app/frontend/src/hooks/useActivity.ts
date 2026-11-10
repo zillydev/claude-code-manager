@@ -18,7 +18,10 @@ type Activity = {
   /** Epoch s of the user's last Esc / Ctrl-C in this session's terminal. */
   interrupt_at: number;
   program?: ProgramStatus | null;
+  pending?: { cwd: string; file_path: string; project_label: string } | null;
 };
+/** A session running in a terminal before claude has written its file. */
+export type PendingSession = { cwd: string; filePath: string; projectLabel: string };
 export type LiveActivity = {
   at: number;
   awaiting: boolean;
@@ -31,6 +34,7 @@ export type LiveActivity = {
   interruptAt: number;
   /** Claude's own state report from ccm's terminal, when hosted and supported. */
   program: ProgramStatus | null;
+  pending: PendingSession | null;
 };
 
 const toMap = (rows: Activity[]): Map<string, LiveActivity> =>
@@ -47,6 +51,7 @@ const toMap = (rows: Activity[]): Map<string, LiveActivity> =>
         hook: r.hook ?? null,
         interruptAt: r.interrupt_at ?? 0,
         program: r.program ?? null,
+        pending: r.pending ? { cwd: r.pending.cwd, filePath: r.pending.file_path, projectLabel: r.pending.project_label } : null,
       },
     ]),
   );

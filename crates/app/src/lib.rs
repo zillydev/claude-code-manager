@@ -1,3 +1,4 @@
+mod activity;
 mod agent_bridge;
 mod close_guard;
 mod commands;
@@ -175,90 +176,15 @@ pub fn run() {
                 // A week-old phase is a session that ended without saying so.
                 hook_state.retain(|_, h| now - h.since < 7 * 86_400);
 
-                // Stamp `hosted`/`busy`/`hook` on the scanned rows, and mint
-                // rows for sessions the scan skipped — it only tail-reads files
-                // touched in the last 60s, and a long tool call and a parked
-                // question both write nothing, exactly when their indicator
-                // matters.
-                //
-                // `busy` is hosted AND recently talking: a PTY that exists says
-                // claude is alive, not that it is working — a session parked on
-                // a question is alive and silent, and used to read as "running"
-                // forever.
                 if !hosted_now.is_empty() || !hook_state.is_empty() {
-                    let busy_at: std::collections::BTreeMap<&str, i64> = hosted_now
-                        .iter()
-                        .map(|h| (h.session_id.as_str(), h.last_busy_at))
-                        .collect();
-                    let interrupt_at: std::collections::BTreeMap<&str, i64> = hosted_now
-                        .iter()
-                        .map(|h| (h.session_id.as_str(), h.last_interrupt_at))
-                        .collect();
-                    let program_of: std::collections::BTreeMap<&str, &program_status::ProgramStatus> =
-                        hosted_now
-                            .iter()
-                            .filter_map(|h| Some((h.session_id.as_str(), h.program.as_ref()?)))
-                            .collect();
-                    let busy_ids: std::collections::BTreeSet<&str> = hosted_now
-                        .iter()
-                        .filter(|h| now - h.last_busy_at < terminal::BUSY_QUIET_SECS)
-                        .map(|h| h.session_id.as_str())
-                        .collect();
-                    let hosted_ids: std::collections::BTreeSet<&str> =
-                        hosted_now.iter().map(|h| h.session_id.as_str()).collect();
-                    let owner_of: std::collections::BTreeMap<&str, &str> =
-                        hosted_now.iter().map(|h| (h.session_id.as_str(), h.owner.as_str())).collect();
-                    for a in outcome.activity.iter_mut() {
-                        a.hosted = hosted_ids.contains(a.id.as_str());
-                        a.owner = owner_of.get(a.id.as_str()).map(|o| o.to_string());
-                        a.busy = busy_ids.contains(a.id.as_str());
-                        a.busy_at = busy_at.get(a.id.as_str()).copied().unwrap_or(0);
-                        a.hook = hook_state.get(&a.id).cloned();
-                        a.interrupt_at = interrupt_at.get(a.id.as_str()).copied().unwrap_or(0);
-                        a.program = program_of.get(a.id.as_str()).map(|p| (*p).clone());
-                    }
-                    let have: std::collections::BTreeSet<String> =
-                        outcome.activity.iter().map(|a| a.id.clone()).collect();
-                    // Awaiting needs no minted row — the discovery snapshot
-                    // already says so; attention/running have no other carrier.
-                    let mut want: std::collections::BTreeSet<&str> = hosted_ids.clone();
-                    want.extend(
-                        hook_state
-                            .iter()
-                            .filter(|(_, h)| h.phase != "awaiting")
-                            .map(|(id, _)| id.as_str()),
+                    activity::stamp_hosted(
+                        &mut outcome.activity,
+                        &hosted_now,
+                        &hook_state,
+                        || handle.state::<shared::Shared>().sessions(&root).unwrap_or_default(),
+                        &root,
+                        now,
                     );
-                    let missing: Vec<&str> =
-                        want.iter().copied().filter(|id| !have.contains(*id)).collect();
-                    if !missing.is_empty() {
-                        let sessions =
-                            handle.state::<shared::Shared>().sessions(&root).unwrap_or_default();
-                        for s in sessions.iter().filter(|s| missing.contains(&s.id.to_string().as_str()))
-                        {
-                            let Some(at) = s.last_event_at else { continue };
-                            outcome.activity.push(commands::SessionActivity {
-                                id: s.id.to_string(),
-                                last_event_at: at
-                                    .duration_since(std::time::UNIX_EPOCH)
-                                    .map(|d| d.as_secs() as i64)
-                                    .unwrap_or(0),
-                                awaiting_input: s.awaiting_input,
-                                hosted: hosted_ids.contains(&s.id.to_string().as_str()),
-                                owner: owner_of.get(&s.id.to_string().as_str()).map(|o| o.to_string()),
-                                busy: busy_ids.contains(&s.id.to_string().as_str()),
-                                busy_at: busy_at
-                                    .get(&s.id.to_string().as_str())
-                                    .copied()
-                                    .unwrap_or(0),
-                                hook: hook_state.get(&s.id.to_string()).cloned(),
-                                interrupt_at: interrupt_at
-                                    .get(&s.id.to_string().as_str())
-                                    .copied()
-                                    .unwrap_or(0),
-                                program: program_of.get(&s.id.to_string().as_str()).map(|p| (*p).clone()),
-                            });
-                        }
-                    }
                     handle.state::<shared::Shared>().set_activity(outcome.activity.clone());
                 }
 

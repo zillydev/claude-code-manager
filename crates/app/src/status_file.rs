@@ -283,6 +283,7 @@ mod tests {
             hook: None,
             interrupt_at: 0,
             program: None,
+            pending: None,
         }
     }
     /// Hosted with a talking terminal — claude is actually working.
@@ -298,6 +299,7 @@ mod tests {
             hook: None,
             interrupt_at: 0,
             program: None,
+            pending: None,
         }
     }
     /// Hosted but silent since `quiet_at` — parked on a question, or just sitting.
@@ -313,6 +315,7 @@ mod tests {
             hook: None,
             interrupt_at: 0,
             program: None,
+            pending: None,
         }
     }
 

@@ -153,7 +153,7 @@ export default function App() {
   // `scrollToMessage` optionally scrolls the transcript to a specific message
   // (e.g. a fork point opened from the lineage tree).
   const openSession = useCallback(
-    (s: { id: string; file_path: string; project_label: string }, scrollToMessage?: string, term?: string) => {
+    (s: { id: string; file_path: string; project_label: string; newCwd?: string }, scrollToMessage?: string, term?: string) => {
       setTarget((prev) => {
         // A different session returns to the tab it was left on, but never to a Terminal that would spawn a fresh
         // `claude --resume` the user didn't ask for.
@@ -164,6 +164,7 @@ export default function App() {
           sessionId: s.id,
           filePath: s.file_path,
           projectLabel: s.project_label,
+          cwd: s.newCwd,
           scrollToMessage: scrollToMessage
             ? { uuid: scrollToMessage, n: (prev?.scrollToMessage?.n ?? 0) + 1, term }
             : undefined,
@@ -521,6 +522,7 @@ export default function App() {
               activity={activity}
               lastViewed={lastViewed}
               onSelect={(s, messageUuid, term) => openSession(s, messageUuid, term)}
+              onOpenNew={(s, cwd) => openSession({ ...s, newCwd: cwd })}
               onCollapse={() => setConfig({ ui: { sidebarCollapsed: true } })}
               onDelete={deleteSessions}
               onNewSession={newSession}

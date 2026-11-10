@@ -55,6 +55,8 @@ interface Props {
   lastViewed: Record<string, number>;
   /** Open a session; with a message uuid, scrolled to + flashing that message. */
   onSelect: (s: SessionSummary, messageUuid?: string, term?: string) => void;
+  /** Open a session claude hasn't written yet, whose terminal starts in `cwd`. */
+  onOpenNew: (s: SessionSummary, cwd: string) => void;
   onCollapse: () => void;
   /** Deletes these sessions (one, from a row's menus, or a ⌘/⇧-click selection). */
   onDelete: (sessions: SessionSummary[]) => void | Promise<void>;
@@ -77,6 +79,7 @@ export default function Sidebar({
   activity,
   lastViewed,
   onSelect,
+  onOpenNew,
   onCollapse,
   onDelete,
   onNewSession,
@@ -985,7 +988,7 @@ export default function Sidebar({
         className="flex flex-col flex-1 min-h-0"
         style={{ display: tab === "open" ? undefined : "none" }}
       >
-        <OpenSessionsPane rows={open.rows} onClose={open.close} onOpen={(s) => onSelect(s)} />
+        <OpenSessionsPane rows={open.rows} onClose={open.close} onOpen={(s, cwd) => (cwd ? onOpenNew(s, cwd) : onSelect(s))} />
       </div>
       <PreciseStatusNote onOpenSettings={onOpenSettings} />
       <UpdateNote />

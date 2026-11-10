@@ -217,6 +217,9 @@ pub struct PtyHandle {
     last_interrupt: Arc<AtomicI64>,
     /// Claude's own state report (`OSC 7501`), once it has sent one.
     program: Arc<Mutex<Option<ProgramStatus>>>,
+    cwd: String,
+    /// Epoch seconds of the spawn.
+    started_at: i64,
 }
 
 /// One session ccm is running, for the poller.
@@ -229,6 +232,8 @@ pub struct Hosted {
     pub last_interrupt_at: i64,
     /// What claude last said it is doing, when its version reports it.
     pub program: Option<ProgramStatus>,
+    pub cwd: String,
+    pub started_at: i64,
 }
 
 /// How long after claude's last burst of output we still call the session busy.
@@ -335,6 +340,8 @@ impl TerminalState {
                 last_busy_at: h.last_busy.load(Ordering::Relaxed),
                 last_interrupt_at: h.last_interrupt.load(Ordering::Relaxed),
                 program: h.program.lock().ok().and_then(|p| p.clone()),
+                cwd: h.cwd.clone(),
+                started_at: h.started_at,
             })
             .collect()
     }
@@ -424,6 +431,7 @@ pub fn spawn_terminal(
     cmd.env("TERM", "xterm-256color");
     cmd.env("COLORTERM", "truecolor");
 
+    let started_at = now_secs();
     let child =
         pair.slave.spawn_command(cmd).map_err(|e| std::io::Error::other(e.to_string()))?;
     drop(pair.slave);
@@ -510,6 +518,8 @@ pub fn spawn_terminal(
         last_input,
         last_interrupt,
         program,
+        cwd,
+        started_at,
     })
 }
 

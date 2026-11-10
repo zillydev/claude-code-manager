@@ -1,9 +1,9 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
-import type { LiveActivity } from "./useActivity";
+import type { LiveActivity, PendingSession } from "./useActivity";
 import type { SessionSummary } from "../types";
-import { openSessions, type OpenSession } from "../lib/openSessions";
+import { heldPending, openSessions, type OpenSession } from "../lib/openSessions";
 
 /** The sessions running in a terminal, as the Open tab and its badge show them, and a way to close one. */
 export function useOpenSessions(
@@ -21,8 +21,11 @@ export function useOpenSessions(
     });
   }, [activity]);
 
+  const held = useRef<ReadonlyMap<string, PendingSession>>(new Map());
+  const pending = useMemo(() => (held.current = heldPending(held.current, sessions, activity)), [sessions, activity]);
+
   const [here] = useState(() => getCurrentWebviewWindow().label);
-  const rows = openSessions(sessions, activity, now, here).filter((r) => !closing.has(r.session.id));
+  const rows = openSessions(sessions, activity, now, here, pending).filter((r) => !closing.has(r.session.id));
   const close = (id: string) => {
     setClosing((prev) => new Set(prev).add(id));
     invoke("terminal_close", { sessionId: id }).catch(() =>
