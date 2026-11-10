@@ -333,6 +333,8 @@ mod tests {
             },
             cwd: None, git_branch: None, forked_from: None,
             is_api_error: false,
+            effort: None,
+            per_turn_effort: None,
         })
     }
 
@@ -617,6 +619,8 @@ mod tests {
             git_branch: None,
             forked_from: None,
             is_api_error: false,
+            effort: None,
+            per_turn_effort: None,
         });
         let s = summarize(
             &[ev],

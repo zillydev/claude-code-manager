@@ -28,7 +28,7 @@ const turns: RenderedTurn[] = [
     edit_index: 0, fork_index: 0, edit_uuid: "u1", fork_uuid: "u1", uuids: ["u1"], editable: true,
   },
   {
-    type: "assistant", timestamp: null, model: null, uuid: "a1",
+    type: "assistant", timestamp: null, model: null, effort: null, uuid: "a1",
     edit_index: 1, fork_index: 1, edit_uuid: "a1", fork_uuid: "a1", uuids: ["a1"], editable: true,
     blocks: [
       { type: "text", text: "needle in markdown" },
@@ -71,7 +71,7 @@ describe("modelMatches", () => {
     };
     const bash: RenderedTurn[] = [
       {
-        type: "assistant", timestamp: null, model: null, uuid: "a2",
+        type: "assistant", timestamp: null, model: null, effort: null, uuid: "a2",
         edit_index: 0, fork_index: 0, edit_uuid: "a2", fork_uuid: "a2", uuids: ["a2"], editable: true,
         blocks: [
           {

@@ -104,6 +104,18 @@ pub struct AssistantEvent {
     /// acts.
     #[serde(default, rename = "isApiErrorMessage")]
     pub is_api_error: bool,
+    /// Reasoning effort, written by Claude Code 2.1.226 and later.
+    #[serde(default)]
+    pub effort: Option<String>,
+    #[serde(default, rename = "perTurnEffort")]
+    pub per_turn_effort: Option<String>,
+}
+
+impl AssistantEvent {
+    /// The reasoning effort this line ran at, if Claude Code recorded one.
+    pub fn turn_effort(&self) -> Option<&str> {
+        self.per_turn_effort.as_deref().or(self.effort.as_deref())
+    }
 }
 
 /// Fork provenance recorded on a copied message line. Claude Code's `/branch` and
@@ -610,6 +622,25 @@ mod tests {
             }
             _ => panic!("expected assistant"),
         }
+    }
+
+    fn assistant_with(fields: &str) -> AssistantEvent {
+        let line = format!(
+            r#"{{"type":"assistant",{fields}"message":{{"model":"claude-opus-5-5","content":[]}}}}"#
+        );
+        match serde_json::from_str(&line).unwrap() {
+            Event::Assistant(a) => a,
+            _ => panic!("expected assistant"),
+        }
+    }
+
+    #[test]
+    fn turn_effort_reads_the_line_and_is_absent_on_older_lines() {
+        assert_eq!(assistant_with(r#""effort":"xhigh","perTurnEffort":"xhigh","#).turn_effort(), Some("xhigh"));
+        assert_eq!(assistant_with(r#""effort":"high","#).turn_effort(), Some("high"));
+        assert_eq!(assistant_with(r#""perTurnEffort":"max","#).turn_effort(), Some("max"));
+        assert_eq!(assistant_with(r#""effort":"high","perTurnEffort":"ultra","#).turn_effort(), Some("ultra"));
+        assert_eq!(assistant_with("").turn_effort(), None);
     }
 
     #[test]

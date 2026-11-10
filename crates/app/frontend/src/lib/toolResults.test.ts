@@ -17,6 +17,7 @@ const asstTurn = (blocks: AssistantTurn["blocks"]): RenderedTurn => ({
   type: "assistant",
   timestamp: null,
   model: "claude",
+  effort: null,
   blocks,
   uuid: "u1",
   edit_index: 0,

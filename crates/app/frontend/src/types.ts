@@ -63,6 +63,13 @@ export interface LiveStats {
 export interface ModelUsage {
   model: string;
   turn_count: number;
+  /** Most used first; lines without a recorded effort are not counted. */
+  efforts: EffortUsage[];
+}
+
+export interface EffortUsage {
+  effort: string;
+  turn_count: number;
 }
 
 export interface TokenBreakdown {
@@ -92,6 +99,7 @@ export type RenderedTurn =
       type: "assistant";
       timestamp: string | null;
       model: string | null;
+      effort: string | null;
       blocks: RenderedBlock[];
       uuid: string;
       edit_index: number;

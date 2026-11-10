@@ -38,6 +38,14 @@ pub struct SessionStats {
 pub struct ModelUsage {
     pub model: String,
     pub turn_count: u32,
+    /// Counts by reasoning effort, most used first; lines without one are left out.
+    pub efforts: Vec<EffortUsage>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct EffortUsage {
+    pub effort: String,
+    pub turn_count: u32,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -82,6 +90,7 @@ pub enum RenderedTurn {
     Assistant {
         timestamp: Option<DateTime<Utc>>,
         model: Option<String>,
+        effort: Option<String>,
         blocks: Vec<RenderedBlock>,
         /// The FIRST merged assistant event's uuid (the head of the turn).
         uuid: String,
@@ -435,6 +444,7 @@ fn render_turns_with_results(
                 let timestamp = ev.timestamp();
                 let head_uuid = ev.uuid().map(|u| u.to_string()).unwrap_or_default();
                 let mut model = a.message.model.clone();
+                let mut effort = a.turn_effort().map(str::to_string);
                 let mut blocks = render_assistant_blocks(a);
                 let first_msg_i = msg_index[i].expect("assistant event has a message index");
                 let mut last_msg_i = first_msg_i;
@@ -488,6 +498,9 @@ fn render_turns_with_results(
                         if model.is_none() {
                             model = next_a.message.model.clone();
                         }
+                        if effort.is_none() {
+                            effort = next_a.turn_effort().map(str::to_string);
+                        }
                         last_msg_i = this_msg_i;
                         uuids.push(this_uuid.clone());
                         fork_uuid = this_uuid;
@@ -499,6 +512,7 @@ fn render_turns_with_results(
                 turns.push(RenderedTurn::Assistant {
                     timestamp,
                     model,
+                    effort,
                     blocks,
                     uuid: head_uuid.clone(),
                     edit_index: edit_msg_i.unwrap_or(first_msg_i),
@@ -752,8 +766,11 @@ impl SessionStats {
 
     /// Adds `path` — events on the active branch, oldest first — to the totals.
     fn fold(&mut self, path: &[&Event]) {
-        let mut model_counts: HashMap<String, u32> =
-            self.models.drain(..).map(|m| (m.model, m.turn_count)).collect();
+        let mut model_counts: HashMap<String, (u32, HashMap<String, u32>)> = self
+            .models
+            .drain(..)
+            .map(|m| (m.model, (m.turn_count, m.efforts.into_iter().map(|e| (e.effort, e.turn_count)).collect())))
+            .collect();
         for ev in path {
             if let Some(ts) = ev.timestamp() {
                 self.span = Some(match self.span {
@@ -777,7 +794,11 @@ impl SessionStats {
 
             if let Event::Assistant(a) = ev {
                 if let Some(model) = &a.message.model {
-                    *model_counts.entry(model.clone()).or_insert(0) += 1;
+                    let (count, efforts) = model_counts.entry(model.clone()).or_default();
+                    *count += 1;
+                    if let Some(effort) = a.turn_effort() {
+                        *efforts.entry(effort.to_string()).or_insert(0) += 1;
+                    }
                 }
                 if let Some(usage) = &a.message.usage {
                     let t = &mut self.tokens;
@@ -799,7 +820,12 @@ impl SessionStats {
         self.duration_secs = self.span.map(|(first, last)| (last - first).num_seconds());
         self.models = model_counts
             .into_iter()
-            .map(|(model, turn_count)| ModelUsage { model, turn_count })
+            .map(|(model, (turn_count, efforts))| {
+                let mut efforts: Vec<EffortUsage> =
+                    efforts.into_iter().map(|(effort, turn_count)| EffortUsage { effort, turn_count }).collect();
+                efforts.sort_by(|a, b| b.turn_count.cmp(&a.turn_count).then_with(|| a.effort.cmp(&b.effort)));
+                ModelUsage { model, turn_count, efforts }
+            })
             .collect();
         self.models.sort_by_key(|m| std::cmp::Reverse(m.turn_count));
     }
@@ -962,6 +988,8 @@ mod render_tests {
             git_branch: None,
             forked_from: None,
             is_api_error: false,
+            effort: None,
+            per_turn_effort: None,
         })
     }
 
@@ -986,6 +1014,8 @@ mod render_tests {
             git_branch: None,
             forked_from: None,
             is_api_error: false,
+            effort: None,
+            per_turn_effort: None,
         })
     }
 
@@ -1197,6 +1227,39 @@ mod render_tests {
         assert_eq!(got.0, b, "head uuid");
         assert_eq!(got.1, b, "edit target = first text-bearing event");
         assert_eq!(got.2, c, "fork cutoff = last merged event");
+    }
+
+    fn with_effort(mut ev: Event, effort: &str) -> Event {
+        if let Event::Assistant(a) = &mut ev {
+            a.per_turn_effort = Some(effort.into());
+        }
+        ev
+    }
+
+    #[test]
+    fn each_assistant_turn_carries_the_effort_its_lines_ran_at() {
+        let id = |n: u8| format!("00000000-0000-0000-0000-0000000000{n:02x}");
+        let r = render_session(&sess(vec![
+            uev(&id(1), None, "one"),
+            with_effort(aev(&id(2), Some(&id(1)), "a"), "medium"),
+            uev(&id(3), Some(&id(2)), "two"),
+            // A merged turn whose head line has no effort takes the next line's.
+            aev(&id(4), Some(&id(3)), "b"),
+            with_effort(aev(&id(5), Some(&id(4)), "c"), "xhigh"),
+            uev(&id(6), Some(&id(5)), "three"),
+            aev(&id(7), Some(&id(6)), "older line"),
+        ]));
+        let efforts: Vec<Option<String>> = r
+            .turns
+            .iter()
+            .filter_map(|t| match t {
+                RenderedTurn::Assistant { effort, .. } => Some(effort.clone()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(efforts, vec![Some("medium".into()), Some("xhigh".into()), None]);
+        let json = serde_json::to_value(&r.turns[1]).unwrap();
+        assert_eq!(json["effort"], "medium");
     }
 
     #[test]
@@ -1851,6 +1914,38 @@ mod stats_tests {
         let mut stats = compute_stats(&refs(&before));
         extend_stats(&mut stats, &after);
         assert_eq!(stats, compute_stats(&refs(&after)));
+    }
+
+    fn assistant_at(uuid: u8, parent: u8, model: &str, effort: Option<&str>) -> Event {
+        let effort = effort.map_or(String::new(), |e| format!(r#""effort":"{e}","perTurnEffort":"{e}","#));
+        line(&format!(
+            r#"{{"type":"assistant","uuid":"00000000-0000-0000-0000-0000000000{uuid:02x}","parentUuid":"00000000-0000-0000-0000-0000000000{parent:02x}",{effort}"message":{{"role":"assistant","model":"{model}","content":[]}}}}"#
+        ))
+    }
+
+    #[test]
+    fn model_usage_breaks_down_by_effort_and_survives_incremental_folds() {
+        let all = vec![
+            user(1, None, "10:00:00"),
+            assistant_at(2, 1, "claude-opus-5", Some("xhigh")),
+            assistant_at(3, 2, "claude-opus-5", None),
+            assistant_at(4, 3, "claude-opus-5-5", Some("medium")),
+            assistant_at(5, 4, "claude-opus-5-5", Some("xhigh")),
+            assistant_at(6, 5, "claude-opus-5-5", Some("medium")),
+        ];
+        let whole = compute_stats(&refs(&all));
+        let efforts = |m: &ModelUsage| -> Vec<(String, u32)> {
+            m.efforts.iter().map(|e| (e.effort.clone(), e.turn_count)).collect()
+        };
+        assert_eq!(whole.models[0].model, "claude-opus-5-5");
+        assert_eq!(efforts(&whole.models[0]), vec![("medium".into(), 2), ("xhigh".into(), 1)]);
+        assert_eq!(whole.models[1].turn_count, 2);
+        assert_eq!(efforts(&whole.models[1]), vec![("xhigh".into(), 1)]);
+
+        let mut stats = compute_stats(&refs(&all[..3]));
+        extend_stats(&mut stats, &all[3..5]);
+        extend_stats(&mut stats, &all[5..]);
+        assert_eq!(stats, whole);
     }
 
     #[test]

@@ -35,6 +35,7 @@ import { filterCompact } from "../lib/compactView";
 import { locateJump, turnUuids, type JumpTarget } from "../lib/jumpTarget";
 import { seedQuery } from "../lib/findHandoff";
 import { SessionHeading } from "./SessionHeading";
+import { effortSummary, shortModel, turnModelLabel } from "../lib/modelLabel";
 
 interface Props {
   session: RenderedSession;
@@ -721,12 +722,16 @@ function StatsPanel({
           <>
             <span className="text-[var(--color-text-dim)] opacity-60 pr-3 text-right">model</span>
             <span className="flex flex-wrap gap-x-3">
-              {stats.models.map((m) => (
-                <span key={m.model}>
-                  <span className="text-[var(--color-assistant)] font-mono">{shortModel(m.model)}</span>
-                  <span className="text-[var(--color-text-dim)]"> ×{m.turn_count}</span>
-                </span>
-              ))}
+              {stats.models.map((m) => {
+                const efforts = effortSummary(m);
+                return (
+                  <span key={m.model}>
+                    <span className="text-[var(--color-assistant)] font-mono">{shortModel(m.model)}</span>
+                    <span className="text-[var(--color-text-dim)]"> ×{m.turn_count}</span>
+                    {efforts && <span className="text-[var(--color-text-dim)]"> ({efforts})</span>}
+                  </span>
+                );
+              })}
             </span>
           </>
         )}
@@ -826,19 +831,20 @@ const Turn = memo(function Turn({
         </div>
       );
 
-    case "assistant":
+    case "assistant": {
+      const modelLabel = turnModelLabel(turn.model, turn.effort);
       return (
         <div className="group" data-msg-uuids={turn.uuids.join(" ")}>
           <div className="flex items-baseline gap-2 mb-1">
-            <span className="text-xs text-[var(--color-text-dim)]" title={tsTitle}>
+            <span className="text-xs tabular-nums text-[var(--color-text-dim)]" title={tsTitle}>
               {ts}
             </span>
             <span className="font-medium text-[var(--color-assistant)]">
               assistant
             </span>
-            {turn.model && (
+            {modelLabel && (
               <span className="text-xs text-[var(--color-text-dim)]">
-                ({shortModel(turn.model)})
+                {modelLabel}
               </span>
             )}
             {bookmarked && (
@@ -865,6 +871,7 @@ const Turn = memo(function Turn({
           </div>
         </div>
       );
+    }
 
     case "system":
       return (
@@ -1260,10 +1267,6 @@ function formatFullDate(ts: string): string | undefined {
   const d = new Date(ts);
   if (isNaN(d.getTime())) return undefined;
   return d.toLocaleString(undefined, { dateStyle: "full", timeStyle: "medium" });
-}
-
-function shortModel(model: string): string {
-  return model.replace("claude-", "");
 }
 
 function shortenPath(p: string): string {
