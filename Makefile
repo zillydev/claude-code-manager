@@ -1,4 +1,4 @@
-.PHONY: dev agent agent-stop build app install test print clean
+.PHONY: dev dev-guided agent agent-stop build app install test print clean
 
 # Vite dev-server port for `make dev` (Tauri's devUrl is overridden to match).
 # Override e.g. `make dev PORT=3000`.
@@ -11,6 +11,11 @@ PORT ?= 5173
 # relaunches only on success, restoring windows and open sessions.
 dev:
 	PORT=$(PORT) scripts/dev.sh
+
+# `make dev` as a visible window on the guided sandbox (scripts/guided.sh): its own
+# Claude login and config dir, with the socket bridge on so scripts/ui --guided can watch.
+dev-guided:
+	GUIDED=1 scripts/dev.sh
 
 # Hidden copy of the app for a coding agent to drive with scripts/ui: never
 # activates, transparent, behind every window, own Vite and config dir.
@@ -48,6 +53,7 @@ install: app
 # Run all tests
 test:
 	cargo test
+	bash scripts/tests/guided_test.sh
 
 # Print session list (quick smoke test of the CLI + core)
 print:

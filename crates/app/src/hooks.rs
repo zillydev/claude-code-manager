@@ -241,8 +241,9 @@ pub fn remove_legacy() -> Result<(), String> {
 }
 
 fn claude_settings_path() -> PathBuf {
-    let home = std::env::var("HOME").unwrap_or_else(|_| ".".into());
-    PathBuf::from(home).join(".claude").join("settings.json")
+    claude_code_manager_core::store::paths::default_claude_root()
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join("settings.json")
 }
 
 fn read_settings() -> Result<Value, String> {

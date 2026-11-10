@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # A hidden copy of the app for a coding agent to drive with scripts/ui (src/agent_bridge.rs),
-# with its own Vite server and throwaway config dir. One per checkout: start|stop|restart|status|logs
+# with its own Vite server and throwaway config dir. One per checkout: start|stop|restart [--sandbox DIR]|status|logs
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -13,6 +13,8 @@ CONFIG_DIR="$STATE/config"
 SOCK="$CONFIG_DIR/agent.sock"
 # Byte-identical to scripts/dev.sh's default, so this build and `make dev` share one binary.
 export TAURI_CONFIG='{"build":{"devUrl":"http://localhost:5173"}}'
+
+SANDBOX=""
 
 log() { printf '\033[1;35m[agent-app]\033[0m %s\n' "$*" >&2; }
 
@@ -111,7 +113,10 @@ start() {
   for v in $(compgen -e); do
     if [[ "$v" == CLAUDE* ]]; then scrub+=(-u "$v"); fi
   done
-  env "${scrub[@]}" CM_AGENT=1 CM_AGENT_URL="http://localhost:$port" CLAUDE_CODE_MANAGER_CONFIG_DIR="$CONFIG_DIR" \
+  # Set after the scrub, which would otherwise remove it.
+  local sandbox_env=()
+  if [[ -n "$SANDBOX" ]]; then sandbox_env=(CLAUDE_CONFIG_DIR="$SANDBOX"); fi
+  env "${scrub[@]}" "${sandbox_env[@]+"${sandbox_env[@]}"}" CM_AGENT=1 CM_DEV_URL="http://localhost:$port" CLAUDE_CODE_MANAGER_CONFIG_DIR="$CONFIG_DIR" \
     nohup "$APP_BIN" >"$STATE/app.log" 2>&1 &
   echo $! >"$STATE/app.pid"
 
@@ -130,13 +135,24 @@ start() {
   log "ready: vite :$port, config $CONFIG_DIR"
 }
 
-case "${1:-}" in
+cmd="${1:-}"
+shift || true
+if [[ "$cmd" == start || "$cmd" == restart ]]; then
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --sandbox) [[ -n "${2:-}" ]] || { echo "--sandbox needs a directory" >&2; exit 3; }; SANDBOX="$2"; shift 2 ;;
+      *) echo "unknown option: $1" >&2; exit 3 ;;
+    esac
+  done
+fi
+
+case "$cmd" in
   start) start ;;
   stop) stop ;;
   restart) build; stop; start ;;
   status)
     if alive app; then echo "running (vite :$(cat "$STATE/port"), state $STATE)"; else echo "stopped"; exit 1; fi
     ;;
-  logs) tail -n "${2:-50}" "$STATE/app.log" ;;
-  *) echo "usage: $0 start|stop|restart|status|logs [n]" >&2; exit 3 ;;
+  logs) tail -n "${1:-50}" "$STATE/app.log" ;;
+  *) echo "usage: $0 start|stop|restart [--sandbox DIR]|status|logs [n]" >&2; exit 3 ;;
 esac

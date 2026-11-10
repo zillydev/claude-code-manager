@@ -1,6 +1,6 @@
-//! Debug-only bridge for a coding agent to see and drive a hidden, never-activating
-//! copy of the app (`CM_AGENT=1`, via `scripts/ui`). One JSON line per request and
-//! reply over `agent.sock` in the config dir:
+//! Debug-only bridge for a coding agent to see and drive the app via `scripts/ui`: a hidden,
+//! never-activating copy (`CM_AGENT=1`) or a normal visible window (`CM_GUIDED=1`). One JSON
+//! line per request and reply over `agent.sock` in the config dir:
 //!
 //! - `{"cmd":"windows"}`
 //! - `{"cmd":"snap","window":"main","path":"/tmp/x.png","width":800}` (width in points, optional)
@@ -12,8 +12,43 @@
 //! - `{"cmd":"resize","window":"main","width":1200,"height":800}`
 //! - `{"cmd":"native","window":"main"}` (AppKit visibility state, for diagnosing a hidden page)
 
+use std::ffi::OsString;
+
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub enum Mode {
+    Off,
+    /// The hidden ghost copy, whose `~/.claude` is the user's real one.
+    Agent,
+    /// A visible window on a sandboxed `~/.claude`.
+    Guided,
+}
+
+pub fn mode() -> Mode {
+    if !cfg!(all(debug_assertions, target_os = "macos")) {
+        return Mode::Off;
+    }
+    mode_from(std::env::var_os("CM_AGENT"), std::env::var_os("CM_GUIDED"))
+}
+
+fn mode_from(agent: Option<OsString>, guided: Option<OsString>) -> Mode {
+    match (agent, guided) {
+        (Some(_), _) => Mode::Agent,
+        (None, Some(_)) => Mode::Guided,
+        (None, None) => Mode::Off,
+    }
+}
+
+/// The agent title lets window managers (yabai) be told to leave its windows alone.
+pub fn window_title(mode: Mode) -> &'static str {
+    match mode {
+        Mode::Agent => "CCM Agent",
+        Mode::Guided => "Claude Code Manager — guided",
+        Mode::Off => "Claude Code Manager",
+    }
+}
+
 pub fn enabled() -> bool {
-    cfg!(all(debug_assertions, target_os = "macos")) && std::env::var_os("CM_AGENT").is_some()
+    mode() == Mode::Agent
 }
 
 /// For commands that write the user's real `~/.claude`: the agent copy's config dir is
@@ -32,7 +67,26 @@ fn refusal(agent: bool, what: &str) -> Result<(), String> {
 
 #[cfg(test)]
 mod tests {
-    use super::refusal;
+    use std::ffi::OsString;
+
+    use super::{mode_from, refusal, window_title, Mode};
+
+    fn set() -> Option<OsString> {
+        Some("1".into())
+    }
+
+    #[test]
+    fn agent_wins_over_guided() {
+        assert_eq!(mode_from(None, None), Mode::Off);
+        assert_eq!(mode_from(set(), None), Mode::Agent);
+        assert_eq!(mode_from(None, set()), Mode::Guided);
+        assert_eq!(mode_from(set(), set()), Mode::Agent);
+    }
+
+    #[test]
+    fn guided_window_is_titled_for_people() {
+        assert_eq!(window_title(Mode::Guided), "Claude Code Manager — guided");
+    }
 
     #[test]
     fn refuses_only_in_the_agent_copy() {
@@ -47,11 +101,13 @@ pub use imp::*;
 
 #[cfg(not(all(debug_assertions, target_os = "macos")))]
 mod stub {
-    pub fn prepare(_: &mut tauri::Context<tauri::Wry>) {}
-    pub fn plugin() -> tauri::plugin::TauriPlugin<tauri::Wry> {
+    use super::Mode;
+
+    pub fn prepare(_: &mut tauri::Context<tauri::Wry>, _: Mode) {}
+    pub fn plugin(_: Mode) -> tauri::plugin::TauriPlugin<tauri::Wry> {
         tauri::plugin::Builder::new("agent-bridge").build()
     }
-    pub fn start(_: &mut tauri::App) {}
+    pub fn start(_: &mut tauri::App, _: Mode) {}
 }
 #[cfg(not(all(debug_assertions, target_os = "macos")))]
 pub use stub::*;
@@ -73,8 +129,7 @@ mod imp {
     use serde_json::{json, Value};
     use tauri::{AppHandle, Manager, WebviewWindow};
 
-    /// Title of every agent window, so window managers (yabai) can be told to leave them alone.
-    const WINDOW_TITLE: &str = "CCM Agent";
+    use super::{window_title, Mode};
 
     /// Console capture: `window.__cmAgentLog` holds the page's console errors and warnings,
     /// uncaught errors and rejections, for `scripts/ui logs`.
@@ -140,25 +195,30 @@ mod imp {
         const ENCODING: Encoding = Encoding::Struct("CGRect", &[Point::ENCODING, Size::ENCODING]);
     }
 
-    /// Every window starts hidden, titled for window managers, and loads the agent's own
-    /// Vite server (`CM_AGENT_URL`) so the binary stays the one `make dev` builds.
-    pub fn prepare(context: &mut tauri::Context<tauri::Wry>) {
+    /// Every window is titled for its mode and loads that copy's own Vite server
+    /// (`CM_DEV_URL`) so the binary stays the one `make dev` builds; agent windows start hidden.
+    pub fn prepare(context: &mut tauri::Context<tauri::Wry>, mode: Mode) {
         let config = context.config_mut();
         for w in config.app.windows.iter_mut() {
-            w.visible = false;
-            w.focus = false;
-            w.title = WINDOW_TITLE.into();
+            if mode == Mode::Agent {
+                w.visible = false;
+                w.focus = false;
+            }
+            w.title = window_title(mode).into();
         }
-        if let Some(url) = std::env::var("CM_AGENT_URL").ok().and_then(|u| u.parse().ok()) {
+        if let Some(url) = std::env::var("CM_DEV_URL").ok().and_then(|u| u.parse().ok()) {
             config.build.dev_url = Some(url);
         }
     }
 
-    /// Ghosts each window as its page finishes loading: ordered in any earlier, during
-    /// launch, AppKit takes the order back.
-    pub fn plugin() -> tauri::plugin::TauriPlugin<tauri::Wry> {
-        tauri::plugin::Builder::new("agent-bridge")
-            .js_init_script(INIT_SCRIPT)
+    /// In agent mode, ghosts each window as its page finishes loading: ordered in any
+    /// earlier, during launch, AppKit takes the order back.
+    pub fn plugin(mode: Mode) -> tauri::plugin::TauriPlugin<tauri::Wry> {
+        let builder = tauri::plugin::Builder::new("agent-bridge").js_init_script(INIT_SCRIPT);
+        if mode != Mode::Agent {
+            return builder.build();
+        }
+        builder
             .on_page_load(|webview, payload| {
                 if payload.event() == tauri::webview::PageLoadEvent::Finished {
                     if let Some(w) = webview.app_handle().get_webview_window(webview.label()) {
@@ -170,8 +230,10 @@ mod imp {
     }
 
     /// Runs in `setup`, before tao's launch-time activate, which Prohibited then ignores.
-    pub fn start(app: &mut tauri::App) {
-        app.set_activation_policy(tauri::ActivationPolicy::Prohibited);
+    pub fn start(app: &mut tauri::App, mode: Mode) {
+        if mode == Mode::Agent {
+            app.set_activation_policy(tauri::ActivationPolicy::Prohibited);
+        }
         let path = socket_path();
         let _ = std::fs::remove_file(&path);
         let listener = match UnixListener::bind(&path) {
@@ -198,7 +260,7 @@ mod imp {
     /// Transparent, mouse-blind, behind everything, on every Space (a Space switch would
     /// otherwise occlude it and stop rAF), and out of the ⌘` cycle.
     fn ghost(win: &WebviewWindow) {
-        let _ = win.set_title(WINDOW_TITLE);
+        let _ = win.set_title(window_title(Mode::Agent));
         let _ = win.with_webview(|pw| unsafe {
             let ns_window = pw.ns_window() as *mut AnyObject;
             let wv = pw.inner() as *mut AnyObject;

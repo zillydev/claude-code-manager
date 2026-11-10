@@ -27,9 +27,11 @@ pub fn spawn_window(app: &AppHandle) {
 
 /// Open a window with an explicit label, position and inner size (logical px).
 pub fn build_window(app: &AppHandle, label: &str, position: (f64, f64), size: (f64, f64)) {
-    let agent = crate::agent_bridge::enabled();
+    use crate::agent_bridge::{window_title, Mode};
+    let mode = crate::agent_bridge::mode();
+    let agent = mode == Mode::Agent;
     if let Err(e) = WebviewWindowBuilder::new(app, label, WebviewUrl::App("index.html".into()))
-        .title("Claude Code Manager")
+        .title(window_title(mode))
         .inner_size(size.0, size.1)
         .min_inner_size(800.0, 600.0)
         .position(position.0, position.1)

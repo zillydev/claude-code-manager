@@ -96,14 +96,15 @@ fn build_menu(handle: &tauri::AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
 }
 
 pub fn run() {
-    let agent = agent_bridge::enabled();
+    let mode = agent_bridge::mode();
+    let bridge = mode != agent_bridge::Mode::Off;
     let mut context = tauri::generate_context!();
-    if agent {
-        agent_bridge::prepare(&mut context);
+    if bridge {
+        agent_bridge::prepare(&mut context, mode);
     }
     let mut builder = tauri::Builder::default();
-    if agent {
-        builder = builder.plugin(agent_bridge::plugin());
+    if bridge {
+        builder = builder.plugin(agent_bridge::plugin(mode));
     }
     builder
         .plugin(tauri_plugin_opener::init())
@@ -115,8 +116,8 @@ pub fn run() {
         .manage(dev_reload::DevReloadState::default())
         .manage(update_check::UpdateState::default())
         .setup(move |app| {
-            if agent {
-                agent_bridge::start(app);
+            if bridge {
+                agent_bridge::start(app, mode);
             }
             // Links arrive through the plugin; one that launched the app is also readable once here.
             let link_handle = app.handle().clone();

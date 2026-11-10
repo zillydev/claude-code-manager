@@ -4,7 +4,7 @@
 Targets are a CSS selector, `text=Label` (the smallest visible element whose
 text is exactly Label, else contains it), or two numbers `X Y` in CSS px.
 
-  ui windows
+  ui [--guided] windows             --guided targets the guided dev app (make dev-guided)
   ui snap [PATH] [--width PT]       PNG of the webview (default: <state>/snap-NNN.png)
   ui eval EXPR | ui eval --body 'stmts; return x'
   ui click TARGET [--double]        ui hover TARGET   (JS-synthesized: no CSS :hover)
@@ -21,12 +21,14 @@ import hashlib
 import json
 import os
 import socket
+import subprocess
 import sys
 import time
 
 ROOT = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
 STATE = "/tmp/ccm-agent-" + hashlib.sha1(ROOT.encode()).hexdigest()[:8]
 SOCK = os.environ.get("CM_AGENT_SOCK", os.path.join(STATE, "config", "agent.sock"))
+START_HINT = "scripts/agent-app.sh start"
 
 # Resolves a target to its element in the page; shared by click, hover, find, wait.
 FIND_JS = r"""
@@ -74,7 +76,7 @@ def request(req, timeout=20):
     try:
         s.connect(SOCK)
     except OSError:
-        sys.exit(f"ui: no agent app at {SOCK} (start it: scripts/agent-app.sh start)")
+        sys.exit(f"ui: no agent app at {SOCK} (start it: {START_HINT})")
     s.sendall((json.dumps(req) + "\n").encode())
     buf = b""
     while not buf.endswith(b"\n"):
@@ -120,9 +122,22 @@ def point(window, args):
     return locate(window, " ".join(args))
 
 
+def guided_sock():
+    try:
+        r = subprocess.run([os.path.join(ROOT, "scripts", "guided.sh"), "paths"], capture_output=True, text=True)
+    except OSError as e:
+        sys.exit(f"ui: cannot run scripts/guided.sh: {e}")
+    app = next((l[4:] for l in r.stdout.splitlines() if l.startswith("app=")), None)
+    if r.returncode != 0 or not app:
+        sys.exit(f"ui: scripts/guided.sh paths gave no app= line (exit {r.returncode}): {r.stderr.strip()}")
+    return os.path.join(app, "agent.sock")
+
+
 def main():
+    global SOCK, START_HINT
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("-w", "--window", default="main")
+    p.add_argument("--guided", action="store_true")
     sub = p.add_subparsers(dest="cmd", required=True)
     sub.add_parser("windows")
     sp = sub.add_parser("snap")
@@ -156,6 +171,9 @@ def main():
     sp.add_argument("width", type=float)
     sp.add_argument("height", type=float)
     a = p.parse_args()
+    if a.guided:
+        SOCK = guided_sock()
+        START_HINT = "the user runs make dev-guided"
     w = a.window
 
     if a.cmd == "windows":

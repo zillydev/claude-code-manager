@@ -4,6 +4,28 @@
 # Nothing watches files, so edits never restart the window on their own.
 set -euo pipefail
 
+if [[ "${GUIDED:-}" == 1 ]]; then
+  for v in $(compgen -e); do
+    if [[ "$v" == CLAUDE* ]]; then unset "$v"; fi
+  done
+  guided="$(dirname "$0")/guided.sh"
+  "$guided" login-check --login || exit 1
+  # Captured first: a failure inside `eval "$(...)"` would not trip set -e.
+  guided_env="$("$guided" env)" || { echo "[dev] guided.sh env failed" >&2; exit 1; }
+  eval "$guided_env"
+  if [[ -z "${CLAUDE_CONFIG_DIR:-}" || -z "${CLAUDE_CODE_MANAGER_CONFIG_DIR:-}" || "${CM_GUIDED:-}" != 1 ]]; then
+    echo "[dev] guided env incomplete; refusing to start on the real config" >&2
+    exit 1
+  fi
+  guided_owner="$(cat "$("$guided" paths | sed -n 's/^root=//p')/owner" 2>/dev/null || true)"
+  if [[ -n "$guided_owner" && "$guided_owner" != "$(cd "$(dirname "$0")/.." && pwd)" ]]; then
+    echo "[dev] warning: the guided sandbox is owned by $guided_owner" >&2
+  fi
+  # TAURI_CONFIG must stay the 5173 string; the real port goes via CM_DEV_URL.
+  PORT=5173
+  GUIDED_PORT="$(python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1])')"
+fi
+
 PORT="${PORT:-5173}"
 RELAUNCH_CODE=75 # dev_reload::RELAUNCH_EXIT_CODE
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -16,6 +38,12 @@ export CM_PORT="$PORT"
 # crate recompiles; the app's own rebuild inherits this exact value.
 export TAURI_CONFIG="{\"build\":{\"devUrl\":\"http://localhost:$PORT\"}}"
 export CM_DEV_LAUNCHER=1
+
+# Guided Vite gets its own port; TAURI_CONFIG above keeps $PORT, the app learns the real one from CM_DEV_URL.
+if [[ -n "${GUIDED_PORT:-}" ]]; then
+  PORT="$GUIDED_PORT"
+  export CM_PORT="$PORT" CM_DEV_URL="http://localhost:$PORT"
+fi
 
 vite_pid=""
 app_pid=""

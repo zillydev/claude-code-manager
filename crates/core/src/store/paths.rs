@@ -23,9 +23,16 @@ pub fn label_from_cwd(cwd: &str) -> String {
         .unwrap_or_else(|| cwd.to_string())
 }
 
-/// Default `~/.claude` root.
+/// Default Claude root: `$CLAUDE_CONFIG_DIR` when set and non-empty (as the `claude` CLI does), else `~/.claude`.
 pub fn default_claude_root() -> Option<PathBuf> {
-    dirs::home_dir().map(|h| h.join(".claude"))
+    claude_root_from(std::env::var_os("CLAUDE_CONFIG_DIR"), dirs::home_dir())
+}
+
+pub fn claude_root_from(config_dir: Option<std::ffi::OsString>, home: Option<PathBuf>) -> Option<PathBuf> {
+    match config_dir {
+        Some(d) if !d.is_empty() => Some(PathBuf::from(d)),
+        _ => home.map(|h| h.join(".claude")),
+    }
 }
 
 /// `<root>/projects` — where session jsonl files live.
@@ -52,6 +59,21 @@ pub fn session_file_path(root: &Path, cwd: &str, id: Uuid) -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn claude_root_prefers_config_dir() {
+        assert_eq!(claude_root_from(Some("/sb".into()), Some("/h".into())), Some("/sb".into()));
+    }
+
+    #[test]
+    fn claude_root_falls_back_to_home() {
+        assert_eq!(claude_root_from(None, Some("/h".into())), Some("/h/.claude".into()));
+    }
+
+    #[test]
+    fn claude_root_ignores_empty_config_dir() {
+        assert_eq!(claude_root_from(Some("".into()), Some("/h".into())), Some("/h/.claude".into()));
+    }
 
     #[test]
     fn fallback_label_uses_last_component() {

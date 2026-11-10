@@ -21,6 +21,7 @@ It reads the user's real `~/.claude` sessions. Treat them as read-only: never pr
 |---|---|
 | `scripts/agent-app.sh start` | once; a no-op when already running |
 | `scripts/agent-app.sh restart` | after any Rust change (frontend changes hot-reload) |
+| `scripts/agent-app.sh restart --sandbox DIR` (also `start`) | run on a sandbox Claude config dir (`CLAUDE_CONFIG_DIR=DIR`, e.g. from `scripts/guided.sh`) instead of the real `~/.claude` |
 | `scripts/agent-app.sh stop` | when done |
 | `scripts/agent-app.sh logs [n]` | backend stderr, panics |
 
@@ -58,4 +59,17 @@ Known limits: hover is synthesized in JS (React enter/over handlers run, CSS `:h
 2. Walk the feature the way the user would: every new control, the empty/loading/error states you can reach, and one neighbouring feature it could break.
 3. After each step, `scripts/ui snap` and **look at the PNG**: layout, overflow, clipping, alignment, light text on light ground. Check `scripts/ui logs` for errors.
 4. Fix, re-run, repeat until clean. A blank screen or a render loop shows up here, not in vitest.
-5. Hand off with a short report: what you exercised, what you fixed, the final screenshot(s), and only what you could not check (native menus, dialogs, real hover styling, multi-monitor, the PTY with a live claude).
+5. Close the agent-app pass with a short report (not the user hand-off; that is the next section, "Hand off to the user"): what you exercised, what you fixed, the final screenshot(s), and only what you could not check (native menus, dialogs, real hover styling, multi-monitor, the PTY with a live claude).
+
+## Hand off to the user
+
+After the agent-app pass, the user still checks the feature by hand in a visible dev window on a sandbox (`${XDG_CONFIG_HOME:-$HOME/.config}/claude-code-manager/guided`, holding `claude/` and `app/`), so their real sessions and config are never touched. You prepare it and walk them through; they run the app. One guided test at a time.
+
+Skip it for backend-only changes (nothing visible to click). When a change only shows on real data, say so and give plain `make dev` steps for the user to run on their own data instead.
+
+1. `scripts/guided.sh reset`. If it refuses (exit 2), it names the worktree that holds the sandbox: tell the user which one and stop.
+2. Prepare the sandbox: `scripts/guided.sh copy <session-id> [--cwd DIR]` for each real session the test needs (a standing permission; name those sessions in the hand-off message), hand-write small sessions for exact cases, and `scripts/guided.sh settings '<json>'` for app settings.
+3. Tell the user to run exactly `make -C <this worktree's absolute path> dev-guided` (absolute: their terminal is rarely in the repo root) and wait for "it's up". Never run it yourself, as with `make dev`. The first run asks for a one-time `claude auth login` into the sandbox; launching never wipes anything.
+4. Walk one step per message ("do X; you should see Y"). After each, `scripts/ui --guided snap` and look at their window before the next step.
+5. On a bug: fix it, then `scripts/guided.sh reset` and re-prepare only if the setup changed (say so); for Rust changes ask for ⌘⇧R, which rebuilds and keeps the sandbox. After any `reset` while their window is open, also ask for ⌘⇧R (or a relaunch): the running app still holds the old config and session state and would write it back.
+6. When done, or when abandoning the hand-off early, `scripts/guided.sh release`.
