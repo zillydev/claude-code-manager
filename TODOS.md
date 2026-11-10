@@ -14,15 +14,38 @@
 - [x] in settings panel, add default project option
 - [x] in the sessions sidebar, the branch of each session doesn't reflect current state
 - [x] add github repo link somewhere in the app
+- [x] session id: c0d18796-0c1a-4dd7-9968-0a3db334f508 ; message id: 4c799957-1679-43c5-992c-8b0a2542091f ; the selected option is not highlighted as green
 - [x] after clicking on a global search result, the result session opens and focuses on the message, but the exact string that was searched isn't highlighted to it's hard to find it if the message text is big
-- [x] need UX to list open claude sessions and give option to close them
-- [x] after forking from a message, if the message was old and the sidebar is ordered by updated descending, and is currently scrolled to recent sessions, the forked session disappears somewhere below in the sidebar. how can we improve experience here
+- [x] for "tool" results, it just shows "tool: <tool>". it should show some preview. ref: screenshots/8a2bd3674423c2d2886a6622ddcdb94214488c71ebb23a4ec571d6e28e97dc79.png ; screenshots/1209c3345f6211c1addd29fdc63c9b92e2d1137071376e266b8d5a5fa8fbefdd.png
+- [x] a cross button in the global find search bar, similar to filter sessions search bar
+- [x] in global find, when typing one of the helpers like "tool" or "has", the helpers selection just disappears, it should instead filter and show the helpers that match what is being typed. it should also list of possible tools after "tools:" is typed
 - [x] selecting a user message in global find doesn't scroll to the message
-- [x] fetch latest version and show upgrade notice or button to upgrade to latest version
 - [x] the last user prompt in the sidebar and title bar becomes stale sometimes
 - [x] confirmation dialog when closing a window with cmd+w or closing the whole app with cmd+q, if there are open sessions running
-- [x] a cross button in the global find search bar, similar to filter sessions search bar
 - [x] copy link to a session, which when opened will open the app and will navigate to that session
-- [x] session id: c0d18796-0c1a-4dd7-9968-0a3db334f508 ; message id: 4c799957-1679-43c5-992c-8b0a2542091f ; the selected option is not highlighted as green
-- [x] in global find, when typing one of the helpers like "tool" or "has", the helpers selection just disappears, it should instead filter and show the helpers that match what is being typed. it should also list of possible tools after "tools:" is typed
-- [x] for "tool" results, it just shows "tool: <tool>". it should show some preview. ref: screenshots/8a2bd3674423c2d2886a6622ddcdb94214488c71ebb23a4ec571d6e28e97dc79.png ; screenshots/1209c3345f6211c1addd29fdc63c9b92e2d1137071376e266b8d5a5fa8fbefdd.png
+- [x] need UX to list open claude sessions and give option to close them
+- [x] after forking from a message, if the message was old and the sidebar is ordered by updated descending, and is currently scrolled to recent sessions, the forked session disappears somewhere below in the sidebar. how can we improve experience here
+- [x] fetch latest version and show upgrade notice or button to upgrade to latest version
+- [x] bash file updates also shows diff in claude code tui now, need to show similar in manager tab. ref: screenshots/2026-09-16_18-31.png
+- [x] the last manager/terminal state in a session should be remembered
+- [x] the last scroll position in manager tab in a session should be remembered
+- [x] in the note window, pressing cmd+enter should save the note
+- [x] can we make the precise status setting the default
+- [x] there's a bug where a message appears twice - screenshots/file-16089e3f163c327dc72601343f0a570b.tiff ; screenshots/file-91ed75f9b057387a5e1c45cd0c194de5.tiff
+- [x] show number of open sessions on the 4th tab's icon like a status badge
+- [x] selecting "Chat about this" option in AskUserQuestion doesn't show the message in manager UI
+- [x] analyze memory usage of ccm
+- [x] along with "session is open in another window", provide an option to close that session and open it here instead
+- [x] bug - screenshots/file-8831845fc8c422eb5b62ec297500af93.tiff
+- [x] selection option in the sidebar to be able to select multiple sessions and delete them
+- [x] duplicate context compacted markers - screenshots/file-076ed8654155141455df5db2152000dd.tiff
+- [x] the details and compact state should not be shared across windows
+- [x] "this window" sessions in the open sessions tab can be sorted to the app, or highlighted
+- [x] after clicking close idle, then quickly clicking restart on a terminal that was closed, it errors with "session is running"
+- [x] an idle session that hasn't been sent any message yet, doesn't appear in the open sessions tab - screenshots/840a3c92c7b6f9ca2ea9d2b2bc66a1b0e82a0e5fea482b6dd34561fc42b004cc.png
+- [x] show effort alongside model
+- [x] some rendering bug - screenshots/bb897d5b15682c21ebdbf893c2b293c259e95f7f585158328a2affa9762b997d.png ; screenshots/2e6113551ead551587cc2cf9979ce188a6cc935a9fcae010b21e602b32bfb8d9.png
+- [x] when agent writes path of an image, it appears with a broken preview icon. it should instead show preview of the image in chat, along with the path in case need to copy it
+- [x] different appearence modes, which specify how much detail is shown in chat. for example, show all tools full input and output, show only input/output, show truncated input/output. should be entirely customizable
+- [x] provide option to generate a screenshot of a message that can be copied to clipboard
+- [x] in the session header, a long session title squeezes the project name onto two lines (e.g. "status-" / "demo") instead of keeping it on one line and truncating the title
