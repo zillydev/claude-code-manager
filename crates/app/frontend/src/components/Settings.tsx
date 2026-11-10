@@ -6,6 +6,7 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 import { useConfig } from "../hooks/useConfig";
 import { useWindowView } from "../hooks/useWindowView";
 import { THEME_LIST, UI_FONTS, MONO_FONTS } from "../lib/config";
+import { DEFAULT_MODE, MODES, modeById } from "../lib/appearance";
 import { useSessions } from "../hooks/useSessions";
 import { useUpdateAvailable } from "../hooks/useUpdateAvailable";
 import { matchProjectGroups, projectGroups } from "../lib/filterMatch";
@@ -15,12 +16,13 @@ import { ReleaseLink, UpgradeCommand } from "./UpdateNote";
 import { REPO_URL, releaseUrl } from "../lib/repo";
 
 /** Settings overlay: theme, typography, and behavior defaults. Controls apply live and
- *  broadcast to other windows, except Compact and Details, which change only this window. */
+ *  broadcast to other windows, except Details, which changes only this window. */
 export default function Settings({ onClose }: { onClose: () => void }) {
   const { config, setConfig } = useConfig();
   const t = config.typography;
   const ui = config.ui;
   const view = useWindowView();
+  const defaultMode = modeById(config.appearance.defaultMode);
   // The same session list the sidebar groups — served from the shared cache,
   // so opening Settings costs no extra scan.
   const { sessions } = useSessions();
@@ -225,11 +227,37 @@ export default function Settings({ onClose }: { onClose: () => void }) {
               )}
             </Dropdown>
           </Row>
-          <CheckRow
-            label="Compact transcript"
-            checked={view.compact}
-            onChange={view.setCompact}
-          />
+          <Row label="Default mode for new windows">
+            <Dropdown
+              align="right"
+              trigger={defaultMode.name}
+              title="The appearance mode a new window starts in"
+              triggerClassName={`text-xs px-1.5 py-1 rounded border outline-none max-w-48 truncate ${
+                defaultMode !== DEFAULT_MODE
+                  ? "border-[var(--color-accent)] text-[var(--color-accent)]"
+                  : "border-[var(--color-border)] text-[var(--color-text)] bg-[var(--color-bg)]"
+              }`}
+            >
+              {(close) => (
+                <FilterMenu
+                  close={close}
+                  empty="—"
+                  items={() =>
+                    MODES.map((m) => ({
+                      key: m.id,
+                      node: m.name,
+                      title: m.description,
+                      selected: m === defaultMode,
+                      onSelect: () => {
+                        setConfig({ appearance: { defaultMode: m.id } });
+                        close();
+                      },
+                    }))
+                  }
+                />
+              )}
+            </Dropdown>
+          </Row>
           <CheckRow
             label="Show details panel"
             checked={view.detailsOpen}

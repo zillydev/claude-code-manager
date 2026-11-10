@@ -11,13 +11,16 @@ export interface Config {
     monoFont: string;
   };
   ui: {
-    compact: boolean;
     detailsOpen: boolean;
     sidebarWidth: number;
     sidebarCollapsed: boolean;
     defaultTab: "manager" | "terminal";
     /** Launch-only sidebar project filter: "" | `name:<n>` | `dir:<cwd>`. */
     defaultProject: string;
+  };
+  appearance: {
+    /** The appearance mode a new window starts in (see lib/appearance.ts). */
+    defaultMode: string;
   };
   integrations: {
     /** Publish live session state to session-status.json for other tools. */
@@ -30,13 +33,13 @@ export const DEFAULT_CONFIG: Config = {
   theme: "github-dark",
   typography: { fontSize: 14, density: "comfortable", uiFont: "system", monoFont: "system" },
   ui: {
-    compact: false,
     detailsOpen: true,
     sidebarWidth: 320,
     sidebarCollapsed: false,
     defaultTab: "manager",
     defaultProject: "",
   },
+  appearance: { defaultMode: "default" },
   integrations: { publishStatus: false },
 };
 

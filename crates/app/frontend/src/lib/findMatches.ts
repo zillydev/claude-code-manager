@@ -10,6 +10,7 @@ import { askLines, askText } from "./askQuestion";
 import { bashLines, bashText } from "./bashBody";
 import { fileChangesText } from "./fileChanges";
 import type { Span } from "./findMatcher";
+import type { AppearanceMode } from "./appearance";
 
 export interface FindMatch {
   segId: string;
@@ -95,9 +96,14 @@ export function toolResultText(result: ToolCallResult): string {
 }
 
 /** Matches inside collapsed bodies, read from the model. `turns` must be the
- *  array the transcript actually renders (compact-filtered), since turnIndex
- *  addresses `data-seg-id`s minted from that same array. */
-export function modelMatches(turns: RenderedTurn[], find: (t: string) => Span[]): FindMatch[] {
+ *  array the transcript actually renders (mode-filtered), since turnIndex
+ *  addresses `data-seg-id`s minted from that same array. A hidden tool call
+ *  stays in its turn, so `toolCalls` is what keeps it out. */
+export function modelMatches(
+  turns: RenderedTurn[],
+  find: (t: string) => Span[],
+  toolCalls: AppearanceMode["toolCalls"] = "shown",
+): FindMatch[] {
   const out: FindMatch[] = [];
   const push = (turnIndex: number, blockIndex: number | null, field: SegField, text: string) => {
     for (const s of find(text)) {
@@ -107,7 +113,7 @@ export function modelMatches(turns: RenderedTurn[], find: (t: string) => Span[])
   turns.forEach((turn, ti) => {
     if (turn.type === "task_notification") {
       if (turn.result) push(ti, null, "task-result", ansiText(turn.result));
-    } else if (turn.type === "assistant") {
+    } else if (turn.type === "assistant" && toolCalls === "shown") {
       turn.blocks.forEach((b, bi) => {
         if (b.type !== "tool_call") return;
         push(ti, bi, "tool-input", toolInputText(b.name, b.input_full, b.result?.text ?? null));
@@ -120,13 +126,15 @@ export function modelMatches(turns: RenderedTurn[], find: (t: string) => Span[])
 }
 
 /** Which collapsible must be open for this match to be visible: `"ti:bi"` for
- *  a tool call's body, `"ti:task"` for a task notification's result, null
- *  for always-visible text. Transcript turns these into `forceExpand` props. */
+ *  a tool call's body, `"ti:task"` for a task notification's result,
+ *  `"ti:summary"` for a compaction summary (which a mode may clamp), null for
+ *  always-visible text. Transcript turns these into `forceExpand` props. */
 export function revealKey(m: FindMatch): string | null {
   if (m.field === "tool-input" || m.field === "tool-result" || m.field === "tool-changes") {
     return `${m.turnIndex}:${m.blockIndex}`;
   }
   if (m.field === "task-result") return `${m.turnIndex}:task`;
+  if (m.field === "summary") return `${m.turnIndex}:summary`;
   return null;
 }
 

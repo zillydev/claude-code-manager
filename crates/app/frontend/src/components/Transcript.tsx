@@ -34,8 +34,10 @@ import { entryTags } from "../lib/sessionMeta";
 import { makeSegId } from "../lib/segments";
 import { isNearBottom } from "../lib/scroll";
 import { loadPosition, pickAnchor, savePosition, type ScrollAnchor } from "../lib/scrollMemory";
-import { filterCompact } from "../lib/compactView";
-import { locateJump, turnUuids, type JumpTarget } from "../lib/jumpTarget";
+import { applyMode, DEFAULT_MODE, lineCount, MODES, SCROLL_PX, type AppearanceMode, type Pad } from "../lib/appearance";
+import BodyBox, { PY_2 } from "./BodyBox";
+import { ansiText } from "../lib/ansi";
+import { locateJump, turnKeys, turnUuids, type JumpTarget } from "../lib/jumpTarget";
 import { seedQuery } from "../lib/findHandoff";
 import { SessionHeading } from "./SessionHeading";
 import { effortSummary, shortModel, turnModelLabel } from "../lib/modelLabel";
@@ -83,7 +85,7 @@ export default function Transcript({
   onShowBranch,
   onExitBranch,
 }: Props) {
-  const { compact, detailsOpen: statsOpen, setCompact, setDetailsOpen } = useWindowView();
+  const { mode, modeSeq, detailsOpen: statsOpen, setMode, setDetailsOpen } = useWindowView();
   // Local alias/note for this session (claude-code-manager metadata, not the .jsonl).
   const { meta, setSessionTags, toggleBookmark } = useSessionMeta();
   const metaEntry = meta.sessions[session.id];
@@ -159,22 +161,49 @@ export default function Transcript({
   const bookmarkSet = useMemo(() => new Set(bookmarkUuids ?? []), [bookmarkUuids]);
 
   // The turns actually rendered. Declared before the scroll effects because
-  // they key on its length — toggling compact reshapes this (not session.turns).
+  // they key on its length — switching mode reshapes this (not session.turns).
   // MUST be memoised: useFind's recompute effect keys on this list and sets
   // state — a per-render identity would loop render → effect → setState.
   const visibleTurns = useMemo(
-    () => (compact ? filterCompact(session.turns) : session.turns),
-    [compact, session.turns],
+    () => applyMode(session.turns, mode),
+    [mode, session.turns],
   );
+  // A mode switch keeps the turn at the top of the view in place. Measured during the render that
+  // switches, while the DOM still shows the old mode; put back once the new one has laid out.
+  const shownMode = useRef(mode);
+  const modeAnchor = useRef<ScrollAnchor | null>(null);
+  if (shownMode.current !== mode) {
+    shownMode.current = mode;
+    modeAnchor.current = !atBottomRef.current && turnsRef.current ? viewAnchor(turnsRef.current) : null;
+  }
+  useEffect(() => {
+    const anchor = modeAnchor.current;
+    modeAnchor.current = null;
+    if (!anchor) return;
+    let raf2 = 0;
+    const raf1 = requestAnimationFrame(() => {
+      raf2 = requestAnimationFrame(() => {
+        const scroller = turnsRef.current;
+        const el = scroller?.querySelector<HTMLElement>(`[data-msg-uuids~="${anchor.uuid}"]`);
+        if (!scroller || !el) return;
+        scroller.scrollTop += el.getBoundingClientRect().top - scroller.getBoundingClientRect().top + anchor.offset;
+      });
+    });
+    return () => {
+      cancelAnimationFrame(raf1);
+      cancelAnimationFrame(raf2);
+    };
+  }, [mode]);
   // Why a jump landed nowhere, when it does. Cleared by the next one.
   const [jumpMiss, setJumpMiss] = useState<JumpTarget | null>(null);
-  // Bumped to re-run the jump after un-compacting, without re-firing it on
+  // Bumped to re-run the jump after leaving a hiding mode, without re-firing it on
   // every live-tail turn (which depending on the turn lists directly would).
   const [rejump, setRejump] = useState(0);
   const turnLists = useRef({ all: session.turns, visible: visibleTurns });
   turnLists.current = { all: session.turns, visible: visibleTurns };
-  // In-session find (⌘F). Matches what is rendered — compact mode included.
-  const find = useFind(turnsRef, visibleTurns);
+  // In-session find (⌘F). Matches what is rendered in this window's mode.
+  const find = useFind(turnsRef, visibleTurns, mode);
+  const turnKeyList = useMemo(() => turnKeys(visibleTurns), [visibleTurns]);
   const { open: findOpen, openBar: findOpenBar, close: findClose } = find;
   // Read at jump time; keying the jump on the toggles would re-fire it on every toggle.
   const findOptsRef = useRef(find.opts);
@@ -278,7 +307,7 @@ export default function Transcript({
   // On opening/switching a session, return to where it was left, else jump to the latest — unless we were asked
   // to scroll to a specific message (the effect below handles that). When the
   // rendered set changes within the same session — a live-tail turn, or a
-  // compact/find toggle that reshapes height — re-pin to the bottom if we were
+  // mode/find toggle that reshapes height — re-pin to the bottom if we were
   // there (otherwise a toggle leaves scrollTop pointing at now-different content).
   useEffect(() => {
     const isNewSession = prevSessionId.current !== session.id;
@@ -443,16 +472,7 @@ export default function Transcript({
               <GitFork size={12} strokeWidth={1.75} /> Tree
             </button>
           )}
-          <button
-            onClick={() => setCompact(!compact)}
-            className={`text-xs px-2 py-1 rounded border ${
-              compact
-                ? "border-[var(--color-accent)] text-[var(--color-accent)]"
-                : "border-[var(--color-border)] text-[var(--color-text-dim)]"
-            } hover:border-[var(--color-accent)] transition-colors`}
-          >
-            {compact ? "Show all" : "Compact"}
-          </button>
+          <ModeMenu mode={mode} setMode={setMode} />
           <button
             onClick={() => setDetailsOpen(!statsOpen)}
             className={`text-xs px-2 py-1 rounded border ${
@@ -519,20 +539,20 @@ export default function Transcript({
       {jumpMiss && (
         <div className="mx-4 mb-2 px-3 py-2 rounded border border-[var(--color-border)] bg-[var(--color-surface)] text-xs flex items-center justify-between gap-3">
           <span className="text-[var(--color-text-dim)]">
-            {jumpMiss === "compact-hidden"
-              ? "That message is hidden by Compact mode."
+            {jumpMiss === "mode-hidden"
+              ? `That message is hidden by ${mode.name} mode.`
               : "That message is on a branch this session rewound away from."}
           </span>
           <div className="flex items-center gap-2 shrink-0">
-            {jumpMiss === "compact-hidden" && (
+            {jumpMiss === "mode-hidden" && (
               <button
                 onClick={() => {
-                  setCompact(false);
+                  setMode(DEFAULT_MODE.id);
                   setRejump((r) => r + 1);
                 }}
                 className="px-2 py-1 rounded border border-[var(--color-border)] hover:border-[var(--color-accent)]"
               >
-                Show all
+                Show in Default mode
               </button>
             )}
             {jumpMiss === "off-path" && onShowBranch && scrollToMessage && (
@@ -575,7 +595,7 @@ export default function Transcript({
             if (!marks && ownUuid) marks = branchPoints.get(ownUuid);
           }
           return (
-            <Fragment key={i}>
+            <Fragment key={turnKeyList[i]}>
               <div onContextMenu={(e) => turnMenu.open(e, turn)}>
                 <Turn
                   turn={turn}
@@ -587,6 +607,8 @@ export default function Transcript({
                   imageCopy={imageCopy && imageCopy.uuid === ownUuid ? imageCopy : null}
                   onCopyImage={handleCopyImage}
                   revealedKeys={find.revealedKeys}
+                  mode={mode}
+                  modeSeq={modeSeq}
                 />
               </div>
               {marks && onOpenSession && (
@@ -688,6 +710,43 @@ export default function Transcript({
       )}
     </div>
     </ImagePathContext.Provider>
+  );
+}
+
+function ModeMenu({ mode, setMode }: { mode: AppearanceMode; setMode: (id: string) => void }) {
+  return (
+    <Dropdown
+      align="right"
+      title="Appearance mode (⌘⇧D)"
+      trigger={mode.name}
+      triggerClassName={`text-xs px-2 py-1 rounded border ${
+        mode !== DEFAULT_MODE
+          ? "border-[var(--color-accent)] text-[var(--color-accent)]"
+          : "border-[var(--color-border)] text-[var(--color-text-dim)]"
+      } hover:border-[var(--color-accent)] transition-colors whitespace-nowrap`}
+    >
+      {(close) => (
+        <div className="w-64">
+          {MODES.map((m) => (
+            <button
+              key={m.id}
+              role="menuitem"
+              className={`${menuItemClass} flex items-baseline gap-2`}
+              onClick={() => {
+                setMode(m.id);
+                close();
+              }}
+            >
+              <span className={m === mode ? "" : "opacity-0"}>✓</span>
+              <span className="min-w-0">
+                <span className="block text-[var(--color-text)]">{m.name}</span>
+                <span className="block text-[10px] text-[var(--color-text-dim)]">{m.description}</span>
+              </span>
+            </button>
+          ))}
+        </div>
+      )}
+    </Dropdown>
   );
 }
 
@@ -810,6 +869,8 @@ const Turn = memo(function Turn({
   imageCopy,
   onCopyImage,
   revealedKeys,
+  mode,
+  modeSeq,
 }: {
   turn: RenderedTurn;
   turnIndex: number;
@@ -819,8 +880,10 @@ const Turn = memo(function Turn({
   forkPending: boolean;
   imageCopy: ImageCopy | null;
   onCopyImage: (uuid: string) => void;
-  /** Find's reveal-on-navigate set — `"ti:bi"` / `"ti:task"` keys, see revealKey(). */
+  /** Find's reveal-on-navigate set — `"ti:bi"` / `"ti:task"` / `"ti:summary"` keys, see revealKey(). */
   revealedKeys: ReadonlySet<string>;
+  mode: AppearanceMode;
+  modeSeq: number;
 }) {
   const ts = "timestamp" in turn && turn.timestamp ? formatTime(turn.timestamp) : "--:--";
   // Full date shown on hover; undefined ⇒ no tooltip (e.g. compaction turns).
@@ -911,6 +974,8 @@ const Turn = memo(function Turn({
                 turnIndex={turnIndex}
                 blockIndex={j}
                 forceExpand={revealedKeys.has(`${turnIndex}:${j}`)}
+                mode={mode}
+                modeSeq={modeSeq}
               />
             ))}
           </div>
@@ -973,21 +1038,13 @@ const Turn = memo(function Turn({
               </div>
             )}
             {(turn.stdout || turn.stderr) && (
-              <div
-                className={`text-xs ${turn.command !== null ? "mt-1.5 border-t border-[var(--color-border)] pt-1.5" : ""}`}
-                style={{ maxHeight: "400px", overflowY: "auto" }}
-              >
-                {turn.stdout && (
-                  <pre className="whitespace-pre-wrap wrap-anywhere text-[var(--color-text-dim)]">
-                    <AnsiText text={turn.stdout} />
-                  </pre>
-                )}
-                {turn.stderr && (
-                  <pre className="whitespace-pre-wrap wrap-anywhere text-[var(--color-error)]">
-                    <AnsiText text={turn.stderr} />
-                  </pre>
-                )}
-              </div>
+              <ShellOutput
+                stdout={turn.stdout}
+                stderr={turn.stderr}
+                afterCommand={turn.command !== null}
+                mode={mode}
+                modeSeq={modeSeq}
+              />
             )}
           </div>
         </div>
@@ -995,15 +1052,13 @@ const Turn = memo(function Turn({
 
     case "summary":
       return (
-        <div className="border-t border-b border-[var(--color-border)] py-2 my-2 text-xs text-[var(--color-text-dim)] italic">
-          ── compaction summary ──
-          <div
-            data-seg-id={makeSegId(turnIndex, null, "summary")}
-            className="mt-1 whitespace-pre-wrap break-words"
-          >
-            {turn.content}
-          </div>
-        </div>
+        <SummaryBlock
+          turnIndex={turnIndex}
+          content={turn.content}
+          mode={mode}
+          modeSeq={modeSeq}
+          forceExpand={revealedKeys.has(`${turnIndex}:summary`)}
+        />
       );
 
     case "task_notification":
@@ -1015,6 +1070,8 @@ const Turn = memo(function Turn({
           summary={turn.summary}
           result={turn.result}
           forceExpand={revealedKeys.has(`${turnIndex}:task`)}
+          mode={mode}
+          modeSeq={modeSeq}
         />
       );
 
@@ -1217,6 +1274,8 @@ const TaskNotificationBlock = memo(function TaskNotificationBlock({
   summary,
   result,
   forceExpand,
+  mode,
+  modeSeq,
 }: {
   /** Its event uuid — a global-find hit lands on this turn by it. */
   uuids: string;
@@ -1225,13 +1284,19 @@ const TaskNotificationBlock = memo(function TaskNotificationBlock({
   summary: string;
   result: string;
   forceExpand?: boolean;
+  mode: AppearanceMode;
+  modeSeq: number;
 }) {
-  const [expanded, setExpanded] = useState(false);
+  const part = mode.taskNotifications;
+  // Kept with the switch it was clicked after; any later switch drops it.
+  const [clicked, setClicked] = useState<{ seq: number; open: boolean } | null>(null);
+  const expanded = clicked?.seq === modeSeq ? clicked.open : part.show === "open";
   const open = expanded || !!forceExpand;
+  const lines = useMemo(() => (part.height.kind === "clamp" ? lineCount(ansiText(result)) : 0), [part.height.kind, result]);
   return (
     <div className="my-1 text-sm" data-msg-uuids={uuids}>
       <button
-        onClick={() => setExpanded(!expanded)}
+        onClick={() => setClicked({ seq: modeSeq, open: !expanded })}
         className="flex items-baseline text-left w-full hover:bg-[var(--color-surface-hover)] rounded px-2 py-1 transition-colors text-[var(--color-text-dim)]"
       >
         <span className="w-4 shrink-0 text-center">{open ? "▾" : "▸"}</span>
@@ -1241,28 +1306,137 @@ const TaskNotificationBlock = memo(function TaskNotificationBlock({
         </span>
       </button>
       {open && result && (
-        <pre
-          data-seg-id={makeSegId(turnIndex, null, "task-result")}
-          className="ml-4 px-3 py-2 rounded text-xs whitespace-pre-wrap break-words overflow-hidden border-l-2 border-l-[var(--color-border)] bg-[var(--color-tool-result-bg)] text-[var(--color-text-dim)]"
-          style={{ maxHeight: "400px", overflowY: "auto" }}
+        <BodyBox
+          height={part.height}
+          scrollPx={SCROLL_PX.taskNotifications}
+          pad={PY_2}
+          lines={lines}
+          modeSeq={modeSeq}
+          forceFull={forceExpand}
         >
-          <AnsiText text={result} />
-        </pre>
+          {(style, ref) => (
+            <pre
+              ref={ref}
+              data-seg-id={makeSegId(turnIndex, null, "task-result")}
+              className="ml-4 px-3 py-2 rounded text-xs whitespace-pre-wrap break-words overflow-hidden border-l-2 border-l-[var(--color-border)] bg-[var(--color-tool-result-bg)] text-[var(--color-text-dim)]"
+              style={style}
+            >
+              <AnsiText text={result} />
+            </pre>
+          )}
+        </BodyBox>
       )}
     </div>
   );
 });
+
+function SummaryBlock({
+  turnIndex,
+  content,
+  mode,
+  modeSeq,
+  forceExpand,
+}: {
+  turnIndex: number;
+  content: string;
+  mode: AppearanceMode;
+  modeSeq: number;
+  forceExpand: boolean;
+}) {
+  const height = mode.compactionSummary.height;
+  const lines = useMemo(() => (height.kind === "clamp" ? lineCount(content) : 0), [height.kind, content]);
+  return (
+    <div className="border-t border-b border-[var(--color-border)] py-2 my-2 text-xs text-[var(--color-text-dim)] italic">
+      ── compaction summary ──
+      <BodyBox
+        height={height}
+        scrollPx={SCROLL_PX.compactionSummary}
+        lines={lines}
+        modeSeq={modeSeq}
+        forceFull={forceExpand}
+        fade="var(--color-bg)"
+      >
+        {(style, ref) => (
+          <div
+            ref={ref}
+            data-seg-id={makeSegId(turnIndex, null, "summary")}
+            className="mt-1 whitespace-pre-wrap break-words"
+            style={style}
+          >
+            {content}
+          </div>
+        )}
+      </BodyBox>
+    </div>
+  );
+}
+
+/** The `border-t pt-1.5` under the command; a max-height counts the border too. */
+const SHELL_PAD: Pad = { top: "calc(0.375rem + 1px)", bottom: "0px" };
+
+function ShellOutput({
+  stdout,
+  stderr,
+  afterCommand,
+  mode,
+  modeSeq,
+}: {
+  stdout: string;
+  stderr: string;
+  afterCommand: boolean;
+  mode: AppearanceMode;
+  modeSeq: number;
+}) {
+  const height = mode.shellOutput;
+  const lines = useMemo(
+    () => (height.kind === "clamp" ? (stdout ? lineCount(stdout) : 0) + (stderr ? lineCount(stderr) : 0) : 0),
+    [height.kind, stdout, stderr],
+  );
+  return (
+    <BodyBox
+      height={height}
+      scrollPx={SCROLL_PX.shellOutput}
+      pad={afterCommand ? SHELL_PAD : undefined}
+      lines={lines}
+      modeSeq={modeSeq}
+      fade="var(--color-surface)"
+    >
+      {(style, ref) => (
+        <div
+          ref={ref}
+          className={`text-xs ${afterCommand ? "mt-1.5 border-t border-[var(--color-border)] pt-1.5" : ""}`}
+          style={style}
+        >
+          {stdout && (
+            <pre className="whitespace-pre-wrap wrap-anywhere text-[var(--color-text-dim)]">
+              <AnsiText text={stdout} />
+            </pre>
+          )}
+          {stderr && (
+            <pre className="whitespace-pre-wrap wrap-anywhere text-[var(--color-error)]">
+              <AnsiText text={stderr} />
+            </pre>
+          )}
+        </div>
+      )}
+    </BodyBox>
+  );
+}
 
 const BlockRenderer = memo(function BlockRenderer({
   block,
   turnIndex,
   blockIndex,
   forceExpand,
+  mode,
+  modeSeq,
 }: {
   block: RenderedBlock;
   turnIndex: number;
   blockIndex: number;
   forceExpand: boolean;
+  mode: AppearanceMode;
+  modeSeq: number;
 }) {
   switch (block.type) {
     case "text":
@@ -1279,6 +1453,7 @@ const BlockRenderer = memo(function BlockRenderer({
       return null;
 
     case "narration":
+      if (mode.narration === "hidden") return null;
       return (
         <div
           data-seg-id={makeSegId(turnIndex, blockIndex, "narration")}
@@ -1290,12 +1465,15 @@ const BlockRenderer = memo(function BlockRenderer({
       );
 
     case "tool_call":
+      if (mode.toolCalls === "hidden") return null;
       return (
         <ToolCall
           block={block}
           turnIndex={turnIndex}
           blockIndex={blockIndex}
           forceExpand={forceExpand}
+          mode={mode}
+          modeSeq={modeSeq}
         />
       );
   }

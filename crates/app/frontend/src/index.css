@@ -34,6 +34,12 @@ html, body, #root {
   --spacing: 0.2rem;
 }
 
+/* A clamp's "show all N lines" label lives in CSS: the toggle can sit inside a find segment, whose text must
+   stay exactly the model's. */
+.clamp-toggle::before {
+  content: attr(data-label);
+}
+
 /* Markdown prose overrides for dark theme */
 .prose {
   --tw-prose-body: var(--color-text);

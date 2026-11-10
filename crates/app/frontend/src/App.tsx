@@ -22,6 +22,8 @@ import { usePersistentState } from "./hooks/usePersistentState";
 import { useActivity } from "./hooks/useActivity";
 import { useWindowFocused } from "./hooks/useWindowFocused";
 import { useConfig } from "./hooks/useConfig";
+import { useWindowView } from "./hooks/useWindowView";
+import { nextMode } from "./lib/appearance";
 import type { ForkRef } from "./types";
 
 const MIN_WIDTH = 200;
@@ -38,6 +40,10 @@ export default function App() {
   const collapsed = config.ui.sidebarCollapsed;
   const [sidebarWidth, setSidebarWidth] = useState(config.ui.sidebarWidth);
   const [activeTab, setActiveTab] = useState<SessionTab>("manager");
+  const { mode, setMode } = useWindowView();
+  // Read by the shortcut handler, which subscribes once.
+  const modeKeyRef = useRef({ modeId: mode.id, onTerminal: activeTab === "terminal" });
+  modeKeyRef.current = { modeId: mode.id, onTerminal: activeTab === "terminal" };
   const [settingsOpen, setSettingsOpen] = useState(false);
   // Obsidian-style sidebar tabs. Tab state lives here (single writer) because
   // the ⌘F/⌘⇧F shortcuts and the find prefill flow through App.
@@ -470,6 +476,14 @@ export default function App() {
         openFindTab(null);
         return;
       }
+      // ⌘⇧D — next appearance mode, while the transcript is showing.
+      if (e.metaKey && e.shiftKey && !e.ctrlKey && !e.altKey && e.key.toLowerCase() === "d") {
+        if (modeKeyRef.current.onTerminal) return;
+        e.preventDefault();
+        e.stopPropagation();
+        setMode(nextMode(modeKeyRef.current.modeId).id);
+        return;
+      }
       if (!e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
       const k = e.key.toLowerCase();
       if (k === "e") {
@@ -495,7 +509,7 @@ export default function App() {
     };
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
-  }, [collapsed, setConfig, openFindTab, showSidebarTab]);
+  }, [collapsed, setConfig, openFindTab, showSidebarTab, setMode]);
 
   const terminalLive = !!target && terminalStatus[target.sessionId] === "live";
 

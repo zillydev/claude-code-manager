@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import type { RenderedBlock, ToolCallResult } from "../types";
 import { makeSegId } from "../lib/segments";
 import { prettyResultText, prettyToolName } from "../lib/toolDisplay";
-import { toolInputText } from "../lib/findMatches";
+import { toolInputText, toolResultText } from "../lib/findMatches";
 import { diffSources, toolDiff, type DiffLine } from "../lib/toolDiff";
 import { highlightToLines, languageForPath, type Token } from "../lib/syntax";
 import { wordEmphasis } from "../lib/wordDiff";
@@ -12,22 +12,57 @@ import { ImageStrip } from "./InlineImage";
 import { AnsiText } from "./AnsiText";
 import DiffRow from "./DiffRow";
 import { ChangesBadge, FileChangesBody } from "./FileChanges";
+import BodyBox, { PY_2 } from "./BodyBox";
+import { changeCounts, filesLabel } from "../lib/fileChanges";
+import { lineCount, SCROLL_PX, toolParts, type AppearanceMode, type Height } from "../lib/appearance";
 
 interface Props {
   block: Extract<RenderedBlock, { type: "tool_call" }>;
   turnIndex: number;
   blockIndex: number;
   forceExpand?: boolean;
+  mode: AppearanceMode;
+  /** The window's switch count; clicks made before the last switch no longer apply. */
+  modeSeq: number;
 }
 
-export default function ToolCall({ block, turnIndex, blockIndex, forceExpand }: Props) {
-  const [expanded, setExpanded] = useState(false);
-  const open = expanded || !!forceExpand;
+type Opened = { input: boolean; output: boolean; changes: boolean };
+const ALL: Opened = { input: true, output: true, changes: true };
+const NONE: Opened = { input: false, output: false, changes: false };
+
+export default function ToolCall({ block, turnIndex, blockIndex, forceExpand, mode, modeSeq }: Props) {
+  const parts = useMemo(() => toolParts(mode, block), [mode, block]);
+  const [clicks, setClicks] = useState<{ seq: number; opened: Opened } | null>(null);
+  const own: Opened =
+    clicks?.seq === modeSeq
+      ? clicks.opened
+      : {
+          input: parts.input.show === "open",
+          output: parts.output.show === "open",
+          changes: parts.changes?.show === "open",
+        };
+  const opened = forceExpand ? ALL : own;
+  const changes = block.result?.file_changes ?? null;
+  const anyOpen = (o: Opened) => o.input || o.output || (!!changes && o.changes);
+  const open = anyOpen(opened);
+  const openPart = (part: keyof Opened) => setClicks({ seq: modeSeq, opened: { ...own, [part]: true } });
+
+  // Counted only where shown: a sub-row's label or a clamp's "show all N lines".
+  const needInputLines = open && (!opened.input || parts.input.height.kind === "clamp");
+  const inputLines = useMemo(
+    () => (needInputLines ? lineCount(toolInputText(block.name, block.input_full, block.result?.text ?? null)) : 0),
+    [needInputLines, block],
+  );
+  const needOutputLines = open && (!opened.output || parts.output.height.kind === "clamp");
+  const outputLines = useMemo(
+    () => (needOutputLines && block.result ? lineCount(toolResultText(block.result)) : 0),
+    [needOutputLines, block],
+  );
 
   return (
     <div className="my-1">
       <button
-        onClick={() => setExpanded(!expanded)}
+        onClick={() => setClicks({ seq: modeSeq, opened: anyOpen(own) ? NONE : ALL })}
         className="flex items-baseline text-left w-full hover:bg-[var(--color-surface-hover)] rounded px-2 py-1 transition-colors"
       >
         <span className="text-[var(--color-tool)] w-4 shrink-0 text-center">
@@ -42,36 +77,86 @@ export default function ToolCall({ block, turnIndex, blockIndex, forceExpand }: 
         <span className="text-[var(--color-text-dim)] text-xs truncate min-w-0">
           {block.input_summary}
         </span>
-        {block.result?.file_changes && <ChangesBadge changes={block.result.file_changes} />}
+        {changes && <ChangesBadge changes={changes} />}
       </button>
 
       {open && (
         <div className="ml-4">
-          <ToolInput
-            name={block.name}
-            input={block.input_full}
-            resultText={block.result?.text ?? null}
-            segId={makeSegId(turnIndex, blockIndex, "tool-input")}
-          />
-          {block.result ? (
-            <>
-              <ToolResult result={block.result} segId={makeSegId(turnIndex, blockIndex, "tool-result")} />
-              {block.result.file_changes && (
-                <FileChangesBody
-                  changes={block.result.file_changes}
-                  segId={makeSegId(turnIndex, blockIndex, "tool-changes")}
-                />
-              )}
-            </>
+          {opened.input ? (
+            <ToolInput
+              name={block.name}
+              input={block.input_full}
+              resultText={block.result?.text ?? null}
+              segId={makeSegId(turnIndex, blockIndex, "tool-input")}
+              height={parts.input.height}
+              lines={inputLines}
+              modeSeq={modeSeq}
+              forceFull={forceExpand}
+            />
+          ) : (
+            <PartRow label={`input · ${linesLabel(inputLines)}`} onClick={() => openPart("input")} />
+          )}
+          {!opened.output ? (
+            <PartRow
+              label={block.result ? `output · ${linesLabel(outputLines)}` : "output · no result"}
+              onClick={() => openPart("output")}
+            />
+          ) : block.result ? (
+            <ToolResult
+              result={block.result}
+              segId={makeSegId(turnIndex, blockIndex, "tool-result")}
+              height={parts.output.height}
+              lines={outputLines}
+              modeSeq={modeSeq}
+              forceFull={forceExpand}
+            />
           ) : (
             <div className="px-3 py-1.5 text-xs text-[var(--color-text-dim)] italic">
               (no result)
             </div>
           )}
+          {changes &&
+            (opened.changes ? (
+              <FileChangesBody
+                changes={changes}
+                segId={makeSegId(turnIndex, blockIndex, "tool-changes")}
+                height={parts.changes?.height}
+                modeSeq={modeSeq}
+                forceFull={forceExpand}
+              />
+            ) : (
+              <PartRow
+                label={`changes · ${filesLabel(changeCounts(changes).files)}`}
+                onClick={() => openPart("changes")}
+              />
+            ))}
         </div>
       )}
     </div>
   );
+}
+
+const linesLabel = (n: number) => `${n} ${n === 1 ? "line" : "lines"}`;
+
+/** A closed part of an open tool call, in modes that open some parts and not others. */
+function PartRow({ label, onClick }: { label: string; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="flex items-baseline text-left w-full rounded px-2 py-0.5 mb-1 text-xs text-[var(--color-text-dim)] hover:bg-[var(--color-surface-hover)] transition-colors"
+    >
+      <span className="w-4 shrink-0 text-center">▸</span>
+      {label}
+    </button>
+  );
+}
+
+interface Sizing {
+  height: Height;
+  lines: number;
+  modeSeq: number;
+  forceFull?: boolean;
 }
 
 function ToolInput({
@@ -79,13 +164,14 @@ function ToolInput({
   input,
   resultText,
   segId,
+  ...sizing
 }: {
   name: string;
   input: Record<string, unknown>;
   /** The tool's result, for AskUserQuestion to mark which option was picked. */
   resultText: string | null;
   segId: string;
-}) {
+} & Sizing) {
   // Edit/Write/MultiEdit render as a diff, the way Claude Code shows them in
   // the terminal; AskUserQuestion as a question card; everything else keeps the
   // JSON view.
@@ -93,21 +179,26 @@ function ToolInput({
   const bash = diff ? null : name === "Bash" ? bashLines(input) : null;
   const ask = diff || bash ? null : name === "AskUserQuestion" ? askLines(input, resultText) : null;
   return (
-    <pre
-      data-seg-id={segId}
-      className="px-3 py-2 rounded text-xs whitespace-pre-wrap break-words overflow-hidden border-l-2 border-l-[var(--color-tool)] bg-[var(--color-tool-result-bg)] text-[var(--color-text)] mb-1"
-      style={{ maxHeight: "300px", overflowY: "auto" }}
-    >
-      {diff ? (
-        <DiffBody lines={diff} name={name} input={input} />
-      ) : bash ? (
-        <BashBody lines={bash} />
-      ) : ask ? (
-        <AskBody lines={ask} />
-      ) : (
-        toolInputText(name, input, resultText)
+    <BodyBox {...sizing} scrollPx={diff ? SCROLL_PX.diffs : SCROLL_PX.toolInput} pad={PY_2}>
+      {(style, ref) => (
+        <pre
+          ref={ref}
+          data-seg-id={segId}
+          className="px-3 py-2 rounded text-xs whitespace-pre-wrap break-words overflow-hidden border-l-2 border-l-[var(--color-tool)] bg-[var(--color-tool-result-bg)] text-[var(--color-text)] mb-1"
+          style={style}
+        >
+          {diff ? (
+            <DiffBody lines={diff} name={name} input={input} />
+          ) : bash ? (
+            <BashBody lines={bash} />
+          ) : ask ? (
+            <AskBody lines={ask} />
+          ) : (
+            toolInputText(name, input, resultText)
+          )}
+        </pre>
       )}
-    </pre>
+    </BodyBox>
   );
 }
 
@@ -155,21 +246,26 @@ function DiffBody({
   );
 }
 
-function ToolResult({ result, segId }: { result: ToolCallResult; segId: string }) {
+function ToolResult({ result, segId, ...sizing }: { result: ToolCallResult; segId: string } & Sizing) {
   return (
-    <div
-      className={`px-3 py-2 rounded text-xs border-l-2 ${
-        result.is_error
-          ? "border-l-[var(--color-error)] bg-[var(--color-tool-result-bg)] text-[var(--color-error)]"
-          : "border-l-[var(--color-border)] bg-[var(--color-tool-result-bg)] text-[var(--color-text-dim)]"
-      }`}
-      style={{ maxHeight: "400px", overflowY: "auto" }}
-    >
-      <pre data-seg-id={segId} className="whitespace-pre-wrap break-words overflow-hidden">
-        <AnsiText text={prettyResultText(result.text)} />
-      </pre>
-      <ImageStrip images={result.images} label="tool result image" />
-    </div>
+    <BodyBox {...sizing} scrollPx={SCROLL_PX.toolOutput} pad={PY_2}>
+      {(style, ref) => (
+        <div
+          ref={ref}
+          className={`px-3 py-2 rounded text-xs border-l-2 ${
+            result.is_error
+              ? "border-l-[var(--color-error)] bg-[var(--color-tool-result-bg)] text-[var(--color-error)]"
+              : "border-l-[var(--color-border)] bg-[var(--color-tool-result-bg)] text-[var(--color-text-dim)]"
+          }`}
+          style={style}
+        >
+          <pre data-seg-id={segId} className="whitespace-pre-wrap break-words overflow-hidden">
+            <AnsiText text={prettyResultText(result.text)} />
+          </pre>
+          <ImageStrip images={result.images} label="tool result image" />
+        </div>
+      )}
+    </BodyBox>
   );
 }
 

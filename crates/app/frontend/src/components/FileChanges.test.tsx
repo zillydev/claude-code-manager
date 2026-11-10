@@ -49,6 +49,14 @@ describe("FileChangesBody", () => {
     const only = { ...changes, more: 0 };
     expect(textOf(renderToStaticMarkup(<FileChangesBody changes={only} segId="s" />))).toBe(fileChangesText(only));
   });
+  it("clamps each file's diff on its own and keeps the text exact, toggle included", () => {
+    const html = renderToStaticMarkup(
+      <FileChangesBody changes={changes} segId="s" height={{ kind: "clamp", lines: 2 }} modeSeq={0} />,
+    );
+    expect(html.match(/max-height:calc\(2 \* 1lh \+ 0\.5rem/g)).toHaveLength(2);
+    expect(html).toContain('data-label="show all 6 lines"');
+    expect(textOf(html)).toBe(fileChangesText(changes));
+  });
 });
 
 describe("ChangesBadge", () => {

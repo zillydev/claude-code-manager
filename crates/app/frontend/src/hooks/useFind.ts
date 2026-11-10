@@ -1,6 +1,7 @@
 import { useCallback, useDeferredValue, useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { RenderedTurn } from "../types";
-import { activeIndexAfterSearch } from "../lib/findHandoff";
+import { DEFAULT_MODE, type AppearanceMode } from "../lib/appearance";
+import { activeIndexAfterSearch, turnsReindexed } from "../lib/findHandoff";
 import { compileMatcher, type FindOpts } from "../lib/findMatcher";
 import { compareMatches, modelMatches, revealKey, sameMatches, type FindMatch } from "../lib/findMatches";
 import {
@@ -49,13 +50,17 @@ export interface UseFind {
 
 /**
  * In-session find state. `turns` MUST be the array the transcript renders
- * (compact-filtered) and MUST be referentially stable across renders
+ * (mode-filtered) and MUST be referentially stable across renders
  * (useMemo) — the recompute effect keys on it. Visible text is matched off the
  * DOM inside `containerRef`; collapsed tool bodies off the model when
  * `opts.tools` is on. Painting happens in a layout effect AFTER any reveal
  * has committed, so an auto-expanded body is highlighted the frame it appears.
  */
-export function useFind(containerRef: React.RefObject<HTMLElement | null>, turns: RenderedTurn[]): UseFind {
+export function useFind(
+  containerRef: React.RefObject<HTMLElement | null>,
+  turns: RenderedTurn[],
+  mode: AppearanceMode = DEFAULT_MODE,
+): UseFind {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   // Zed-style: the toggles are a user preference, shared across sessions/windows.
@@ -77,6 +82,10 @@ export function useFind(containerRef: React.RefObject<HTMLElement | null>, turns
   const [startAt, setStartAt] = useState<{ turn: number; n: number } | null>(null);
   const appliedStart = useRef(0);
   const lastSearch = useRef<{ query: string; opts: FindOptions } | null>(null);
+  const activeRef = useRef(activeIndex);
+  activeRef.current = activeIndex;
+  // What the reveal keys were made against: they name turns by index, so a reindex leaves them on other turns.
+  const revealedFor = useRef({ turns, mode });
 
   const openBar = useCallback((prefill?: string | null, startTurn?: number) => {
     setOpen(true);
@@ -105,7 +114,17 @@ export function useFind(containerRef: React.RefObject<HTMLElement | null>, turns
   // Functional setters that bail when unchanged: this keys on `turns`, and an
   // unconditional fresh array here would loop render → effect → setState.
   useLayoutEffect(() => {
+    const prior = revealedFor.current;
+    revealedFor.current = { turns, mode };
+    const reindexed = prior.mode !== mode || turnsReindexed(prior.turns, turns);
+    const resetReveals = (key: string | null) => {
+      if (!reindexed) return;
+      setRevealedKeys((prev) =>
+        key === null ? (prev.size === 0 ? prev : EMPTY_KEYS) : prev.size === 1 && prev.has(key) ? prev : new Set([key]),
+      );
+    };
     if (!open || deferredQuery === "") {
+      resetReveals(null);
       setMatches((prev) => (prev.length === 0 ? prev : []));
       setError(null);
       clearHighlights();
@@ -113,6 +132,7 @@ export function useFind(containerRef: React.RefObject<HTMLElement | null>, turns
     }
     const m = compileMatcher(deferredQuery, opts);
     if (!m.ok) {
+      resetReveals(null);
       setError(m.error);
       setMatches((prev) => (prev.length === 0 ? prev : []));
       clearHighlights();
@@ -121,7 +141,7 @@ export function useFind(containerRef: React.RefObject<HTMLElement | null>, turns
     setError(null);
     const container = containerRef.current;
     const dom = container ? domMatches(container, m.find) : [];
-    const model = opts.tools ? modelMatches(turns, m.find) : [];
+    const model = opts.tools ? modelMatches(turns, m.find, mode.toolCalls) : [];
     const all = [...dom, ...model].sort(compareMatches);
     setMatches((prev) => (sameMatches(prev, all) ? prev : all));
     const fresh = lastSearch.current?.query !== deferredQuery || lastSearch.current?.opts !== opts;
@@ -133,8 +153,10 @@ export function useFind(containerRef: React.RefObject<HTMLElement | null>, turns
       appliedStart.current = startAt.n;
       startTurn = startAt.turn;
     }
-    setActiveIndex((i) => activeIndexAfterSearch(i, all, fresh, startTurn));
-  }, [open, deferredQuery, opts, turns, containerRef, startAt]);
+    const active = activeIndexAfterSearch(activeRef.current, all, fresh, startTurn);
+    setActiveIndex(active);
+    resetReveals(all[active] ? revealKey(all[active]) : null);
+  }, [open, deferredQuery, opts, turns, mode, containerRef, startAt]);
 
   // Stepping onto a match inside a collapsed body opens that body.
   useEffect(() => {
@@ -143,7 +165,11 @@ export function useFind(containerRef: React.RefObject<HTMLElement | null>, turns
     setRevealedKeys((prev) => (prev.has(key) ? prev : new Set(prev).add(key)));
   }, [matches, activeIndex]);
 
-  // Paint + scroll — after the reveal above has committed (keyed on it).
+  // Paint + scroll — after the reveal above has committed (keyed on it). A mode switch repaints too: it can remount
+  // the matched segments without changing a match.
+  const scrolledFor = useRef<{ matches: FindMatch[]; activeIndex: number; revealedKeys: ReadonlySet<string> } | null>(
+    null,
+  );
   useLayoutEffect(() => {
     const container = containerRef.current;
     if (!open || !container || matches.length === 0) {
@@ -154,7 +180,11 @@ export function useFind(containerRef: React.RefObject<HTMLElement | null>, turns
       return rerasterize(container);
     }
     const activeRange = paintHighlights(container, matches, activeIndex);
-    if (activeRange) scrollMatchIntoView(activeRange);
+    // A switch keeps the viewport where it was; only stepping or a reveal scrolls.
+    const last = scrolledFor.current;
+    const moved = last?.matches !== matches || last.activeIndex !== activeIndex || last.revealedKeys !== revealedKeys;
+    scrolledFor.current = { matches, activeIndex, revealedKeys };
+    if (activeRange && moved) scrollMatchIntoView(activeRange);
     painted.current = true;
     const cancelReraster = rerasterize(container);
     const next = gutterMarks(container, matches, activeIndex);
@@ -165,7 +195,7 @@ export function useFind(containerRef: React.RefObject<HTMLElement | null>, turns
         : next,
     );
     return cancelReraster;
-  }, [open, matches, activeIndex, revealedKeys, containerRef]);
+  }, [open, matches, activeIndex, revealedKeys, mode, containerRef]);
 
   const next = useCallback(() => {
     setActiveIndex((i) => (matches.length === 0 ? 0 : (i + 1) % matches.length));

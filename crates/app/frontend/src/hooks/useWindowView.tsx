@@ -1,23 +1,23 @@
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
 import { useConfig } from "./useConfig";
-import {
-  initialWindowView,
-  seedWindowView,
-  toggleWindowView,
-  type WindowViewPatch,
-} from "../lib/windowView";
+import { initialWindowView, seedWindowView, toggleWindowView } from "../lib/windowView";
+import { DEFAULT_MODE, modeById, type AppearanceMode } from "../lib/appearance";
 
 interface WindowViewCtx {
-  compact: boolean;
+  /** A frozen preset, so its identity changes only when the user switches. */
+  mode: AppearanceMode;
+  /** Bumps on every switch; per-part clicks are kept against it. */
+  modeSeq: number;
   detailsOpen: boolean;
-  setCompact: (v: boolean) => void;
+  setMode: (id: string) => void;
   setDetailsOpen: (v: boolean) => void;
 }
 
 const Ctx = createContext<WindowViewCtx>({
-  compact: false,
+  mode: DEFAULT_MODE,
+  modeSeq: 0,
   detailsOpen: true,
-  setCompact: () => {},
+  setMode: () => {},
   setDetailsOpen: () => {},
 });
 
@@ -25,8 +25,8 @@ export function useWindowView() {
   return useContext(Ctx);
 }
 
-/** This window's Compact/Details state. Mounted above Transcript so it
- *  survives closing and reopening sessions. */
+/** This window's appearance mode and Details state. Mounted above Transcript
+ *  so it survives closing and reopening sessions. */
 export function WindowViewProvider({ children }: { children: ReactNode }) {
   const { config, loaded, setConfig } = useConfig();
   const [view, setView] = useState(initialWindowView);
@@ -35,21 +35,29 @@ export function WindowViewProvider({ children }: { children: ReactNode }) {
     setView((v) => seedWindowView(v, config, loaded));
   }, [config, loaded]);
 
+  // No config write: a window's mode is its own, and new windows start from Settings' default.
+  const setMode = useCallback((modeId: string) => {
+    setView((v) => toggleWindowView(v, { modeId }));
+  }, []);
   // The config write records the last-used value; other windows have already
   // seeded, so the broadcast doesn't change them.
-  const apply = useCallback(
-    (patch: WindowViewPatch) => {
-      setView((v) => toggleWindowView(v, patch));
-      setConfig({ ui: patch });
+  const setDetailsOpen = useCallback(
+    (detailsOpen: boolean) => {
+      setView((v) => toggleWindowView(v, { detailsOpen }));
+      setConfig({ ui: { detailsOpen } });
     },
     [setConfig],
   );
-  const setCompact = useCallback((compact: boolean) => apply({ compact }), [apply]);
-  const setDetailsOpen = useCallback((detailsOpen: boolean) => apply({ detailsOpen }), [apply]);
 
   return (
     <Ctx.Provider
-      value={{ compact: view.compact, detailsOpen: view.detailsOpen, setCompact, setDetailsOpen }}
+      value={{
+        mode: modeById(view.modeId),
+        modeSeq: view.modeSeq,
+        detailsOpen: view.detailsOpen,
+        setMode,
+        setDetailsOpen,
+      }}
     >
       {children}
     </Ctx.Provider>

@@ -21,7 +21,18 @@ pub struct Config {
     #[serde(default)]
     pub ui: Ui,
     #[serde(default)]
+    pub appearance: Appearance,
+    #[serde(default)]
     pub integrations: Integrations,
+}
+
+/// How much of a transcript a window shows. Only the id is stored; the modes live in the frontend.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Appearance {
+    /// The mode a new window starts in. Unknown ids are kept; the frontend maps them to "default".
+    #[serde(default = "default_mode")]
+    pub default_mode: String,
 }
 
 /// Integrations with other tools. Precise status is owned by the backend (see precise_status.rs); the rest are
@@ -72,7 +83,8 @@ pub struct Typography {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Ui {
-    #[serde(default)]
+    /// Read only to migrate into `appearance.default_mode`; never written back.
+    #[serde(default, skip_serializing)]
     pub compact: bool,
     #[serde(default = "default_true")]
     pub details_open: bool,
@@ -112,6 +124,9 @@ fn default_sidebar_width() -> u32 {
 fn default_tab() -> String {
     "manager".to_string()
 }
+fn default_mode() -> String {
+    "default".to_string()
+}
 
 impl Default for Config {
     fn default() -> Self {
@@ -120,6 +135,7 @@ impl Default for Config {
             theme: default_theme(),
             typography: Typography::default(),
             ui: Ui::default(),
+            appearance: Appearance::default(),
             integrations: Integrations::default(),
         }
     }
@@ -132,6 +148,11 @@ impl Default for Typography {
             ui_font: default_font(),
             mono_font: default_font(),
         }
+    }
+}
+impl Default for Appearance {
+    fn default() -> Self {
+        Appearance { default_mode: default_mode() }
     }
 }
 impl Default for Ui {
@@ -152,6 +173,13 @@ impl Config {
     fn clamp(&mut self) {
         self.typography.font_size = self.typography.font_size.clamp(12, 18);
         self.ui.sidebar_width = self.ui.sidebar_width.clamp(200, 600);
+    }
+
+    /// Conversation is Compact's closest successor, so a user who left Compact on lands there.
+    fn migrate(&mut self) {
+        if self.ui.compact && self.appearance.default_mode == "default" {
+            self.appearance.default_mode = "conversation".to_string();
+        }
     }
 }
 
@@ -187,6 +215,7 @@ fn load_from(path: &Path) -> Config {
     match std::fs::read_to_string(path) {
         Ok(s) => match serde_json::from_str::<Config>(&s) {
             Ok(mut cfg) => {
+                cfg.migrate();
                 cfg.clamp();
                 cfg
             }
@@ -340,6 +369,80 @@ mod tests {
         assert_eq!(c.integrations.precise_status, PreciseStatus::Off);
         let out = serde_json::to_value(&c).unwrap();
         assert_eq!(out["integrations"]["preciseStatus"], "off");
+    }
+
+    #[test]
+    fn default_mode_defaults_and_round_trips() {
+        let c: Config = serde_json::from_str("{}").unwrap();
+        assert_eq!(c.appearance.default_mode, "default");
+        let c: Config =
+            serde_json::from_str(r#"{"appearance":{"defaultMode":"truncated"}}"#).unwrap();
+        assert_eq!(c.appearance.default_mode, "truncated");
+        let out = serde_json::to_value(&c).unwrap();
+        assert_eq!(out["appearance"]["defaultMode"], "truncated");
+    }
+
+    #[test]
+    fn set_config_path_keeps_the_default_mode() {
+        // What set_config does with a window's JSON: parse, keep backend-owned fields, save; then reload.
+        let path = tmp("appearance-roundtrip");
+        let incoming: Config = serde_json::from_value(serde_json::json!({
+            "theme": "light",
+            "appearance": { "defaultMode": "everything" },
+        }))
+        .unwrap();
+        save_to(&path, &with_backend_owned(incoming, &Config::default())).unwrap();
+        assert_eq!(load_from(&path).appearance.default_mode, "everything");
+        let _ = std::fs::remove_dir_all(path.parent().unwrap());
+    }
+
+    #[test]
+    fn unknown_default_mode_is_kept_for_the_frontend_to_map() {
+        let c: Config = serde_json::from_str(r#"{"appearance":{"defaultMode":"gone"}}"#).unwrap();
+        assert_eq!(c.appearance.default_mode, "gone");
+    }
+
+    fn load_json(name: &str, json: &str) -> Config {
+        let path = tmp(name);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, json).unwrap();
+        let cfg = load_from(&path);
+        let _ = std::fs::remove_dir_all(path.parent().unwrap());
+        cfg
+    }
+
+    #[test]
+    fn compact_left_on_loads_as_conversation() {
+        let cfg = load_json("compact-on", r#"{"ui":{"compact":true}}"#);
+        assert_eq!(cfg.appearance.default_mode, "conversation");
+        let cfg = load_json(
+            "compact-on-default",
+            r#"{"ui":{"compact":true},"appearance":{"defaultMode":"default"}}"#,
+        );
+        assert_eq!(cfg.appearance.default_mode, "conversation");
+    }
+
+    #[test]
+    fn compact_does_not_override_a_chosen_mode() {
+        let cfg = load_json(
+            "compact-on-inputs",
+            r#"{"ui":{"compact":true},"appearance":{"defaultMode":"inputs"}}"#,
+        );
+        assert_eq!(cfg.appearance.default_mode, "inputs");
+        let cfg = load_json("compact-off", r#"{"ui":{"compact":false}}"#);
+        assert_eq!(cfg.appearance.default_mode, "default");
+    }
+
+    #[test]
+    fn a_saved_config_never_contains_compact() {
+        let path = tmp("no-compact");
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, r#"{"ui":{"compact":true}}"#).unwrap();
+        save_to(&path, &load_from(&path)).unwrap();
+        let saved = std::fs::read_to_string(&path).unwrap();
+        assert!(!saved.contains("compact"), "{saved}");
+        assert_eq!(load_from(&path).appearance.default_mode, "conversation");
+        let _ = std::fs::remove_dir_all(path.parent().unwrap());
     }
 
     #[test]

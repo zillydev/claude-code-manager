@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { activeIndexAfterSearch, seedQuery, startMatchIndex } from "./findHandoff";
+import { activeIndexAfterSearch, seedQuery, startMatchIndex, turnsReindexed } from "./findHandoff";
+import type { RenderedTurn } from "../types";
 import type { FindMatch } from "./findMatches";
 
 // Already in transcript order, as useFind keeps them.
@@ -59,12 +60,28 @@ describe("activeIndexAfterSearch", () => {
   });
 
   it("otherwise keeps your place, clamped to what is left", () => {
-    // Live tail or a compact toggle re-runs the search without changing it.
+    // Live tail or a mode switch re-runs the search without changing it.
     expect(activeIndexAfterSearch(1, matches, false, null)).toBe(1);
     expect(activeIndexAfterSearch(7, matches, false, null)).toBe(2);
   });
 
   it("is 0 with nothing matched", () => {
     expect(activeIndexAfterSearch(3, [], false, null)).toBe(0);
+  });
+});
+
+describe("turnsReindexed", () => {
+  const t = (n: number) => ({ type: "command", command: `/c${n}` }) as RenderedTurn;
+  const [a, b, c, d] = [t(1), t(2), t(3), t(4)];
+  it("is false for the same list and for a live-tail append", () => {
+    const list = [a, b];
+    expect(turnsReindexed(list, list)).toBe(false);
+    expect(turnsReindexed([a, b], [a, b, c])).toBe(false);
+  });
+  it("is true when a turn now sits at an index another held", () => {
+    // A mode switch drops turns; a late tool result swaps in a new object at the same index.
+    expect(turnsReindexed([a, b, c], [a, b, d])).toBe(true);
+    expect(turnsReindexed([a, b, c], [a, c])).toBe(true);
+    expect(turnsReindexed([a, b], [a])).toBe(true);
   });
 });

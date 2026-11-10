@@ -15,12 +15,13 @@ import { applyConfig } from "../lib/applyConfig";
 
 type DeepPartial<T> = { [K in keyof T]?: T[K] extends object ? Partial<T[K]> : T[K] };
 
-function mergeConfig(base: Config, p: DeepPartial<Config>): Config {
+export function mergeConfig(base: Config, p: DeepPartial<Config>): Config {
   return {
     ...base,
     ...p,
     typography: { ...base.typography, ...(p.typography ?? {}) },
     ui: { ...base.ui, ...(p.ui ?? {}) },
+    appearance: { ...base.appearance, ...(p.appearance ?? {}) },
     integrations: { ...base.integrations, ...(p.integrations ?? {}) },
   };
 }

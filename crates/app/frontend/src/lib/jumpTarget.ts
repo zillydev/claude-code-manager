@@ -5,12 +5,13 @@ import type { RenderedTurn } from "../types";
  * transcript is showing.
  *
  * - `visible`         — rendered right now; scroll to it.
- * - `compact-hidden`  — this session renders it, Compact mode is filtering it.
+ * - `mode-hidden`     — this session renders it, the window's appearance mode
+ *                       is filtering it out by kind.
  * - `off-path`        — not in the transcript at all: the session file keeps
  *                       branches that were rewound away, and the transcript
  *                       renders one path through them.
  */
-export type JumpTarget = "visible" | "compact-hidden" | "off-path";
+export type JumpTarget = "visible" | "mode-hidden" | "off-path";
 
 /**
  * Every message uuid a turn can be addressed by. Most carry a `uuids` list; a
@@ -24,6 +25,18 @@ export type JumpTarget = "visible" | "compact-hidden" | "off-path";
 export function turnUuids(t: RenderedTurn): string[] {
   if ("uuids" in t) return t.uuids;
   return "uuid" in t ? [t.uuid] : [];
+}
+
+/** React keys for the rendered turns: the first uuid, so a turn keeps its component (and its open/closed state)
+ *  when the list shifts around it. Turns without one fall back to their index. */
+export function turnKeys(turns: RenderedTurn[]): string[] {
+  const seen = new Set<string>();
+  return turns.map((t, i) => {
+    let k = turnUuids(t)[0] ?? `#${i}`;
+    if (seen.has(k)) k = `${k}#${i}`;
+    seen.add(k);
+    return k;
+  });
 }
 
 const covers = (t: RenderedTurn, uuid: string) => turnUuids(t).includes(uuid);
@@ -42,6 +55,6 @@ export function locateJump(
   visible: RenderedTurn[],
 ): JumpTarget {
   if (visible.some((t) => covers(t, uuid))) return "visible";
-  if (all.some((t) => covers(t, uuid))) return "compact-hidden";
+  if (all.some((t) => covers(t, uuid))) return "mode-hidden";
   return "off-path";
 }

@@ -60,6 +60,12 @@ describe("modelMatches", () => {
     expect(ms[2]).toMatchObject({ segId: makeSegId(2, null, "task-result"), start: 0, end: 6 });
   });
 
+  it("skips tool calls a mode hides but still searches task results", () => {
+    const ms = modelMatches(turns, find("needle"), "hidden");
+    expect(ms.map((m) => m.field)).toEqual(["task-result"]);
+    expect(modelMatches(turns, find("needle"), "shown")).toEqual(modelMatches(turns, find("needle")));
+  });
+
   it("MODEL_FIELDS names exactly the collapsed-body fields", () => {
     expect([...MODEL_FIELDS].sort()).toEqual(["task-result", "tool-changes", "tool-input", "tool-result"]);
   });
@@ -143,6 +149,7 @@ describe("ordering + keys", () => {
     expect(revealKey(mk(4, 2, "tool-result", 0))).toBe("4:2");
     expect(revealKey(mk(4, 2, "tool-changes", 0))).toBe("4:2");
     expect(revealKey(mk(9, null, "task-result", 0))).toBe("9:task");
+    expect(revealKey(mk(3, null, "summary", 0))).toBe("3:summary");
     expect(revealKey(mk(9, null, "user-text", 0))).toBeNull();
     expect(revealKey(mk(4, 2, "tool-name", 0))).toBeNull();
   });
