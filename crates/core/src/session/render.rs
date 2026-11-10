@@ -242,14 +242,15 @@ impl RenderedImage {
 
 /// Render one conversation path (a single tree's active path) into turns.
 /// `editable` marks whether these turns belong to the active segment.
+#[cfg(test)]
 fn render_path_turns(path: &[&Event], editable: bool) -> Vec<RenderedTurn> {
-    render_turns_with_results(path, editable, collect_tool_results(path))
+    render_turns_with_results(path, editable, &collect_tool_results(path))
 }
 
 fn render_turns_with_results(
     path: &[&Event],
     editable: bool,
-    tool_results: HashMap<String, ToolResultEntry>,
+    tool_results: &HashMap<String, ToolResultEntry>,
 ) -> Vec<RenderedTurn> {
 
     // Track user events that are pure tool-result containers.
@@ -618,13 +619,17 @@ pub fn render_session(session: &Session) -> RenderedSession {
     let segs = super::tree::segments_with_leaf(&session.events, session.leaf);
     let active_idx = segs.len().saturating_sub(1);
 
+    // Results come from the whole file: a parallel call's result is a sibling off the path.
+    let all: Vec<&Event> = session.events.iter().collect();
+    let results = collect_tool_results(&all);
+
     let mut turns: Vec<RenderedTurn> = Vec::new();
     let mut prev_seg_msgs = 0usize;
     for (s, seg) in segs.iter().enumerate() {
         if s > 0 {
             turns.push(RenderedTurn::Compaction { messages_before: prev_seg_msgs });
         }
-        let seg_turns = render_path_turns(seg, s == active_idx && !viewing_branch);
+        let seg_turns = render_turns_with_results(seg, s == active_idx && !viewing_branch, &results);
         prev_seg_msgs = seg_turns
             .iter()
             .filter(|t| matches!(t, RenderedTurn::User { .. } | RenderedTurn::Assistant { .. }))
@@ -668,7 +673,7 @@ pub fn render_appended(appended: &[Event], tree_messages: &mut Option<usize>) ->
         let path = super::tree::current_path(piece, leaf);
         // Results come from the whole piece: a parallel call's result is a sibling off the path.
         let all: Vec<&Event> = piece.iter().collect();
-        let piece_turns = render_turns_with_results(&path, k == last, collect_tool_results(&all));
+        let piece_turns = render_turns_with_results(&path, k == last, &collect_tool_results(&all));
         let n = piece_turns
             .iter()
             .filter(|t| matches!(t, RenderedTurn::User { .. } | RenderedTurn::Assistant { .. }))
@@ -1835,6 +1840,33 @@ mod render_tests {
         ];
         let turns = render_appended(&batch, &mut Some(0));
         assert_eq!(tool_calls(&turns), vec![("toolu_b".into(), true), ("toolu_c".into(), true)]);
+    }
+
+    #[test]
+    fn a_reopened_session_keeps_every_parallel_calls_result() {
+        let (u, call_b, ra, rb, rc, done) = (
+            "00000000-0000-0000-0000-0000000000d0",
+            "00000000-0000-0000-0000-0000000000d1",
+            "00000000-0000-0000-0000-0000000000d2",
+            "00000000-0000-0000-0000-0000000000d3",
+            "00000000-0000-0000-0000-0000000000d4",
+            "00000000-0000-0000-0000-0000000000d5",
+        );
+        // Each result hangs off its own call, so only the last one is on the path to `done`.
+        let r = render_session(&sess(vec![
+            uev(u, None, "go"),
+            atool(CALL_A, Some(u), "toolu_a"),
+            atool(call_b, Some(CALL_A), "toolu_b"),
+            atool(CALL_C, Some(call_b), "toolu_c"),
+            trev(ra, Some(CALL_A), "toolu_a", "out a", false),
+            trev(rb, Some(call_b), "toolu_b", "out b", false),
+            trev(rc, Some(CALL_C), "toolu_c", "out c", false),
+            aev(done, Some(rc), "done"),
+        ]));
+        assert_eq!(
+            tool_calls(&r.turns),
+            vec![("toolu_a".into(), true), ("toolu_b".into(), true), ("toolu_c".into(), true)]
+        );
     }
 
     #[test]
