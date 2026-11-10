@@ -11,6 +11,7 @@ import Settings from "./components/Settings";
 import Spinner from "./components/Spinner";
 import DevRebuildBanner from "./components/DevRebuildBanner";
 import ConfirmStopDialog from "./components/ConfirmStopDialog";
+import { SessionHeading } from "./components/SessionHeading";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { workingSessions } from "./lib/closeGuard";
 import { missingNotice, resolveLink } from "./lib/sessionLink";
@@ -639,17 +640,11 @@ export default function App() {
             <div className="flex flex-col h-full">
               {/* Slim header mirrors the transcript's: session title + the toggle. */}
               <div className="flex items-center gap-3 px-4 py-2.5 border-b border-[var(--color-border)] bg-[var(--color-surface)] shrink-0">
-                {(transcript?.project_label ?? target?.projectLabel) && (
-                  <span className="font-medium text-[var(--color-accent)]">
-                    {transcript?.project_label ?? target?.projectLabel}
-                  </span>
-                )}
-                {transcript?.title && (
-                  <span className="text-[var(--color-text)] font-medium truncate">
-                    {transcript.title}
-                  </span>
-                )}
-                <div className="ml-auto">
+                <SessionHeading
+                  project={transcript?.project_label ?? target?.projectLabel}
+                  title={transcript?.title}
+                />
+                <div className="ml-auto shrink-0">
                   <TabToggle
                     activeTab={activeTab}
                     onSelect={setActiveTab}

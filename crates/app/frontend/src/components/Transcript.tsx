@@ -34,6 +34,7 @@ import { loadPosition, pickAnchor, savePosition, type ScrollAnchor } from "../li
 import { filterCompact } from "../lib/compactView";
 import { locateJump, turnUuids, type JumpTarget } from "../lib/jumpTarget";
 import { seedQuery } from "../lib/findHandoff";
+import { SessionHeading } from "./SessionHeading";
 
 interface Props {
   session: RenderedSession;
@@ -397,18 +398,12 @@ export default function Transcript({
     <div className="relative flex flex-col h-full">
       {/* Header bar */}
       <div className="flex items-center gap-3 px-4 py-2.5 border-b border-[var(--color-border)] bg-[var(--color-surface)] shrink-0">
-        <span className="font-medium text-[var(--color-accent)]">
-          {session.project_label}
-        </span>
-        <span className="text-[var(--color-text)] font-medium truncate">
-          {metaEntry?.alias ?? session.title}
-        </span>
-        {metaEntry?.alias && (
-          <span className="text-xs text-[var(--color-text-dim)] truncate">
-            {session.title}
-          </span>
-        )}
-        <div className="ml-auto flex gap-2 items-center">
+        <SessionHeading
+          project={session.project_label}
+          title={metaEntry?.alias ?? session.title}
+          subtitle={metaEntry?.alias ? session.title : undefined}
+        />
+        <div className="ml-auto flex gap-2 items-center shrink-0">
           {onViewTree && (
             <button
               onClick={onViewTree}
