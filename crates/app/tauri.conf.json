@@ -1,7 +1,7 @@
 {
   "$schema": "https://raw.githubusercontent.com/niceplaces/tauri-settings-vscode/main/schemas/2/tauri.conf.json",
   "productName": "Claude Code Manager",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "identifier": "dev.zilly.claude-code-manager",
   "build": {
     "frontendDist": "frontend/dist",

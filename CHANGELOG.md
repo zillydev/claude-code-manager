@@ -4,6 +4,32 @@ What changed in each release, written for people using the app. Build-time detai
 
 > **Maintenance:** add entries under **Unreleased** on the feature branch, alongside the `FEATURES.md` update. At release time that heading becomes the version. `release.yml` publishes the section matching the tag and fails if it finds none, so a release can't ship without notes.
 
+## v0.1.5 — 2026-11-11
+
+**Added**
+
+- **Appearance modes.** A dropdown in a session's header, where Compact used to be, picks how much of the transcript the window shows: **Default** (tool calls collapsed, as before), **Conversation** (prose only, no tool calls), **Inputs** (tool inputs open, outputs collapsed), **Truncated** (everything open but cut to a few lines, with "show all") and **Everything** (all open, in full). ⌘⇧D steps through them. Each window keeps its own mode, and Settings picks the one new windows start in. Find still reaches into cut-off output and opens it. If you had Compact switched on, new windows start in Conversation.
+- **Copy a message as an image.** "Copy as image" in a message's ⋯ menu, or on right-click, puts a picture of that message on the clipboard as it looks on screen, ready to paste into a chat or a note.
+- **The effort each reply ran at.** Every reply now shows its reasoning effort next to the model, and the Details panel counts replies per effort. Sessions from Claude Code 2.1.226 on.
+- **Previews for images Claude links by path.** When Claude writes a local image's path, as a markdown image or in backticks, the transcript shows the picture with its path and a copy button beside it, instead of a broken-image icon. Click it to enlarge. A file that has since been deleted says "image not found".
+- **Claude reports its own status in the app's terminal.** With Claude Code 2.1.295 or later, a session running in the app's terminal tells the app directly when it is working, waiting on you, or done. A long silent tool call stays "running", a permission prompt reads as your turn the moment it appears, and Esc ends the turn at once.
+
+**Fixed**
+
+- **No more stray "context compacted" markers.** While a session was open and Claude ran several tools at once, dividers reading "context compacted · 0 messages above" appeared between ordinary replies and vanished when the session was reopened. Only a real compaction draws one now.
+- **Every parallel tool call keeps its result.** When Claude ran several tools at once, reopening the session showed "(no result)" on all but the last of them.
+- **Tool output keeps its terminal colours.** Output from commands that colour their text, such as test runners, showed raw codes like `[32m` and empty boxes. It now shows in colour, and find matches words the codes used to split.
+- **Restart works on a session started in the app.** After closing such a session's terminal, for instance with Close idle, Restart failed with "Session ID … is already in use". It now resumes the conversation.
+- **A new session appears in the Open tab straight away.** A session whose terminal was open but had not been sent a message was missing from the Open tab and its count. It is now listed as "New session".
+- **Compact and Details no longer follow you between windows.** Toggling either in one window changed every window.
+- **A long session title no longer squeezes the project name** onto two lines in the header; the title is cut short instead.
+- **Switching sessions quickly no longer leaves work behind.** Leaving a session before its terminal had finished setting up left an event listener running for it.
+
+**Changed**
+
+- **The Open tab lists this window's sessions first**, under "This window" and "Other windows" headings when both have sessions.
+- **Message headers are quieter.** A reply is headed by its model, effort and time; the words "user" and "assistant" are gone, since the layout already says which is which.
+
 ## v0.1.4 — 2026-09-21
 
 **Added**
